@@ -88,9 +88,14 @@ enum opcodetype {
     OP_CERT_NEW=0x0d,
     OP_CERT_TRANSFER=0x0e,
 
-    // all future additions
-    OP_SYSCOIN_EXTENDED=0x0f,
-    OP_SYSCOIN_EXTENDED2=0x10,
+    // assets
+    OP_ASSET = 0x0f,
+    XOP_ASSET_NEW = 0x01,
+    XOP_ASSET_ACTIVATE = 0x02,
+    XOP_ASSET_SEND = 0x03,
+
+    // syscoin extended reserved 
+    OP_SYSCOIN_EXTENDED=0x10,
     
     OP_FALSE = OP_0,
     OP_PUSHDATA1 = 0x4c,

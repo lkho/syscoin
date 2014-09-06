@@ -1,4 +1,4 @@
-#include "escrow.h"
+#include "asset.h"
 #include "init.h"
 #include "txdb.h"
 #include "util.h"
@@ -16,23 +16,21 @@ using namespace json_spirit;
 
 template<typename T> void ConvertTo(Value& value, bool fAllowNull = false);
 
-std::map<std::vector<unsigned char>, uint256> mapMyEscrows;
-std::map<std::vector<unsigned char>, uint256> mapMyEscrowItems;
-std::map<std::vector<unsigned char>, std::set<uint256> > mapEscrowPending;
-std::map<std::vector<unsigned char>, std::set<uint256> > mapEscrowItemPending;
-std::list<CEscrowFee> lstEscrowFees;
+std::map<std::vector<unsigned char>, uint256> mapMyAssets;
+std::map<std::vector<unsigned char>, std::set<uint256> > mapAssetPending;
+std::list<CAssetFee> lstAssetFees;
 
 #ifdef GUI
-extern std::map<uint160, std::vector<unsigned char> > mapMyEscrowHashes;
+extern std::map<uint160, std::vector<unsigned char> > mapMyAssetHashes;
 #endif
 
-extern CEscrowDB *pcertdb;
+extern CAssetDB *passetdb;
 
 extern uint256 SignatureHash(CScript scriptCode, const CTransaction& txTo,
         unsigned int nIn, int nHashType);
 
-CScript RemoveEscrowScriptPrefix(const CScript& scriptIn);
-bool DecodeEscrowScript(const CScript& script, int& op,
+CScript RemoveAssetScriptPrefix(const CScript& scriptIn);
+bool DecodeAssetScript(const CScript& script, int& op,
         std::vector<std::vector<unsigned char> > &vvch,
         CScript::const_iterator& pc);
 
@@ -43,12 +41,8 @@ extern bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey,
         const CTransaction& txTo, unsigned int nIn, unsigned int flags,
         int nHashType);
 
-bool IsEscrowOp(int op) {
-    return op == OP_ESCROW_NEW
-        || op == OP_ESCROW_ACTIVATE
-        || op == OP_ESCROW_UPDATE
-        || op == OP_ESCROWA_NEW
-        || op == OP_ESCROWA_TRANSFER;
+bool IsAssetOp(int op) {
+    return op == OP_ASSET;
 }
 
 // 10080 blocks = 1 week
@@ -56,37 +50,37 @@ bool IsEscrowOp(int op) {
 // expiration blocks is 262080 (final)
 // expiration starts at 87360, increases by 1 per block starting at
 // block 174721 until block 349440
-
-int nCStartHeight = 161280;
-int64 GetEscrowNetworkFee(int seed, int nHeight) {
-    int nComputedHeight = nHeight - nCStartHeight < 0 ? 1 : ( nHeight - nCStartHeight ) + 1;
-    if (nComputedHeight >= 13440) nComputedHeight += (nComputedHeight - 13440) * 3;
-    //if ((nComputedHeight >> 13) >= 60) return 0;
-    int64 nStart = seed * COIN;
-    if (fTestNet) nStart = 10 * CENT;
-    else if(fCakeNet) return CENT;
-    int64 nRes = nStart >> (nComputedHeight >> 13);
-    nRes -= (nRes >> 14) * (nComputedHeight % 8192);
-    nRes += CENT - 1;
-    nRes = (nRes / CENT) * CENT;
-    return nRes;
+int64 GetAssetNetworkFee(int seed, int nHeight) {
+    if (fCakeNet) return CENT;
+    int64 nRes = 48 * COIN;
+    int64 nDif = 34 * COIN;
+    if(seed==2) {
+        nRes = 175;
+        nDif = 111;
+    } else if(seed==4) {
+        nRes = 10;
+        nDif = 8;
+    }
+    int nTargetHeight = 130080;
+    if(nHeight>nTargetHeight) return nRes - nDif;
+    else return nRes - ( (nHeight/nTargetHeight) * nDif );
 }
 
 // Increase expiration to 36000 gradually starting at block 24000.
 // Use for validation purposes and pass the chain height.
-int GetEscrowExpirationDepth(int nHeight) {
+int GetAssetExpirationDepth(int nHeight) {
     if (nHeight < 174720) return 87360;
     if (nHeight < 349440) return nHeight - 87360;
     return 262080;
 }
 
 // For display purposes, pass the name height.
-int GetEscrowDisplayExpirationDepth(int nHeight) {
-    return GetEscrowExpirationDepth(nHeight);
+int GetAssetDisplayExpirationDepth(int nHeight) {
+    return GetCertExpirationDepth(nHeight);
 }
 
-bool IsMyEscrow(const CTransaction& tx, const CTxOut& txout) {
-    const CScript& scriptPubKey = RemoveEscrowScriptPrefix(txout.scriptPubKey);
+bool IsMyAsset(const CTransaction& tx, const CTxOut& txout) {
+    const CScript& scriptPubKey = RemoveAssetScriptPrefix(txout.scriptPubKey);
     CScript scriptSig;
     txnouttype whichTypeRet;
     if (!Solver(*pwalletMain, scriptPubKey, 0, 0, scriptSig, whichTypeRet))
@@ -94,54 +88,58 @@ bool IsMyEscrow(const CTransaction& tx, const CTxOut& txout) {
     return true;
 }
 
-string certissuerFromOp(int op) {
+string assetFromOp(int op) {
     switch (op) {
-    case OP_ESCROW_NEW:
-        return "certissuernew";
-    case OP_ESCROW_ACTIVATE:
-        return "certissueractivate";
-    case OP_ESCROW_UPDATE:
-        return "certissuerupdate";
-    case OP_ESCROWA_NEW:
-        return "certnew";
-    case OP_ESCROWA_TRANSFER:
-        return "certtransfer";
+    case OP_ASSET:
+        return "asset";
     default:
-        return "<unknown certissuer op>";
+        return "<unknown asset op>";
     }
 }
 
-bool CEscrow::UnserializeFromTx(const CTransaction &tx) {
+string assetFromXop(int op) {
+    switch (op) {
+    case XOP_ASSET_NEW:
+        return "assetnew";
+    case XOP_ASSET_ACTIVATE:
+        return "assetactivate";
+    case XOP_ASSET_SEND:
+        return "assetsend";
+    default:
+        return "<unknown asset op>";
+    }
+}
+
+bool CAsset::UnserializeFromTx(const CTransaction &tx) {
     try {
-        CDataStream dsEscrow(vchFromString(DecodeBase64(stringFromVch(tx.data))), SER_NETWORK, PROTOCOL_VERSION);
-        dsEscrow >> *this;
+        CDataStream dsAsset(vchFromString(DecodeBase64(stringFromVch(tx.data))), SER_NETWORK, PROTOCOL_VERSION);
+        dsAsset >> *this;
     } catch (std::exception &e) {
         return false;
     }
     return true;
 }
 
-void CEscrow::SerializeToTx(CTransaction &tx) {
+void CAsset::SerializeToTx(CTransaction &tx) {
     vector<unsigned char> vchData = vchFromString(SerializeToString());
     tx.data = vchData;
 }
 
-string CEscrow::SerializeToString() {
-    // serialize certissuer object
-    CDataStream dsEscrow(SER_NETWORK, PROTOCOL_VERSION);
-    dsEscrow << *this;
-    vector<unsigned char> vchData(dsEscrow.begin(), dsEscrow.end());
+string CAsset::SerializeToString() {
+    CDataStream dsAsset(SER_NETWORK, PROTOCOL_VERSION);
+    dsAsset << *this;
+    vector<unsigned char> vchData(dsAsset.begin(), dsAsset.end());
     return EncodeBase64(vchData.data(), vchData.size());
 }
 
 //TODO implement
-bool CEscrowDB::ScanEscrows(const std::vector<unsigned char>& vchEscrow, unsigned int nMax,
-        std::vector<std::pair<std::vector<unsigned char>, CEscrow> >& certissuerScan) {
+bool CAssetDB::ScanAssets(const std::vector<unsigned char>& vchAsset, unsigned int nMax,
+        std::vector<std::pair<std::vector<unsigned char>, CAsset> >& assetScan) {
 
     leveldb::Iterator *pcursor = pcertdb->NewIterator();
 
     CDataStream ssKeySet(SER_DISK, CLIENT_VERSION);
-    ssKeySet << make_pair(string("certissueri"), vchEscrow);
+    ssKeySet << make_pair(string("asseti"), vchAsset);
     string sType;
     pcursor->Seek(ssKeySet.str());
 
@@ -152,19 +150,19 @@ bool CEscrowDB::ScanEscrows(const std::vector<unsigned char>& vchEscrow, unsigne
             CDataStream ssKey(slKey.data(), slKey.data() + slKey.size(), SER_DISK, CLIENT_VERSION);
 
             ssKey >> sType;
-            if(sType == "certissueri") {
-                vector<unsigned char> vchEscrow;
-                ssKey >> vchEscrow;
+            if(sType == "asseti") {
+                vector<unsigned char> vchAsset;
+                ssKey >> vchAsset;
                 leveldb::Slice slValue = pcursor->value();
                 CDataStream ssValue(slValue.data(), slValue.data() + slValue.size(), SER_DISK, CLIENT_VERSION);
-                vector<CEscrow> vtxPos;
+                vector<CAsset> vtxPos;
                 ssValue >> vtxPos;
-                CEscrow txPos;
+                CAsset txPos;
                 if (!vtxPos.empty())
                     txPos = vtxPos.back();
-                certissuerScan.push_back(make_pair(vchEscrow, txPos));
+                assetScan.push_back(make_pair(vchAsset, txPos));
             }
-            if (certissuerScan.size() >= nMax)
+            if (assetScan.size() >= nMax)
                 break;
 
             pcursor->Next();
@@ -177,17 +175,16 @@ bool CEscrowDB::ScanEscrows(const std::vector<unsigned char>& vchEscrow, unsigne
 }
 
 /**
- * [CEscrowDB::ReconstructEscrowIndex description]
+ * [CAssetDB::ReconstructAssetIndex description]
  * @param  pindexRescan [description]
  * @return              [description]
  */
-bool CEscrowDB::ReconstructEscrowIndex(CBlockIndex *pindexRescan) {
+bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
     CBlockIndex* pindex = pindexRescan;
 
     {
     LOCK(pwalletMain->cs_wallet);
     while (pindex) {
-
         int nHeight = pindex->nHeight;
         CBlock block;
         block.ReadFromDisk(pindex);
@@ -202,88 +199,56 @@ bool CEscrowDB::ReconstructEscrowIndex(CBlockIndex *pindexRescan) {
             int op, nOut;
 
             // decode the certissuer op, params, height
-            bool o = DecodeEscrowTx(tx, op, nOut, vvchArgs, nHeight);
-            if (!o || !IsEscrowOp(op)) continue;
-            if (op == OP_ESCROW_NEW) continue;
+            bool o = DecodeAssetTx(tx, op, nOut, vvchArgs, nHeight);
+            if (!o || !IsAssetOp(op)) continue;
 
-            vector<unsigned char> vchEscrow = vvchArgs[0];
+            vector<unsigned char> vchAsset = vvchArgs[0];
 
             // get the transaction
             if(!GetTransaction(tx.GetHash(), tx, txblkhash, true))
                 continue;
 
             // attempt to read certissuer from txn
-            CEscrow txEscrow;
-            CEscrowItem txCA;
-            if(!txEscrow.UnserializeFromTx(tx))
-                return error("ReconstructEscrowIndex() : failed to unserialize certissuer from tx");
+            CAsset txAsset;
+            if(!txAsset.UnserializeFromTx(tx))
+                return error("ReconstructAssetIndex() : failed to unserialize asset from tx");
 
-            // save serialized certissuer
-            CEscrow serializedEscrow = txEscrow;
+            // skip news - todo CB readdress - why skip?
+            if (txAsset.nOp == XOP_ASSET_NEW) continue;
 
             // read certissuer from DB if it exists
-            vector<CEscrow> vtxPos;
-            if (ExistsEscrow(vchEscrow)) {
-                if (!ReadEscrow(vchEscrow, vtxPos))
-                    return error("ReconstructEscrowIndex() : failed to read certissuer from DB");
+            vector<CAsset> vtxPos;
+            if (ExistsAsset(vchAsset)) {
+                if (!ReadAsset(vchAsset, vtxPos))
+                    return error("ReconstructAssetIndex() : failed to read asset from DB");
                 if(vtxPos.size()!=0) {
-                    txEscrow.nHeight = nHeight;
-                    txEscrow.GetEscrowFromList(vtxPos);
+                    txAsset.nHeight = nHeight;
+                    txAsset.GetAssetFromList(vtxPos);
                 }
             }
 
-            // read the certissuer certitem from db if exists
-            if(op == OP_ESCROWA_NEW || op == OP_ESCROWA_TRANSFER) {
-                bool bReadEscrow = false;
-                vector<unsigned char> vchEscrowItem = vvchArgs[1];
-                if (ExistsEscrowItem(vchEscrowItem)) {
-                    if (!ReadEscrowItem(vchEscrowItem, vchEscrow))
-                        printf("ReconstructEscrowIndex() : warning - failed to read certissuer certitem from certissuer DB\n");
-                    else bReadEscrow = true;
-                }
-                if(!bReadEscrow && !txEscrow.GetEscrowItemByHash(vchEscrowItem, txCA))
-                    printf("ReconstructEscrowIndex() : failed to read certissuer certitem from certissuer\n");
+            if(txAsset.nOp != XOP_ASSET_NEW) {
+                // txn-specific values to asset object
+                txAsset.vchRand = vvchArgs[0];
+                txAsset.txHash = tx.GetHash();
+                txAsset.nHeight = nHeight;
+                txAsset.nTime = pindex->nTime;
+                txAsset.PutToAssetList(vtxPos);
 
-                // add txn-specific values to certissuer certitem object
-                txCA.vchRand = vvchArgs[1];
-                txCA.nTime = pindex->nTime;
-                txCA.txHash = tx.GetHash();
-                txCA.nHeight = nHeight;
-                txEscrow.PutEscrowItem(txCA);
+                if (!WriteAsset(vchAsset, vtxPos))
+                    return error("ReconstructAssetIndex() : failed to write to asset DB");
             }
 
-            // use the txn certissuer as master on updates,
-            // but grab the certitems from the DB first
-            if(op == OP_ESCROW_UPDATE) {
-                serializedEscrow.certs = txEscrow.certs;
-                txEscrow = serializedEscrow;
-            }
-
-            if(op != OP_ESCROW_NEW) {
-                // txn-specific values to certissuer object
-                txEscrow.vchRand = vvchArgs[0];
-                txEscrow.txHash = tx.GetHash();
-                txEscrow.nHeight = nHeight;
-                txEscrow.nTime = pindex->nTime;
-                txEscrow.PutToEscrowList(vtxPos);
-
-                if (!WriteEscrow(vchEscrow, vtxPos))
-                    return error("ReconstructEscrowIndex() : failed to write to certissuer DB");
-            }
-
-            if(op == OP_ESCROWA_NEW || op == OP_ESCROWA_TRANSFER)
-                if (!WriteEscrowItem(vvchArgs[1], vvchArgs[0]))
-                    return error("ReconstructEscrowIndex() : failed to write to certissuer DB");
-
-            // insert certissuers fees to regenerate list, write certissuer to
+            // insert asset fees to regenerate list, write asset to
             // master index
-            int64 nTheFee = GetEscrowNetFee(tx);
-            InsertEscrowFee(pindex, tx.GetHash(), nTheFee);
+            int64 nTheFee = GetAssetNetFee(tx);
+            InsertAssetFee(pindex, tx.GetHash(), nTheFee);
 
-            printf( "RECONSTRUCT ESCROWA: op=%s certissuer=%s title=%s hash=%s height=%d fees=%llu\n",
-                    certissuerFromOp(op).c_str(),
+            printf( "RECONSTRUCT ASSET: op=%s asset=%s symbol=%s title=%s hash=%s height=%d fees=%llu\n",
+                    assetFromXop(txAsset.nOp).c_str(),
                     stringFromVch(vvchArgs[0]).c_str(),
-                    stringFromVch(txEscrow.vchTitle).c_str(),
+                    stringFromVch(txAsset.vchSymbol).c_str(),
+                    stringFromVch(txAsset.vchTitle).c_str(),
                     tx.GetHash().ToString().c_str(),
                     nHeight,
                     nTheFee);
@@ -297,7 +262,7 @@ bool CEscrowDB::ReconstructEscrowIndex(CBlockIndex *pindexRescan) {
 
 // get the depth of transaction txnindex relative to block at index pIndexBlock, looking
 // up to maxdepth. Return relative depth if found, or -1 if not found and maxdepth reached.
-int CheckEscrowTransactionAtRelativeDepth(CBlockIndex* pindexBlock,
+int CheckAssetTransactionAtRelativeDepth(CBlockIndex* pindexBlock,
         const CCoins *txindex, int maxDepth) {
     for (CBlockIndex* pindex = pindexBlock;
             pindex && pindexBlock->nHeight - pindex->nHeight < maxDepth;
@@ -307,14 +272,13 @@ int CheckEscrowTransactionAtRelativeDepth(CBlockIndex* pindexBlock,
     return -1;
 }
 
-int GetEscrowTxHashHeight(const uint256 txHash) {
+int GetAssetTxHashHeight(const uint256 txHash) {
     CDiskTxPos postx;
     pblocktree->ReadTxIndex(txHash, postx);
     return postx.nPos;
 }
 
-uint64 GetEscrowFeeSubsidy(unsigned int nHeight) {
-
+uint64 GetAssetFeeSubsidy(unsigned int nHeight) {
     unsigned int h12 = 360 * 12;
     unsigned int nTargetTime = 0;
     unsigned int nTarget1hrTime = 0;
@@ -323,7 +287,7 @@ uint64 GetEscrowFeeSubsidy(unsigned int nHeight) {
     bool bFound = false;
     uint64 hr1 = 1, hr12 = 1;
 
-    BOOST_FOREACH(CEscrowFee &nmFee, lstEscrowFees) {
+    BOOST_FOREACH(CAssetFee &nmFee, lstAssetFees) {
         if(nmFee.nHeight <= nHeight)
             bFound = true;
         if(bFound) {
@@ -348,10 +312,10 @@ uint64 GetEscrowFeeSubsidy(unsigned int nHeight) {
     return nSubsidyOut;
 }
 
-bool InsertEscrowFee(CBlockIndex *pindex, uint256 hash, uint64 nValue) {
+bool InsertAssetFee(CBlockIndex *pindex, uint256 hash, uint64 nValue) {
     unsigned int h12 = 3600 * 12;
-    list<CEscrowFee> txnDup;
-    CEscrowFee oFee;
+    list<CAssetFee> txnDup;
+    CAssetFee oFee;
     oFee.nTime = pindex->nTime;
     oFee.nHeight = pindex->nHeight;
     oFee.nFee = nValue;
@@ -361,14 +325,14 @@ bool InsertEscrowFee(CBlockIndex *pindex, uint256 hash, uint64 nValue) {
             pindex->nHeight - 2880 < 0 ? 0 : pindex->nHeight - 2880;
 
     while (true) {
-        if (lstEscrowFees.size() > 0
-                && (lstEscrowFees.back().nTime + h12 < pindex->nTime
-                        || lstEscrowFees.back().nHeight < tHeight))
-            lstEscrowFees.pop_back();
+        if (lstAssetFees.size() > 0
+                && (lstAssetFees.back().nTime + h12 < pindex->nTime
+                        || lstAssetFees.back().nHeight < tHeight))
+            lstAssetFees.pop_back();
         else
             break;
     }
-    BOOST_FOREACH(CEscrowFee &nmFee, lstEscrowFees) {
+    BOOST_FOREACH(CAssetFee &nmFee, lstAssetFees) {
         if (oFee.hash == nmFee.hash
                 && oFee.nHeight == nmFee.nHeight) {
             bFound = true;
@@ -376,12 +340,12 @@ bool InsertEscrowFee(CBlockIndex *pindex, uint256 hash, uint64 nValue) {
         }
     }
     if (!bFound)
-        lstEscrowFees.push_front(oFee);
+        lstAssetFees.push_front(oFee);
 
     return true;
 }
 
-int64 GetEscrowNetFee(const CTransaction& tx) {
+int64 GetAssetNetFee(const CTransaction& tx) {
     int64 nFee = 0;
     for (unsigned int i = 0; i < tx.vout.size(); i++) {
         const CTxOut& out = tx.vout[i];
@@ -391,290 +355,262 @@ int64 GetEscrowNetFee(const CTransaction& tx) {
     return nFee;
 }
 
-int GetEscrowHeight(vector<unsigned char> vchEscrow) {
-    vector<CEscrow> vtxPos;
-    if (pcertdb->ExistsEscrow(vchEscrow)) {
-        if (!pcertdb->ReadEscrow(vchEscrow, vtxPos))
-            return error("GetEscrowHeight() : failed to read from certissuer DB");
+// TODO CB I think we need to change this to a uint64
+int GetAssetHeight(vector<unsigned char> vchAsset) {
+    vector<CAsset> vtxPos;
+    if (passetdb->ExistsAsset(vchAsset)) {
+        if (!passetdb->ReadAsset(vchAsset, vtxPos))
+            return error("GetCertHeight() : failed to read from asset DB");
         if (vtxPos.empty()) return -1;
-        CEscrow& txPos = vtxPos.back();
+        CAsset& txPos = vtxPos.back();
         return txPos.nHeight;
     }
     return -1;
 }
 
-// Check that the last entry in certissuer history matches the given tx pos
-bool CheckEscrowTxPos(const vector<CEscrow> &vtxPos, const int txPos) {
+// Check that the last entry in asset history matches the given tx pos
+bool CheckAssetTxPos(const vector<CAsset> &vtxPos, const int txPos) {
     if (vtxPos.empty()) return false;
-    CEscrow certissuer;
-    certissuer.nHeight = txPos;
-    return certissuer.GetEscrowFromList(vtxPos);
+    CAsset asset;
+    asset.nHeight = txPos;
+    return asset.GetAssetFromList(vtxPos);
 }
 
-int IndexOfEscrowOutput(const CTransaction& tx) {
+int IndexOfAssetOutput(const CTransaction& tx) {
     vector<vector<unsigned char> > vvch;
     int op, nOut;
-    if (!DecodeEscrowTx(tx, op, nOut, vvch, -1))
-        throw runtime_error("IndexOfEscrowOutput() : certissuer output not found");
+    if (!DecodeAssetTx(tx, op, nOut, vvch, -1))
+        throw runtime_error("IndexOfAssetOutput() : asset output not found");
     return nOut;
 }
 
-bool GetNameOfEscrowTx(const CTransaction& tx, vector<unsigned char>& certissuer) {
+bool GetNameOfAssetTx(const CTransaction& tx, vector<unsigned char>& asset) {
     if (tx.nVersion != SYSCOIN_TX_VERSION)
         return false;
     vector<vector<unsigned char> > vvchArgs;
     int op, nOut;
-    if (!DecodeEscrowTx(tx, op, nOut, vvchArgs, -1))
-        return error("GetNameOfEscrowTx() : could not decode a syscoin tx");
-
+    if (!DecodeAssetTx(tx, op, nOut, vvchArgs, -1))
+        return error("GetNameOfAssetTx() : could not decode asset tx");
     switch (op) {
-        case OP_ESCROWA_NEW:
-        case OP_ESCROW_ACTIVATE:
-        case OP_ESCROW_UPDATE:
-        case OP_ESCROWA_TRANSFER:
-            certissuer = vvchArgs[0];
+        case OP_ASSET:
+            asset = vvchArgs[0];
             return true;
     }
     return false;
 }
 
 //TODO come back here check to see how / where this is used
-bool IsConflictedEscrowTx(CBlockTreeDB& txdb, const CTransaction& tx,
-        vector<unsigned char>& certissuer) {
+bool IsConflictedAssetTx(CBlockTreeDB& txdb, const CTransaction& tx, vector<unsigned char>& asset) {
     if (tx.nVersion != SYSCOIN_TX_VERSION)
         return false;
     vector<vector<unsigned char> > vvchArgs;
     int op, nOut, nPrevHeight;
-    if (!DecodeEscrowTx(tx, op, nOut, vvchArgs, pindexBest->nHeight))
-        return error("IsConflictedEscrowTx() : could not decode a syscoin tx");
+    if (!DecodeAssetTx(tx, op, nOut, vvchArgs, pindexBest->nHeight))
+        return error("IsConflictedAssetTx() : could not decode asset tx");
 
     switch (op) {
-    case OP_ESCROW_UPDATE:
-        nPrevHeight = GetEscrowHeight(vvchArgs[0]);
-        certissuer = vvchArgs[0];
+    case OP_ASSET:
+        nPrevHeight = GetAssetHeight(vvchArgs[0]);
+        asset = vvchArgs[0];
         if (nPrevHeight >= 0
                 && pindexBest->nHeight - nPrevHeight
-                        < GetEscrowExpirationDepth(pindexBest->nHeight))
+                        < GetAssetExpirationDepth(pindexBest->nHeight))
             return true;
     }
     return false;
 }
 
-bool GetValueOfEscrowTx(const CTransaction& tx, vector<unsigned char>& value) {
+bool GetValueOfAssetTx(const CTransaction& tx, vector<unsigned char>& value) {
     vector<vector<unsigned char> > vvch;
     int op, nOut;
 
-    if (!DecodeEscrowTx(tx, op, nOut, vvch, -1))
+    if (!DecodeAssetTx(tx, op, nOut, vvch, -1))
         return false;
 
-    switch (op) {
-    case OP_ESCROW_NEW:
-        return false;
-    case OP_ESCROW_ACTIVATE:
-    case OP_ESCROWA_NEW:
-        value = vvch[2];
-        return true;
-    case OP_ESCROW_UPDATE:
-    case OP_ESCROWA_TRANSFER:
-        value = vvch[1];
-        return true;
-    default:
-        return false;
+    if(!IsAssetOp(op)) return false;
+
+    // get the asset so we can get the extended op code
+    CAsset txAsset;
+    if(!txAsset.UnserializeFromTx(tx))
+        return error("GetValueOfAssetTx() : failed to unserialize asset from tx");
+
+    switch (txAsset.nOp) {
+        case XOP_ASSET_NEW:
+            return false;
+
+        case XOP_ASSET_ACTIVATE:
+            value = vvch[2];
+            return true;
+        
+        case XOP_ASSET_SEND:
+            value = vvch[1];
+            return true;
+        
+        default:
+            return false;
     }
 }
 
-bool IsEscrowMine(const CTransaction& tx) {
+bool IsAssetMine(const CTransaction& tx) {
     if (tx.nVersion != SYSCOIN_TX_VERSION)
         return false;
 
     vector<vector<unsigned char> > vvch;
     int op, nOut;
 
-    bool good = DecodeEscrowTx(tx, op, nOut, vvch, -1);
-    if (!good) 
-        return false;
+    bool good = DecodeAssetTx(tx, op, nOut, vvch, -1);
+    if (!good) return false;
     
-    if(!IsEscrowOp(op))
-        return false;
+    if(!IsAssetOp(op)) return false;
 
     const CTxOut& txout = tx.vout[nOut];
-    if (IsMyEscrow(tx, txout)) {
-        printf("IsEscrowMine() : found my transaction %s nout %d\n",
+    if (IsMyAsset(tx, txout)) {
+        printf("IsAssetMine() : found my transaction %s nout %d\n",
                 tx.GetHash().GetHex().c_str(), nOut);
         return true;
     }
     return false;
 }
 
-bool IsEscrowMine(const CTransaction& tx, const CTxOut& txout,
-        bool ignore_certissuernew) {
+bool IsAssetMine(const CTransaction& tx, const CTxOut& txout, bool ignore_assetnew) {
     if (tx.nVersion != SYSCOIN_TX_VERSION)
         return false;
 
     vector<vector<unsigned char> > vvch;
     int op, nOut;
 
-    bool good = DecodeEscrowTx(tx, op, nOut, vvch, -1);
+    bool good = DecodeAssetTx(tx, op, nOut, vvch, -1);
     if (!good) {
-        error( "IsEscrowMine() : no output out script in cert tx %s\n",
+        error( "IsAssetMine() : no output out script in asset tx %s\n",
                 tx.ToString().c_str());
         return false;
     }
-    if(!IsEscrowOp(op))
+    if(!IsAssetOp(op))
+        return false;
+    
+    // get the asset so we can get the extended op code
+    CAsset txAsset;
+    if(!txAsset.UnserializeFromTx(tx))
+        return error("GetValueOfAssetTx() : failed to unserialize asset from tx");
+
+    if (ignore_assetnew && txAsset.nOp == XOP_ASSET_NEW)
         return false;
 
-    if (ignore_certissuernew && op == OP_ESCROW_NEW)
-        return false;
-
-    if (IsMyEscrow(tx, txout)) {
-        printf("IsEscrowMine() : found my transaction %s value %d\n",
+    if (IsMyAsset(tx, txout)) {
+        printf("IsAssetMine() : found my transaction %s value %d\n",
                 tx.GetHash().GetHex().c_str(), (int) txout.nValue);
         return true;
     }
     return false;
 }
 
-bool GetValueOfEscrowTxHash(const uint256 &txHash,
-        vector<unsigned char>& vchValue, uint256& hash, int& nHeight) {
-    nHeight = GetEscrowTxHashHeight(txHash);
+bool GetValueOfAssetTxHash(const uint256 &txHash, vector<unsigned char>& vchValue, uint256& hash, int& nHeight) {
+    nHeight = GetAssetTxHashHeight(txHash);
     CTransaction tx;
     uint256 blockHash;
     if (!GetTransaction(txHash, tx, blockHash, true))
-        return error("GetValueOfEscrowTxHash() : could not read tx from disk");
-    if (!GetValueOfEscrowTx(tx, vchValue))
-        return error("GetValueOfEscrowTxHash() : could not decode value from tx");
+        return error("GetValueOfAssetTxHash() : could not read tx from disk");
+    if (!GetValueOfAssetTx(tx, vchValue))
+        return error("GetValueOfAssetTxHash() : could not decode value from tx");
     hash = tx.GetHash();
     return true;
 }
 
-bool GetValueOfEscrow(CEscrowDB& dbEscrow, const vector<unsigned char> &vchEscrow,
-        vector<unsigned char>& vchValue, int& nHeight) {
-    vector<CEscrow> vtxPos;
-    if (!pcertdb->ReadEscrow(vchEscrow, vtxPos) || vtxPos.empty())
+bool GetValueOfAsset(CAssetDB& dbAsset, const vector<unsigned char> &vchAsset, vector<unsigned char>& vchValue, int& nHeight) {
+    vector<CAsset> vtxPos;
+    if (!passetdb->ReadAsset(vchAsset, vtxPos) || vtxPos.empty())
         return false;
-
-    CEscrow& txPos = vtxPos.back();
+    CAsset& txPos = vtxPos.back();
     nHeight = txPos.nHeight;
     vchValue = txPos.vchRand;
     return true;
 }
 
-bool GetTxOfEscrow(CEscrowDB& dbEscrow, const vector<unsigned char> &vchEscrow,
-        CTransaction& tx) {
-    vector<CEscrow> vtxPos;
-    if (!pcertdb->ReadEscrow(vchEscrow, vtxPos) || vtxPos.empty())
+bool GetTxOfAsset(CAssetDB& dbAsset, const vector<unsigned char> &vchAsset, CTransaction& tx) {
+    vector<CAsset> vtxPos;
+    if (!passetdb->ReadAsset(vchAsset, vtxPos) || vtxPos.empty())
         return false;
-    CEscrow& txPos = vtxPos.back();
+    CAsset& txPos = vtxPos.back();
     int nHeight = txPos.nHeight;
-    if (nHeight + GetEscrowExpirationDepth(pindexBest->nHeight)
-            < pindexBest->nHeight) {
-        string certissuer = stringFromVch(vchEscrow);
-        printf("GetTxOfEscrow(%s) : expired", certissuer.c_str());
-        return false;
-    }
-
     uint256 hashBlock;
     if (!GetTransaction(txPos.txHash, tx, hashBlock, true))
-        return error("GetTxOfEscrow() : could not read tx from disk");
-
+        return error("GetTxOfAsset() : could not read tx from disk");
     return true;
 }
 
-bool GetTxOfEscrowItem(CEscrowDB& dbEscrow, const vector<unsigned char> &vchEscrowItem,
-        CEscrow &txPos, CTransaction& tx) {
-    vector<CEscrow> vtxPos;
-    vector<unsigned char> vchEscrow;
-    if (!pcertdb->ReadEscrowItem(vchEscrowItem, vchEscrow)) return false;
-    if (!pcertdb->ReadEscrow(vchEscrow, vtxPos)) return false;
-    txPos = vtxPos.back();
-    int nHeight = txPos.nHeight;
-    if (nHeight + GetEscrowExpirationDepth(pindexBest->nHeight)
-            < pindexBest->nHeight) {
-        string certissuer = stringFromVch(vchEscrowItem);
-        printf("GetTxOfEscrowItem(%s) : expired", certissuer.c_str());
-        return false;
-    }
-
-    uint256 hashBlock;
-    if (!GetTransaction(txPos.txHash, tx, hashBlock, true))
-        return error("GetTxOfEscrowItem() : could not read tx from disk");
-
-    return true;
-}
-
-bool DecodeEscrowTx(const CTransaction& tx, int& op, int& nOut,
-        vector<vector<unsigned char> >& vvch, int nHeight) {
+bool DecodeAssetTx(const CTransaction& tx, int& op, int& nOut, vector<vector<unsigned char> >& vvch, int nHeight) {
     bool found = false;
-
     if (nHeight < 0)
         nHeight = pindexBest->nHeight;
-
-    // Strict check - bug disallowed
     for (unsigned int i = 0; i < tx.vout.size(); i++) {
         const CTxOut& out = tx.vout[i];
         vector<vector<unsigned char> > vvchRead;
-        if (DecodeEscrowScript(out.scriptPubKey, op, vvchRead)) {
+        if (DecodeAssetScript(out.scriptPubKey, op, vvchRead)) {
             nOut = i; found = true; vvch = vvchRead;
             break;
         }
     }
     if (!found) vvch.clear();
-    return found && IsEscrowOp(op);
+    return found && IsAssetOp(op);
 }
 
-bool GetValueOfEscrowTx(const CCoins& tx, vector<unsigned char>& value) {
+bool GetValueOfAssetTx(const CCoins& tx, vector<unsigned char>& value) {
     vector<vector<unsigned char> > vvch;
 
     int op, nOut;
 
-    if (!DecodeEscrowTx(tx, op, nOut, vvch, -1))
+    if (!DecodeAssetTx(tx, op, nOut, vvch, -1))
         return false;
 
-    switch (op) {
-    case OP_ESCROW_NEW:
-        return false;
-    case OP_ESCROW_ACTIVATE:
-    case OP_ESCROWA_NEW:
-        value = vvch[2];
-        return true;
-    case OP_ESCROW_UPDATE:
-    case OP_ESCROWA_TRANSFER:
-        value = vvch[1];
-        return true;
-    default:
-        return false;
+    if(!IsAssetOp(op)) return false;
+
+    // get the asset so we can get the extended op code
+    CAsset txAsset;
+    if(!txAsset.UnserializeFromTx(tx))
+        return error("GetValueOfAssetTx() : failed to unserialize asset from tx");
+
+    switch (txAsset.nOp) {
+        case XOP_ASSET_NEW:
+            return false;
+
+        case XOP_ASSET_ACTIVATE:
+            value = vvch[2];
+            return true;
+        
+        case XOP_ASSET_SEND:
+            value = vvch[1];
+            return true;
+        
+        default:
+            return false;
     }
 }
 
-bool DecodeEscrowTx(const CCoins& tx, int& op, int& nOut,
-        vector<vector<unsigned char> >& vvch, int nHeight) {
+bool DecodeAssetTx(const CCoins& tx, int& op, int& nOut, vector<vector<unsigned char> >& vvch, int nHeight) {
     bool found = false;
 
     if (nHeight < 0)
         nHeight = pindexBest->nHeight;
 
-    // Strict check - bug disallowed
     for (unsigned int i = 0; i < tx.vout.size(); i++) {
         const CTxOut& out = tx.vout[i];
         vector<vector<unsigned char> > vvchRead;
-        if (DecodeEscrowScript(out.scriptPubKey, op, vvchRead)) {
+        if (DecodeAssetScript(out.scriptPubKey, op, vvchRead)) {
             nOut = i; found = true; vvch = vvchRead;
             break;
         }
     }
-    if (!found)
-        vvch.clear();
+    if (!found) vvch.clear();
     return found;
 }
 
-bool DecodeEscrowScript(const CScript& script, int& op,
+bool DecodeAssetScript(const CScript& script, int& op,
         vector<vector<unsigned char> > &vvch) {
     CScript::const_iterator pc = script.begin();
-    return DecodeEscrowScript(script, op, vvch, pc);
+    return DecodeAssetScript(script, op, vvch, pc);
 }
 
-bool DecodeEscrowScript(const CScript& script, int& op,
-        vector<vector<unsigned char> > &vvch, CScript::const_iterator& pc) {
+bool DecodeAssetScript(const CScript& script, int& op, vector<vector<unsigned char> > &vvch, CScript::const_iterator& pc) {
     opcodetype opcode;
     if (!script.GetOp(pc, opcode)) return false;
     if (opcode < OP_1 || opcode > OP_16) return false;
@@ -699,18 +635,13 @@ bool DecodeEscrowScript(const CScript& script, int& op,
 
     pc--;
 
-    if ((op == OP_ESCROW_NEW && vvch.size() == 1)
-        || (op == OP_ESCROW_ACTIVATE && vvch.size() == 3)
-        || (op == OP_ESCROW_UPDATE && vvch.size() == 2)
-        || (op == OP_ESCROWA_NEW && vvch.size() == 3)
-        || (op == OP_ESCROWA_TRANSFER && vvch.size() == 2))
+    if (op == OP_ASSET && vvch.size() >= 1 && vvch.size() <= 3)
         return true;
+
     return false;
 }
 
-bool SignEscrowSignature(const CTransaction& txFrom, CTransaction& txTo,
-        unsigned int nIn, int nHashType = SIGHASH_ALL, CScript scriptPrereq =
-                CScript()) {
+bool SignAssetSignature(const CTransaction& txFrom, CTransaction& txTo, unsigned int nIn, int nHashType = SIGHASH_ALL, CScript scriptPrereq = CScript()) {
     assert(nIn < txTo.vin.size());
     CTxIn& txin = txTo.vin[nIn];
     assert(txin.prevout.n < txFrom.vout.size());
@@ -718,13 +649,11 @@ bool SignEscrowSignature(const CTransaction& txFrom, CTransaction& txTo,
 
     // Leave out the signature from the hash, since a signature can't sign itself.
     // The checksig op will also drop the signatures from its hash.
-    const CScript& scriptPubKey = RemoveEscrowScriptPrefix(txout.scriptPubKey);
-    uint256 hash = SignatureHash(scriptPrereq + txout.scriptPubKey, txTo, nIn,
-            nHashType);
+    const CScript& scriptPubKey = RemoveAssetScriptPrefix(txout.scriptPubKey);
+    uint256 hash = SignatureHash(scriptPrereq + txout.scriptPubKey, txTo, nIn, nHashType);
     txnouttype whichTypeRet;
 
-    if (!Solver(*pwalletMain, scriptPubKey, hash, nHashType, txin.scriptSig,
-            whichTypeRet))
+    if (!Solver(*pwalletMain, scriptPubKey, hash, nHashType, txin.scriptSig, whichTypeRet))
         return false;
 
     txin.scriptSig = scriptPrereq + txin.scriptSig;
@@ -737,10 +666,11 @@ bool SignEscrowSignature(const CTransaction& txFrom, CTransaction& txTo,
     return true;
 }
 
-bool CreateEscrowTransactionWithInputTx(
+bool CreateAssetTransactionWithInputTx(
         const vector<pair<CScript, int64> >& vecSend, CWalletTx& wtxIn,
         int nTxOut, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet,
         const string& txData) {
+
     int64 nValue = 0;
     BOOST_FOREACH(const PAIRTYPE(CScript, int64)& s, vecSend) {
         if (nValue < 0)
@@ -762,7 +692,7 @@ bool CreateEscrowTransactionWithInputTx(
             wtxNew.data = vchFromString(txData);
 
             int64 nTotalValue = nValue + nFeeRet;
-            printf("CreateEscrowTransactionWithInputTx: total value = %d\n",
+            printf("CreateAssetTransactionWithInputTx: total value = %d\n",
                     (int) nTotalValue);
             double dPriority = 0;
 
@@ -775,7 +705,7 @@ bool CreateEscrowTransactionWithInputTx(
             // Choose coins to use
             set<pair<const CWalletTx*, unsigned int> > setCoins;
             int64 nValueIn = 0;
-            printf( "CreateEscrowTransactionWithInputTx: SelectCoins(%s), nTotalValue = %s, nWtxinCredit = %s\n",
+            printf( "CreateAssetTransactionWithInputTx: SelectCoins(%s), nTotalValue = %s, nWtxinCredit = %s\n",
                     FormatMoney(nTotalValue - nWtxinCredit).c_str(),
                     FormatMoney(nTotalValue).c_str(),
                     FormatMoney(nWtxinCredit).c_str());
@@ -785,7 +715,7 @@ bool CreateEscrowTransactionWithInputTx(
                     return false;
             }
 
-            printf( "CreateEscrowTransactionWithInputTx: selected %d tx outs, nValueIn = %s\n",
+            printf( "CreateAssetTransactionWithInputTx: selected %d tx outs, nValueIn = %s\n",
                     (int) setCoins.size(), FormatMoney(nValueIn).c_str());
 
             vector<pair<const CWalletTx*, unsigned int> > vecCoins(
@@ -841,8 +771,8 @@ bool CreateEscrowTransactionWithInputTx(
             BOOST_FOREACH(PAIRTYPE(const CWalletTx*, unsigned int)& coin, vecCoins) {
                 if (coin.first == &wtxIn
                         && coin.second == (unsigned int) nTxOut) {
-                    if (!SignEscrowSignature(*coin.first, wtxNew, nIn++))
-                        throw runtime_error("could not sign certissuer coin output");
+                    if (!SignAssetSignature(*coin.first, wtxNew, nIn++))
+                        throw runtime_error("could not sign asset coin output");
                 } else {
                     if (!SignSignature(*pwalletMain, *coin.first, wtxNew, nIn++))
                         return false;
@@ -862,7 +792,7 @@ bool CreateEscrowTransactionWithInputTx(
             int64 nMinFee = wtxNew.GetMinFee(1, fAllowFree);
             if (nFeeRet < max(nPayFee, nMinFee)) {
                 nFeeRet = max(nPayFee, nMinFee);
-                printf( "CreateEscrowTransactionWithInputTx: re-iterating (nFreeRet = %s)\n",
+                printf( "CreateAssetTransactionWithInputTx: re-iterating (nFreeRet = %s)\n",
                         FormatMoney(nFeeRet).c_str());
                 continue;
             }
@@ -875,16 +805,15 @@ bool CreateEscrowTransactionWithInputTx(
         }
     }
 
-    printf("CreateEscrowTransactionWithInputTx succeeded:\n%s",
+    printf("CreateAssetTransactionWithInputTx succeeded:\n%s",
             wtxNew.ToString().c_str());
     return true;
 }
 
 // nTxOut is the output from wtxIn that we should grab
-string SendEscrowMoneyWithInputTx(CScript scriptPubKey, int64 nValue,
-        int64 nNetFee, CWalletTx& wtxIn, CWalletTx& wtxNew, bool fAskFee,
-        const string& txData) {
-    int nTxOut = IndexOfEscrowOutput(wtxIn);
+string SendAssetMoneyWithInputTx(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxIn, CWalletTx& wtxNew, bool fAskFee, const string& txData) {
+    
+    int nTxOut = IndexOfAssetOutput(wtxIn);
     CReserveKey reservekey(pwalletMain);
     int64 nFeeRequired;
     vector<pair<CScript, int64> > vecSend;
@@ -896,8 +825,7 @@ string SendEscrowMoneyWithInputTx(CScript scriptPubKey, int64 nValue,
         vecSend.push_back(make_pair(scriptFee, nNetFee));
     }
 
-    if (!CreateEscrowTransactionWithInputTx(vecSend, wtxIn, nTxOut, wtxNew,
-            reservekey, nFeeRequired, txData)) {
+    if (!CreateAssetTransactionWithInputTx(vecSend, wtxIn, nTxOut, wtxNew, reservekey, nFeeRequired, txData)) {
         string strError;
         if (nValue + nFeeRequired > pwalletMain->GetBalance())
             strError = strprintf(_("Error: This transaction requires a transaction fee of at least %s because of its amount, complexity, or use of recently received funds "),
@@ -923,42 +851,39 @@ string SendEscrowMoneyWithInputTx(CScript scriptPubKey, int64 nValue,
     return "";
 }
 
-bool GetEscrowAddress(const CTransaction& tx, std::string& strAddress) {
+bool GetAssetAddress(const CTransaction& tx, std::string& strAddress) {
     int op, nOut = 0;
     vector<vector<unsigned char> > vvch;
 
-    if (!DecodeEscrowTx(tx, op, nOut, vvch, -1))
-        return error("GetEscrowAddress() : could not decode certissuer tx.");
+    if (!DecodeAssetTx(tx, op, nOut, vvch, -1))
+        return error("GetAssetAddress() : could not decode asset tx.");
 
     const CTxOut& txout = tx.vout[nOut];
 
-    const CScript& scriptPubKey = RemoveEscrowScriptPrefix(txout.scriptPubKey);
+    const CScript& scriptPubKey = RemoveAssetScriptPrefix(txout.scriptPubKey);
     strAddress = CBitcoinAddress(scriptPubKey.GetID()).ToString();
     return true;
 }
 
-bool GetEscrowAddress(const CDiskTxPos& txPos, std::string& strAddress) {
+bool GetAssetAddress(const CDiskTxPos& txPos, std::string& strAddress) {
     CTransaction tx;
     if (!tx.ReadFromDisk(txPos))
-        return error("GetEscrowAddress() : could not read tx from disk");
-    return GetEscrowAddress(tx, strAddress);
+        return error("GetAssetAddress() : could not read tx from disk");
+    return GetAssetAddress(tx, strAddress);
 }
 
-CScript RemoveEscrowScriptPrefix(const CScript& scriptIn) {
+CScript RemoveAssetScriptPrefix(const CScript& scriptIn) {
     int op;
     vector<vector<unsigned char> > vvch;
     CScript::const_iterator pc = scriptIn.begin();
 
-    if (!DecodeEscrowScript(scriptIn, op, vvch, pc))
-        throw runtime_error(
-                "RemoveEscrowScriptPrefix() : could not decode certissuer script");
+    if (!DecodeAssetScript(scriptIn, op, vvch, pc))
+	   printf ("RemoveAssetScriptPrefix() : Could not decode asset script (softfail). This is is known to happen for some OPs annd prevents those from getting displayed or accounted for.");
+    
     return CScript(pc, scriptIn.end());
 }
 
-bool CheckEscrowInputs(CBlockIndex *pindexBlock, const CTransaction &tx,
-        CValidationState &state, CCoinsViewCache &inputs,
-        map<vector<unsigned char>, uint256> &mapTestPool, bool fBlock, bool fMiner,
-        bool fJustCheck) {
+bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidationState &state, CCoinsViewCache &inputs, map<vector<unsigned char>, uint256> &mapTestPool, bool fBlock, bool fMiner, bool fJustCheck) {
 
     if (!tx.IsCoinBase()) {
         printf("*** %d %d %s %s %s %s\n", pindexBlock->nHeight,
@@ -977,8 +902,7 @@ bool CheckEscrowInputs(CBlockIndex *pindexBlock, const CTransaction &tx,
             prevOutput = &tx.vin[i].prevout;
             prevCoins = &inputs.GetCoins(prevOutput->hash);
             vector<vector<unsigned char> > vvch;
-            if (DecodeEscrowScript(prevCoins->vout[prevOutput->n].scriptPubKey,
-                    prevOp, vvch)) {
+            if (DecodeAssetScript(prevCoins->vout[prevOutput->n].scriptPubKey, prevOp, vvch)) {
                 found = true; vvchPrevArgs = vvch;
                 break;
             }
@@ -989,341 +913,242 @@ bool CheckEscrowInputs(CBlockIndex *pindexBlock, const CTransaction &tx,
         if (tx.nVersion != SYSCOIN_TX_VERSION) {
             if (found)
                 return error(
-                        "CheckEscrowInputs() : a non-syscoin transaction with a syscoin input");
+                        "CheckAssetInputs() : a non-syscoin transaction with a syscoin input");
             return true;
         }
 
         vector<vector<unsigned char> > vvchArgs;
         int op;
         int nOut;
-        bool good = DecodeEscrowTx(tx, op, nOut, vvchArgs, pindexBlock->nHeight);
+        bool good = DecodeAssetTx(tx, op, nOut, vvchArgs, pindexBlock->nHeight);
         if (!good)
-            return error("CheckEscrowInputs() : could not decode a syscoin tx");
+            return error("CheckAssetInputs() : could not decode asset tx");
         int nPrevHeight;
         int nDepth;
         int64 nNetFee;
 
         // unserialize certissuer object from txn, check for valid
-        CEscrow theEscrow;
-        CEscrowItem theEscrowItem;
-        theEscrow.UnserializeFromTx(tx);
-        if (theEscrow.IsNull())
-            error("CheckEscrowInputs() : null certissuer object");
+        CAsset theAsset;
+        theAsset.UnserializeFromTx(tx);
+        if (theAsset.IsNull())
+            error("CheckAssetInputs() : null asset object");
 
         if (vvchArgs[0].size() > MAX_NAME_LENGTH)
-            return error("certissuer hex rand too long");
+            return error("asset hex rand too long");
 
-        switch (op) {
-        case OP_ESCROW_NEW:
+        switch (theAsset.nOp) {
+        case XOP_ASSET_NEW:
 
             if (found)
                 return error(
-                        "CheckEscrowInputs() : certissuernew tx pointing to previous syscoin tx");
+                        "CheckAssetInputs() : assetnew tx pointing to previous syscoin tx");
 
             if (vvchArgs[0].size() != 20)
-                return error("certissuernew tx with incorrect hash length");
+                return error("assetnew tx with incorrect hash length");
 
             break;
 
-        case OP_ESCROW_ACTIVATE:
+        case XOP_ASSET_ACTIVATE:
 
             // check for enough fees
-            nNetFee = GetEscrowNetFee(tx);
-            if (nNetFee < GetEscrowNetworkFee(4, pindexBlock->nHeight) - COIN)
+            nNetFee = GetAssetNetFee(tx);
+            if (nNetFee < GetAssetNetworkFee(1, pindexBlock->nHeight) - COIN) // TODO CB - COIN???
                 return error(
-                        "CheckEscrowInputs() : got tx %s with fee too low %lu",
+                        "CheckAssetInputs() : got tx %s with fee too low %lu",
                         tx.GetHash().GetHex().c_str(),
                         (long unsigned int) nNetFee);
 
             // validate conditions
-            if ((!found || prevOp != OP_ESCROW_NEW) && !fJustCheck)
-                return error("CheckEscrowInputs() : certissueractivate tx without previous certissuernew tx");
+            if ((!found || prevOp != OP_ASSET) && !fJustCheck)
+                return error("CheckCertInputs() : assetactivate tx without previous assetnew tx");
 
             if (vvchArgs[1].size() > 20)
-                return error("certissueractivate tx with rand too big");
+                return error("assetactivate tx with rand too big");
 
             if (vvchArgs[2].size() > MAX_VALUE_LENGTH)
-                return error("certissueractivate tx with value too long");
+                return error("assetactivate tx with value too long");
 
             if (fBlock && !fJustCheck) {
                 // Check hash
                 const vector<unsigned char> &vchHash = vvchPrevArgs[0];
-                const vector<unsigned char> &vchEscrow = vvchArgs[0];
+                const vector<unsigned char> &vchAsset = vvchArgs[0];
                 const vector<unsigned char> &vchRand = vvchArgs[1];
                 vector<unsigned char> vchToHash(vchRand);
-                vchToHash.insert(vchToHash.end(), vchEscrow.begin(), vchEscrow.end());
+                vchToHash.insert(vchToHash.end(), vchAsset.begin(), vchAsset.end());
                 uint160 hash = Hash160(vchToHash);
 
                 if (uint160(vchHash) != hash)
                     return error(
-                            "CheckEscrowInputs() : certissueractivate hash mismatch prev : %s cur %s",
+                            "CheckAssetInputs() : asset hash mismatch prev : %s cur %s",
                             HexStr(stringFromVch(vchHash)).c_str(), HexStr(stringFromVch(vchToHash)).c_str());
 
                 // min activation depth is 1
-                nDepth = CheckEscrowTransactionAtRelativeDepth(pindexBlock,
-                        prevCoins, 1);
+                nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 1);
                 if ((fBlock || fMiner) && nDepth >= 0 && (unsigned int) nDepth < 1)
                     return false;
 
-                // check for previous certissuernew
-                nDepth = CheckEscrowTransactionAtRelativeDepth(pindexBlock,
-                        prevCoins,
-                        GetEscrowExpirationDepth(pindexBlock->nHeight));
+                // check for previous asset
+                nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 0);
                 if (nDepth == -1)
                     return error(
-                            "CheckEscrowInputs() : certissueractivate cannot be mined if certissuernew is not already in chain and unexpired");
+                            "CheckAssetInputs() : assetactivate cannot be mined if assetnew is not already in chain and unexpired");
 
-                nPrevHeight = GetEscrowHeight(vchEscrow);
-                if (!fBlock && nPrevHeight >= 0
-                        && pindexBlock->nHeight - nPrevHeight
-                                < GetEscrowExpirationDepth(pindexBlock->nHeight))
+                // disallow activate on an already activated asset
+                nPrevHeight = GetAssetHeight(vchAsset);
+                if (!fBlock && nPrevHeight >= 0)
                     return error(
-                            "CheckEscrowInputs() : certissueractivate on an unexpired certissuer.");
+                            "CheckAssetInputs() : assetactivate on an unexpired asset.");
 
                 if(pindexBlock->nHeight == pindexBest->nHeight) {
                     BOOST_FOREACH(const MAPTESTPOOLTYPE& s, mapTestPool) {
                         if (vvchArgs[0] == s.first) {
-                           return error("CheckInputs() : will not mine certissueractivate %s because it clashes with %s",
+                           return error("CheckInputs() : will not mine assetactivate %s because it clashes with %s",
                                    tx.GetHash().GetHex().c_str(),
                                    s.second.GetHex().c_str());
                         }
                     }
                 }
             }
-
             break;
-        case OP_ESCROW_UPDATE:
 
-            if (fBlock && fJustCheck && !found)
-                return true;
+        case XOP_ASSET_SEND:
 
-            if ( !found || ( prevOp != OP_ESCROW_ACTIVATE && prevOp != OP_ESCROW_UPDATE 
-                && prevOp != OP_ESCROWA_NEW  && prevOp != OP_ESCROWA_TRANSFER ) )
-                return error("certissuerupdate previous op %s is invalid", certissuerFromOp(prevOp).c_str());
-
-            if (vvchArgs[1].size() > MAX_VALUE_LENGTH)
-                return error("certissuerupdate tx with value too long");
-
-            if (vvchPrevArgs[0] != vvchArgs[0])
-                return error("CheckEscrowInputs() : certissuerupdate certissuer mismatch");
-
-            // TODO CPU intensive
-            nDepth = CheckEscrowTransactionAtRelativeDepth(pindexBlock,
-                    prevCoins, GetEscrowExpirationDepth(pindexBlock->nHeight));
-            if ((fBlock || fMiner) && nDepth < 0)
+            // check for enough fees
+            nNetFee = GetAssetNetFee(tx);
+            if (nNetFee < GetAssetNetworkFee(1, pindexBlock->nHeight) - COIN) // TODO CB - COIN???
                 return error(
-                        "CheckEscrowInputs() : certissuerupdate on an expired certissuer, or there is a pending transaction on the certissuer");
-
-            if (fBlock && !fJustCheck && pindexBlock->nHeight == pindexBest->nHeight) {
-                BOOST_FOREACH(const MAPTESTPOOLTYPE& s, mapTestPool) {
-                    if (vvchArgs[0] == s.first) {
-                       return error("CheckInputs() : will not mine certissuerupdate %s because it clashes with %s",
-                               tx.GetHash().GetHex().c_str(),
-                               s.second.GetHex().c_str());
-                    }
-                }
-            }
-
-            break;
-
-        case OP_ESCROWA_NEW:
-
-            if (vvchArgs[1].size() > 20)
-                return error("certitem tx with rand too big");
-
-            if (vvchArgs[2].size() > 20)
-                return error("certitem tx with value too long");
-
-            if (fBlock && !fJustCheck) {
-                // Check hash
-                const vector<unsigned char> &vchEscrow = vvchArgs[0];
-                const vector<unsigned char> &vchEscrowItemRand = vvchArgs[1];
-
-                nPrevHeight = GetEscrowHeight(vchEscrow);
-
-                if(!theEscrow.GetEscrowItemByHash(vchEscrowItemRand, theEscrowItem))
-                    return error("could not read certitem from certissuer txn");
-
-                if(theEscrowItem.vchRand != vchEscrowItemRand)
-                    return error("certitem txn contains invalid txncertitem hash");
-            }
-            break;
-
-        case OP_ESCROWA_TRANSFER:
+                        "CheckAssetInputs() : got tx %s with fee too low %lu",
+                        tx.GetHash().GetHex().c_str(),
+                        (long unsigned int) nNetFee);
 
             // validate conditions
-            if ( ( !found || prevOp != OP_ESCROWA_NEW ) && !fJustCheck )
-                return error("certtransfer previous op %s is invalid", certissuerFromOp(prevOp).c_str());
-
-            if (vvchArgs[0].size() > 20)
-                return error("certtransfer tx with certissuer hash too big");
+            if ((!found || prevOp != OP_ASSET) && !fJustCheck)
+                return error("CheckAssetInputs() : assetsend tx without previous assetactivate tx");
 
             if (vvchArgs[1].size() > 20)
-                return error("certtransfer tx with certissuer certitem hash too big");
+                return error("assetsend tx with rand too big");
+
+            if (vvchArgs[2].size() > MAX_VALUE_LENGTH)
+                return error("assetsend tx with value too long");
 
             if (fBlock && !fJustCheck) {
                 // Check hash
-                const vector<unsigned char> &vchEscrow = vvchArgs[0];
-                const vector<unsigned char> &vchEscrowItem = vvchArgs[1];
-
-                // construct certissuer certitem hash
-                vector<unsigned char> vchToHash(vchEscrowItem);
-                vchToHash.insert(vchToHash.end(), vchEscrow.begin(), vchEscrow.end());
+                const vector<unsigned char> &vchHash = vvchPrevArgs[0];
+                const vector<unsigned char> &vchAsset = vvchArgs[0];
+                const vector<unsigned char> &vchRand = vvchArgs[1];
+                vector<unsigned char> vchToHash(vchRand);
+                vchToHash.insert(vchToHash.end(), vchAsset.begin(), vchAsset.end());
                 uint160 hash = Hash160(vchToHash);
 
-                // check for previous certitem
-                nDepth = CheckEscrowTransactionAtRelativeDepth(pindexBlock,
-                        prevCoins, pindexBlock->nHeight);
+                if (uint160(vchHash) != hash)
+                    return error(
+                            "CheckAssetInputs() : asset hash mismatch prev : %s cur %s",
+                            HexStr(stringFromVch(vchHash)).c_str(), HexStr(stringFromVch(vchToHash)).c_str());
+
+                // min activation depth is 1
+                nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 1);
+                if ((fBlock || fMiner) && nDepth >= 0 && (unsigned int) nDepth < 1)
+                    return false;
+
+                // check for previous asset
+                nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 0);
                 if (nDepth == -1)
                     return error(
-                            "CheckEscrowInputs() : certtransfer cannot be mined if certitem is not already in chain");
+                            "CheckAssetInputs() : assetactivate cannot be mined if assetnew is not already in chain and unexpired");
 
-                // check certissuer certitem hash against prev txn
-                if (uint160(vvchPrevArgs[2]) != hash)
+                // disallow activate on an already activated asset
+                nPrevHeight = GetAssetHeight(vchAsset);
+                if (!fBlock && nPrevHeight >= 0)
                     return error(
-                            "CheckEscrowInputs() : certtransfer prev hash mismatch : %s vs %s",
-                            HexStr(stringFromVch(vvchPrevArgs[2])).c_str(), HexStr(stringFromVch(vchToHash)).c_str());
-
-                nPrevHeight = GetEscrowHeight(vchEscrow);
-
-                if(!theEscrow.GetEscrowItemByHash(vchEscrowItem, theEscrowItem))
-                    return error("could not read certitem from certissuer txn");
-
-                // check for enough fees
-                int64 expectedFee = GetEscrowNetworkFee(4, pindexBlock->nHeight) - COIN;
-                nNetFee = GetEscrowNetFee(tx);
-                if (nNetFee < expectedFee )
-                    return error(
-                            "CheckEscrowInputs() : got certtransfer tx %s with fee too low %lu",
-                            tx.GetHash().GetHex().c_str(),
-                            (long unsigned int) nNetFee);
-
-                if(theEscrowItem.vchRand != vchEscrowItem)
-                    return error("certitem txn contains invalid txncertitem hash");
+                            "CheckAssetInputs() : assetactivate on an unexpired asset.");
 
                 if(pindexBlock->nHeight == pindexBest->nHeight) {
                     BOOST_FOREACH(const MAPTESTPOOLTYPE& s, mapTestPool) {
-                        if (vvchArgs[1] == s.first) {
-                           return error("CheckInputs() : will not mine certtransfer %s because it clashes with %s",
+                        if (vvchArgs[0] == s.first) {
+                           return error("CheckInputs() : will not mine assetactivate %s because it clashes with %s",
                                    tx.GetHash().GetHex().c_str(),
                                    s.second.GetHex().c_str());
                         }
                     }
                 }
             }
+
 
             break;
 
         default:
-            return error( "CheckEscrowInputs() : certissuer transaction has unknown op");
+            return error( "CheckAssetInputs() : asset transaction has unknown op");
         }
 
         // save serialized certissuer for later use
-        CEscrow serializedEscrow = theEscrow;
+        CAsset serializedAsset = theAsset;
 
         // if not an certissuernew, load the certissuer data from the DB
-        vector<CEscrow> vtxPos;
-        if(op != OP_ESCROW_NEW)
-            if (pcertdb->ExistsEscrow(vvchArgs[0])) {
-                if (!pcertdb->ReadEscrow(vvchArgs[0], vtxPos))
+        vector<CAsset> vtxPos;
+        if(theAsset.nOp != XOP_ASSET_NEW)
+            if (passetdb->ExistsAsset(vvchArgs[0])) {
+                if (!pcertdb->ReadAsset(vvchArgs[0], vtxPos))
                     return error(
-                            "CheckEscrowInputs() : failed to read from certissuer DB");
+                            "CheckAssetInputs() : failed to read from certissuer DB");
             }
 
-//todo fucking suspect
+        //todo fucking suspect
         // // for certissuerupdate or certtransfer check to make sure the previous txn exists and is valid
-        // if (!fBlock && fJustCheck && (op == OP_ESCROW_UPDATE || op == OP_ESCROWA_TRANSFER)) {
-        // 	if (!CheckEscrowTxPos(vtxPos, prevCoins->nHeight))
+        // if (!fBlock && fJustCheck && (op == OP_CERTISSUER_UPDATE || op == OP_CERT_TRANSFER)) {
+        // 	if (!CheckCertIssuerTxPos(vtxPos, prevCoins->nHeight))
         // 		return error(
-        // 				"CheckEscrowInputs() : tx %s rejected, since previous tx (%s) is not in the certissuer DB\n",
+        // 				"CheckCertInputs() : tx %s rejected, since previous tx (%s) is not in the certissuer DB\n",
         // 				tx.GetHash().ToString().c_str(),
         // 				prevOutput->hash.ToString().c_str());
         // }
 
         // these ifs are problably total bullshit except for the certissuernew
         if (fBlock || (!fBlock && !fMiner && !fJustCheck)) {
-            if (op != OP_ESCROW_NEW) {
+            if (theAsset.nOp != XOP_ASSET_NEW) {
                 if (!fMiner && !fJustCheck && pindexBlock->nHeight != pindexBest->nHeight) {
                     int nHeight = pindexBlock->nHeight;
 
                     // get the latest certissuer from the db
-                    theEscrow.nHeight = nHeight;
-                    theEscrow.GetEscrowFromList(vtxPos);
+                    theAsset.nHeight = nHeight;
+                    theAsset.GetAssetFromList(vtxPos);
 
-                    // If update, we make the serialized certissuer the master
-                    // but first we assign the certitems from the DB since
-                    // they are not shipped in an update txn to keep size down
-                    if(op == OP_ESCROW_UPDATE) {
-                        serializedEscrow.certs = theEscrow.certs;
-                        theEscrow = serializedEscrow;
-                    }
-
-                    if (op == OP_ESCROWA_NEW || op == OP_ESCROWA_TRANSFER) {
-                        // get the certitem out of the certissuer object in the txn
-                        if(!serializedEscrow.GetEscrowItemByHash(vvchArgs[1], theEscrowItem))
-                            return error("could not read certitem from certissuer txn");
-
-                        // set the certissuer certitem txn-dependent values and add to the txn
-                        theEscrowItem.vchRand = vvchArgs[1];
-                        theEscrowItem.txHash = tx.GetHash();
-                        theEscrowItem.nTime = pindexBlock->nTime;
-                        theEscrowItem.nHeight = nHeight;
-                        theEscrow.PutEscrowItem(theEscrowItem);
-
-                        if (!pcertdb->WriteEscrowItem(vvchArgs[1], vvchArgs[0]))
-                            return error( "CheckEscrowInputs() : failed to write to cert DB");
-                        mapTestPool[vvchArgs[1]] = tx.GetHash();
-                    }
-
-                    if(op == OP_ESCROW_ACTIVATE || op == OP_ESCROW_UPDATE)
-                        theEscrow.nHeight = pindexBlock->nHeight;
+                    if(theAsset.nOp == XOP_ASSET_ACTIVATE || op == XOP_ASSET_TRANSFER)
+                        theAsset.nHeight = pindexBlock->nHeight;
 
                     // set the certissuer's txn-dependent values
-                    theEscrow.vchRand = vvchArgs[0];
-                    theEscrow.txHash = tx.GetHash();
-                    theEscrow.nTime = pindexBlock->nTime;
-                    theEscrow.PutToEscrowList(vtxPos);
+                    theAsset.vchRand = vvchArgs[0];
+                    theAsset.txHash = tx.GetHash();
+                    theAsset.nTime = pindexBlock->nTime;
+                    theAsset.PutToAssetList(vtxPos);
 
                     // write cert issuer 
-                    if (!pcertdb->WriteEscrow(vvchArgs[0], vtxPos))
-                        return error( "CheckEscrowInputs() : failed to write to cert DB");
+                    if (!passetdb->WriteAsset(vvchArgs[0], vtxPos))
+                        return error( "CheckAssetInputs() : failed to write to asset DB");
                     mapTestPool[vvchArgs[0]] = tx.GetHash();
                     
-
                     // compute verify and write fee data to DB
-                    int64 nTheFee = GetEscrowNetFee(tx);
-                    InsertEscrowFee(pindexBlock, tx.GetHash(), nTheFee);
-                    if(nTheFee > 0) printf("ESCROWA FEES: Added %lf in fees to track for regeneration.\n", (double) nTheFee / COIN);
-                    vector<CEscrowFee> vEscrowFees(lstEscrowFees.begin(), lstEscrowFees.end());
-                    if (!pcertdb->WriteEscrowFees(vEscrowFees))
-                        return error( "CheckEscrowInputs() : failed to write fees to certissuer DB");
+                    int64 nTheFee = GetAssetNetFee(tx);
+                    InsertAssetFee(pindexBlock, tx.GetHash(), nTheFee);
+                    if(nTheFee > 0) printf("ASSET FEES: Added %lf in fees to track for regeneration.\n", (double) nTheFee / COIN);
+                    vector<CAssetFee> vAssetFees(lstAssetFees.begin(), lstAssetFees.end());
+                    if (!passetdb->WriteAssetFees(vAssetFees))
+                        return error( "CheckAssetInputs() : failed to write fees to certissuer DB");
 
-                    // remove certissuer from pendings
-
-                    // activate or update - seller txn
-                    if (op == OP_ESCROW_NEW || op == OP_ESCROW_ACTIVATE || op == OP_ESCROW_UPDATE) {
-                        vector<unsigned char> vchEscrow = op == OP_ESCROW_NEW ?
-                                    vchFromString(HexStr(vvchArgs[0])) : vvchArgs[0];
-                        LOCK(cs_main);
-                        std::map<std::vector<unsigned char>, std::set<uint256> >::iterator
-                                mi = mapEscrowPending.find(vchEscrow);
-                        if (mi != mapEscrowPending.end())
-                            mi->second.erase(tx.GetHash());
-                    }
-
-                    // certitem or pay - buyer txn
-                    else {
-                        LOCK(cs_main);
-                        std::map<std::vector<unsigned char>, std::set<uint256> >::iterator mi = mapEscrowItemPending.find(vvchArgs[1]);
-                        if (mi != mapEscrowItemPending.end())
-                            mi->second.erase(tx.GetHash());
-                    }
+                    // remove asset from pendings
+                    vector<unsigned char> vchAsset = theAsset.nOp == XOP_ASSET_NEW ?
+                                vchFromString(HexStr(vvchArgs[0])) : vvchArgs[0];
+                    LOCK(cs_main);
+                    std::map<std::vector<unsigned char>, std::set<uint256> >::iterator
+                            mi = mapAssetPending.find(vchAsset);
+                    if (mi != mapAssetPending.end())
+                        mi->second.erase(tx.GetHash());
 
                     // debug
-                    printf( "CONNECTED ESCROWA: op=%s certissuer=%s title=%s hash=%s height=%d fees=%llu\n",
+                    printf( "CONNECTED ASSET: op=%s asset=%s symbol=%s title=%s hash=%s height=%d fees=%llu\n",
                             certissuerFromOp(op).c_str(),
                             stringFromVch(vvchArgs[0]).c_str(),
-                            stringFromVch(theEscrow.vchTitle).c_str(),
+                            stringFromVch(theAsset.vchSymbol).c_str(),
+                            stringFromVch(theAsset.vchTitle).c_str(),
                             tx.GetHash().ToString().c_str(),
                             nHeight, nTheFee / COIN);
                 }
@@ -1333,42 +1158,47 @@ bool CheckEscrowInputs(CBlockIndex *pindexBlock, const CTransaction &tx,
     return true;
 }
 
-bool ExtractEscrowAddress(const CScript& script, string& address) {
+bool ExtractAssetAddress(const CScript& script, string& address) {
     if (script.size() == 1 && script[0] == OP_RETURN) {
         address = string("network fee");
         return true;
     }
+
     vector<vector<unsigned char> > vvch;
     int op;
-    if (!DecodeEscrowScript(script, op, vvch))
+    if (!DecodeAssetScript(script, op, vvch))
         return false;
 
-    string strOp = certissuerFromOp(op);
-    string strEscrow;
-    if (op == OP_ESCROW_NEW) {
+    string strOp = assetFromOp(op);
+    string strAsset;
+
+    // TODO CB Need to differentiate XOPs - which means we need to txn's data
+    if (op == OP_ASSET) { 
 #ifdef GUI
         LOCK(cs_main);
 
-        std::map<uint160, std::vector<unsigned char> >::const_iterator mi = mapMyEscrowHashes.find(uint160(vvch[0]));
-        if (mi != mapMyEscrowHashes.end())
-        strEscrow = stringFromVch(mi->second);
+        std::map<uint160, std::vector<unsigned char> >::const_iterator mi = mapMyAssetHashes.find(uint160(vvch[0]));
+        if (mi != mapMyAssetHashes.end())
+        strAsset = stringFromVch(mi->second);
         else
 #endif
-        strEscrow = HexStr(vvch[0]);
+        strAsset = HexStr(vvch[0]);
     }
-    else
-        strEscrow = stringFromVch(vvch[0]);
 
-    address = strOp + ": " + strEscrow;
+    // TODO CB as per comment above. Currently this is never called
+    else
+        strAsset = stringFromVch(vvch[0]);
+
+    address = strOp + ": " + strAsset;
     return true;
 }
 
-void rescanforcertissuers(CBlockIndex *pindexRescan) {
-    printf("Scanning blockchain for certissuers to create fast index...\n");
-    pcertdb->ReconstructEscrowIndex(pindexRescan);
+void rescanforassets(CBlockIndex *pindexRescan) {
+    printf("Scanning blockchain for assets to create fast index...\n");
+    pcertdb->ReconstructAssetIndex(pindexRescan);
 }
 
-int GetEscrowTxPosHeight(const CDiskTxPos& txPos) {
+int GetCertTxPosHeight(const CDiskTxPos& txPos) {
     // Read block header
     CBlock block;
     if (!block.ReadFromDisk(txPos)) return 0;
@@ -1380,12 +1210,17 @@ int GetEscrowTxPosHeight(const CDiskTxPos& txPos) {
     return pindex->nHeight;
 }
 
-int GetEscrowTxPosHeight2(const CDiskTxPos& txPos, int nHeight) {
-    nHeight = GetEscrowTxPosHeight(txPos);
+int GetCertTxPosHeight2(const CDiskTxPos& txPos, int nHeight) {
+    nHeight = GetCertTxPosHeight(txPos);
     return nHeight;
 }
 
 Value certissuernew(const Array& params, bool fHelp) {
+    // if(!fTestNet && !fCakeNet)
+    //     throw runtime_error(
+    //     "certissuernew is currently restricted to testnet and cakenet."
+    //             + HelpRequiringPassphrase());
+            
     if (fHelp || params.size() != 2)
         throw runtime_error(
                 "certissuernew <title> <data>\n"
@@ -1415,18 +1250,18 @@ Value certissuernew(const Array& params, bool fHelp) {
     // generate rand identifier
     uint64 rand = GetRand((uint64) -1);
     vector<unsigned char> vchRand = CBigNum(rand).getvch();
-    vector<unsigned char> vchEscrow = vchFromString(HexStr(vchRand));
+    vector<unsigned char> vchCertIssuer = vchFromString(HexStr(vchRand));
     vector<unsigned char> vchToHash(vchRand);
-    vchToHash.insert(vchToHash.end(), vchEscrow.begin(), vchEscrow.end());
+    vchToHash.insert(vchToHash.end(), vchCertIssuer.begin(), vchCertIssuer.end());
     uint160 certissuerHash = Hash160(vchToHash);
 
     // build certissuer object
-    CEscrow newEscrow;
-    newEscrow.vchRand = vchEscrow;
-    newEscrow.vchTitle = vchTitle;
-    newEscrow.vchData = vchData;
+    CCertIssuer newCertIssuer;
+    newCertIssuer.vchRand = vchCertIssuer;
+    newCertIssuer.vchTitle = vchTitle;
+    newCertIssuer.vchData = vchData;
 
-    string bdata = newEscrow.SerializeToString();
+    string bdata = newCertIssuer.SerializeToString();
 
     // create transaction keys
     CPubKey newDefaultKey;
@@ -1434,7 +1269,7 @@ Value certissuernew(const Array& params, bool fHelp) {
     CScript scriptPubKeyOrig;
     scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
     CScript scriptPubKey;
-    scriptPubKey << CScript::EncodeOP_N(OP_ESCROW_NEW) << certissuerHash << OP_2DROP;
+    scriptPubKey << CScript::EncodeOP_N(OP_CERTISSUER_NEW) << certissuerHash << OP_2DROP;
     scriptPubKey += scriptPubKeyOrig;
 
     // send transaction
@@ -1445,10 +1280,10 @@ Value certissuernew(const Array& params, bool fHelp) {
                 false, bdata);
         if (strError != "")
             throw JSONRPCError(RPC_WALLET_ERROR, strError);
-        mapMyEscrows[vchEscrow] = wtx.GetHash();
+        mapMyCertIssuers[vchCertIssuer] = wtx.GetHash();
     }
-    printf("SENT:ESCROWANEW : title=%s, rand=%s, tx=%s, data:\n%s\n",
-            stringFromVch(vchTitle).c_str(), stringFromVch(vchEscrow).c_str(),
+    printf("SENT:CERTNEW : title=%s, rand=%s, tx=%s, data:\n%s\n",
+            stringFromVch(vchTitle).c_str(), stringFromVch(vchCertIssuer).c_str(),
             wtx.GetHash().GetHex().c_str(), bdata.c_str());
 
     // return results
@@ -1469,7 +1304,7 @@ Value certissueractivate(const Array& params, bool fHelp) {
 
     // gather inputs
     vector<unsigned char> vchRand = ParseHex(params[0].get_str());
-    vector<unsigned char> vchEscrow = vchFromValue(params[0]);
+    vector<unsigned char> vchCertIssuer = vchFromValue(params[0]);
 
     // this is a syscoin transaction
     CWalletTx wtx;
@@ -1478,17 +1313,17 @@ Value certissueractivate(const Array& params, bool fHelp) {
     // check for existing pending certissuers
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
-        if (mapEscrowPending.count(vchEscrow)
-                && mapEscrowPending[vchEscrow].size()) {
+        if (mapCertIssuerPending.count(vchCertIssuer)
+                && mapCertIssuerPending[vchCertIssuer].size()) {
             error( "certissueractivate() : there are %d pending operations on that certificate issuer, including %s",
-                   (int) mapEscrowPending[vchEscrow].size(),
-                   mapEscrowPending[vchEscrow].begin()->GetHex().c_str());
+                   (int) mapCertIssuerPending[vchCertIssuer].size(),
+                   mapCertIssuerPending[vchCertIssuer].begin()->GetHex().c_str());
             throw runtime_error("there are pending operations on that certissuer");
         }
 
         // look for an certificate issuer with identical hex rand keys. wont happen.
         CTransaction tx;
-        if (GetTxOfEscrow(*pcertdb, vchEscrow, tx)) {
+        if (GetTxOfCertIssuer(*pcertdb, vchCertIssuer, tx)) {
             error( "certissueractivate() : this certificate issuer is already active with tx %s",
                    tx.GetHash().GetHex().c_str());
             throw runtime_error("this certificate issuer is already active");
@@ -1499,10 +1334,10 @@ Value certissueractivate(const Array& params, bool fHelp) {
         // Make sure there is a previous certissuernew tx on this certificate issuer and that the random value matches
         uint256 wtxInHash;
         if (params.size() == 1) {
-            if (!mapMyEscrows.count(vchEscrow))
+            if (!mapMyCertIssuers.count(vchCertIssuer))
                 throw runtime_error(
                         "could not find a coin with this certissuer, try specifying the certissuernew transaction id");
-            wtxInHash = mapMyEscrows[vchEscrow];
+            wtxInHash = mapMyCertIssuers[vchCertIssuer];
         } else
             wtxInHash.SetHex(params[1].get_str());
         if (!pwalletMain->mapWallet.count(wtxInHash))
@@ -1515,8 +1350,8 @@ Value certissueractivate(const Array& params, bool fHelp) {
         BOOST_FOREACH(CTxOut& out, wtxIn.vout) {
             vector<vector<unsigned char> > vvch;
             int op;
-            if (DecodeEscrowScript(out.scriptPubKey, op, vvch)) {
-                if (op != OP_ESCROW_NEW)
+            if (DecodeCertScript(out.scriptPubKey, op, vvch)) {
+                if (op != OP_CERTISSUER_NEW)
                     throw runtime_error(
                             "previous transaction wasn't a certissuernew");
                 vchHash = vvch[0]; found = true;
@@ -1527,23 +1362,23 @@ Value certissueractivate(const Array& params, bool fHelp) {
             throw runtime_error("Could not decode certissuer transaction");
 
         // calculate network fees
-        int64 nNetFee = GetEscrowNetworkFee(4, pindexBest->nHeight);
+        int64 nNetFee = GetCertNetworkFee(1, pindexBest->nHeight);
 
         // unserialize certissuer object from txn, serialize back
-        CEscrow newEscrow;
-        if(!newEscrow.UnserializeFromTx(wtxIn))
+        CCertIssuer newCertIssuer;
+        if(!newCertIssuer.UnserializeFromTx(wtxIn))
             throw runtime_error(
                     "could not unserialize certissuer from txn");
 
-        newEscrow.vchRand = vchEscrow;
-        newEscrow.nFee = nNetFee;
+        newCertIssuer.vchRand = vchCertIssuer;
+        newCertIssuer.nFee = nNetFee;
 
-        string bdata = newEscrow.SerializeToString();
+        string bdata = newCertIssuer.SerializeToString();
         vector<unsigned char> vchbdata = vchFromString(bdata);
 
         // check this hash against previous, ensure they match
         vector<unsigned char> vchToHash(vchRand);
-        vchToHash.insert(vchToHash.end(), vchEscrow.begin(), vchEscrow.end());
+        vchToHash.insert(vchToHash.end(), vchCertIssuer.begin(), vchCertIssuer.end());
         uint160 hash = Hash160(vchToHash);
         if (uint160(vchHash) != hash)
             throw runtime_error("previous tx used a different random value");
@@ -1554,19 +1389,19 @@ Value certissueractivate(const Array& params, bool fHelp) {
         CScript scriptPubKeyOrig;
         scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
         CScript scriptPubKey;
-        scriptPubKey << CScript::EncodeOP_N(OP_ESCROW_ACTIVATE) << vchEscrow
-                << vchRand << newEscrow.vchTitle << OP_2DROP << OP_2DROP;
+        scriptPubKey << CScript::EncodeOP_N(OP_CERTISSUER_ACTIVATE) << vchCertIssuer
+                << vchRand << newCertIssuer.vchTitle << OP_2DROP << OP_2DROP;
         scriptPubKey += scriptPubKeyOrig;
 
         // send the tranasction
-        string strError = SendEscrowMoneyWithInputTx(scriptPubKey, MIN_AMOUNT,
+        string strError = SendCertMoneyWithInputTx(scriptPubKey, MIN_AMOUNT,
                 nNetFee, wtxIn, wtx, false, bdata);
         if (strError != "")
             throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
-        printf("SENT:ESCROWAACTIVATE: title=%s, rand=%s, tx=%s, data:\n%s\n",
-                stringFromVch(newEscrow.vchTitle).c_str(),
-                stringFromVch(vchEscrow).c_str(), wtx.GetHash().GetHex().c_str(),
+        printf("SENT:CERTACTIVATE: title=%s, rand=%s, tx=%s, data:\n%s\n",
+                stringFromVch(newCertIssuer.vchTitle).c_str(),
+                stringFromVch(vchCertIssuer).c_str(), wtx.GetHash().GetHex().c_str(),
                 stringFromVch(vchbdata).c_str() );
     }
     return wtx.GetHash().GetHex();
@@ -1583,7 +1418,7 @@ Value certissuerupdate(const Array& params, bool fHelp) {
                         + HelpRequiringPassphrase());
 
     // gather & validate inputs
-    vector<unsigned char> vchEscrow = vchFromValue(params[0]);
+    vector<unsigned char> vchCertIssuer = vchFromValue(params[0]);
     vector<unsigned char> vchTitle = vchFromValue(params[1]);
     vector<unsigned char> vchData = vchFromValue(params[2]);
 
@@ -1609,24 +1444,24 @@ Value certissuerupdate(const Array& params, bool fHelp) {
     pwalletMain->GetKeyFromPool(newDefaultKey, false);
     scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
 
-    // create ESCROWAUPDATE txn keys
+    // create CERTUPDATE txn keys
     CScript scriptPubKey;
-    scriptPubKey << CScript::EncodeOP_N(OP_ESCROW_UPDATE) << vchEscrow << vchTitle
+    scriptPubKey << CScript::EncodeOP_N(OP_CERTISSUER_UPDATE) << vchCertIssuer << vchTitle
             << OP_2DROP << OP_DROP;
     scriptPubKey += scriptPubKeyOrig;
 
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
 
-        if (mapEscrowPending.count(vchEscrow)
-                && mapEscrowPending[vchEscrow].size())
+        if (mapCertIssuerPending.count(vchCertIssuer)
+                && mapCertIssuerPending[vchCertIssuer].size())
             throw runtime_error("there are pending operations on that certificate issuer");
 
         EnsureWalletIsUnlocked();
 
         // look for a transaction with this key
         CTransaction tx;
-        if (!GetTxOfEscrow(*pcertdb, vchEscrow, tx))
+        if (!GetTxOfCertIssuer(*pcertdb, vchCertIssuer, tx))
             throw runtime_error("could not find a certificate issuer with this key");
 
         // make sure certissuer is in wallet
@@ -1635,30 +1470,30 @@ Value certissuerupdate(const Array& params, bool fHelp) {
             throw runtime_error("this certificate issuer is not in your wallet");
 
         // unserialize certissuer object from txn
-        CEscrow theEscrow;
-        if(!theEscrow.UnserializeFromTx(tx))
+        CCertIssuer theCertIssuer;
+        if(!theCertIssuer.UnserializeFromTx(tx))
             throw runtime_error("cannot unserialize certissuer from txn");
 
         // get the certissuer from DB
-        vector<CEscrow> vtxPos;
-        if (!pcertdb->ReadEscrow(vchEscrow, vtxPos))
+        vector<CCertIssuer> vtxPos;
+        if (!pcertdb->ReadCertIssuer(vchCertIssuer, vtxPos))
             throw runtime_error("could not read certissuer from DB");
-        theEscrow = vtxPos.back();
-        theEscrow.certs.clear();
+        theCertIssuer = vtxPos.back();
+        theCertIssuer.certs.clear();
 
         // calculate network fees
-        int64 nNetFee = GetEscrowNetworkFee(4, pindexBest->nHeight);
+        int64 nNetFee = GetCertNetworkFee(2, pindexBest->nHeight);
 
         // update certissuer values
-        theEscrow.vchTitle = vchTitle;
-        theEscrow.vchData = vchData;
-        theEscrow.nFee += nNetFee;
+        theCertIssuer.vchTitle = vchTitle;
+        theCertIssuer.vchData = vchData;
+        theCertIssuer.nFee += nNetFee;
 
         // serialize certissuer object
-        string bdata = theEscrow.SerializeToString();
+        string bdata = theCertIssuer.SerializeToString();
 
         CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        string strError = SendEscrowMoneyWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee,
+        string strError = SendCertMoneyWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee,
                 wtxIn, wtx, false, bdata);
         if (strError != "")
             throw JSONRPCError(RPC_WALLET_ERROR, strError);
@@ -1675,7 +1510,7 @@ Value certnew(const Array& params, bool fHelp) {
                 "<data> certificate data, 64 KB max.\n"
                 + HelpRequiringPassphrase());
 
-    vector<unsigned char> vchEscrow = vchFromValue(params[0]);
+    vector<unsigned char> vchCertIssuer = vchFromValue(params[0]);
     vector<unsigned char> vchAddress = vchFromValue(params[1]);
     vector<unsigned char> vchTitle = vchFromValue(params[2]);
     vector<unsigned char> vchData = vchFromValue(params[3]);
@@ -1701,25 +1536,25 @@ Value certnew(const Array& params, bool fHelp) {
 
     // generate certissuer certitem identifier and hash
     uint64 rand = GetRand((uint64) -1);
-    vector<unsigned char> vchEscrowItemRand = CBigNum(rand).getvch();
-    vector<unsigned char> vchToHash(vchEscrowItemRand);
-    vchToHash.insert(vchToHash.end(), vchEscrow.begin(), vchEscrow.end());
+    vector<unsigned char> vchCertItemRand = CBigNum(rand).getvch();
+    vector<unsigned char> vchToHash(vchCertItemRand);
+    vchToHash.insert(vchToHash.end(), vchCertIssuer.begin(), vchCertIssuer.end());
     uint160 certitemHash = Hash160(vchToHash);
 
     CScript scriptPubKeyOrig;
     scriptPubKeyOrig.SetDestination(sendAddr.Get());
     CScript scriptPubKey;
-    scriptPubKey << CScript::EncodeOP_N(OP_ESCROWA_NEW)
-            << vchEscrow << vchEscrowItemRand << certitemHash << OP_2DROP << OP_2DROP;
+    scriptPubKey << CScript::EncodeOP_N(OP_CERT_NEW)
+            << vchCertIssuer << vchCertItemRand << certitemHash << OP_2DROP << OP_2DROP;
     scriptPubKey += scriptPubKeyOrig;
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
 
-        if (mapEscrowPending.count(vchEscrow)
-                && mapEscrowPending[vchEscrow].size()) {
+        if (mapCertIssuerPending.count(vchCertIssuer)
+                && mapCertIssuerPending[vchCertIssuer].size()) {
             error(  "certnew() : there are %d pending operations on that certificate issuer, including %s",
-                    (int) mapEscrowPending[vchEscrow].size(),
-                    mapEscrowPending[vchEscrow].begin()->GetHex().c_str());
+                    (int) mapCertIssuerPending[vchCertIssuer].size(),
+                    mapCertIssuerPending[vchCertIssuer].begin()->GetHex().c_str());
             throw runtime_error("there are pending operations on that certificate issuer");
         }
 
@@ -1727,41 +1562,41 @@ Value certnew(const Array& params, bool fHelp) {
 
         // look for a transaction with this key
         CTransaction tx;
-        if (!GetTxOfEscrow(*pcertdb, vchEscrow, tx))
+        if (!GetTxOfCertIssuer(*pcertdb, vchCertIssuer, tx))
             throw runtime_error("could not find a certificate issuer with this identifier");
 
         // unserialize certissuer object from txn
-        CEscrow theEscrow;
-        if(!theEscrow.UnserializeFromTx(tx))
+        CCertIssuer theCertIssuer;
+        if(!theCertIssuer.UnserializeFromTx(tx))
             throw runtime_error("could not unserialize certificate issuer from txn");
 
         // get the certissuer id from DB
-        vector<CEscrow> vtxPos;
-        if (!pcertdb->ReadEscrow(vchEscrow, vtxPos))
+        vector<CCertIssuer> vtxPos;
+        if (!pcertdb->ReadCertIssuer(vchCertIssuer, vtxPos))
             throw runtime_error("could not read certificate issuer with this key from DB");
-        theEscrow = vtxPos.back();
+        theCertIssuer = vtxPos.back();
 
         // create certitem object
-        CEscrowItem txEscrowItem;
-        txEscrowItem.vchRand = vchEscrowItemRand;
-        txEscrowItem.vchTitle = vchTitle;
-        txEscrowItem.vchData = vchData;
-        theEscrow.certs.clear();
-        theEscrow.PutEscrowItem(txEscrowItem);
+        CCertItem txCertItem;
+        txCertItem.vchRand = vchCertItemRand;
+        txCertItem.vchTitle = vchTitle;
+        txCertItem.vchData = vchData;
+        theCertIssuer.certs.clear();
+        theCertIssuer.PutCertItem(txCertItem);
 
         // serialize certissuer object
-        string bdata = theEscrow.SerializeToString();
+        string bdata = theCertIssuer.SerializeToString();
 
         string strError = pwalletMain->SendMoney(scriptPubKey, MIN_AMOUNT, wtx,
                 false, bdata);
         if (strError != "")
             throw JSONRPCError(RPC_WALLET_ERROR, strError);
-        mapMyEscrowItems[vchEscrowItemRand] = wtx.GetHash();
+        mapMyCertItems[vchCertItemRand] = wtx.GetHash();
     }
     // return results
     vector<Value> res;
     res.push_back(wtx.GetHash().GetHex());
-    res.push_back(HexStr(vchEscrowItemRand));
+    res.push_back(HexStr(vchCertItemRand));
 
     return res;
 }
@@ -1775,7 +1610,7 @@ Value certtransfer(const Array& params, bool fHelp) {
                 + HelpRequiringPassphrase());
 
     // gather & validate inputs
-    vector<unsigned char> vchEscrowKey = ParseHex(params[0].get_str());
+    vector<unsigned char> vchCertKey = ParseHex(params[0].get_str());
     vector<unsigned char> vchAddress = vchFromValue(params[1]);
     CBitcoinAddress sendAddr(stringFromVch(vchAddress));
     if(!sendAddr.IsValid())
@@ -1789,8 +1624,8 @@ Value certtransfer(const Array& params, bool fHelp) {
     {
     LOCK2(cs_main, pwalletMain->cs_wallet);
 
-    if (mapEscrowItemPending.count(vchEscrowKey)
-            && mapEscrowItemPending[vchEscrowKey].size())
+    if (mapCertItemPending.count(vchCertKey)
+            && mapCertItemPending[vchCertKey].size())
         throw runtime_error( "certtransfer() : there are pending operations on that certificate" );
 
     EnsureWalletIsUnlocked();
@@ -1798,9 +1633,9 @@ Value certtransfer(const Array& params, bool fHelp) {
     // look for a transaction with this key, also returns
     // an certissuer object if it is found
     CTransaction tx;
-    CEscrow theEscrow;
-    CEscrowItem theEscrowItem;
-    if (!GetTxOfEscrowItem(*pcertdb, vchEscrowKey, theEscrow, tx))
+    CCertIssuer theCertIssuer;
+    CCertItem theCertItem;
+    if (!GetTxOfCertItem(*pcertdb, vchCertKey, theCertIssuer, tx))
         throw runtime_error("could not find a certificate with this key");
 
     // check to see if certificate in wallet
@@ -1809,28 +1644,28 @@ Value certtransfer(const Array& params, bool fHelp) {
         throw runtime_error("certtransfer() : certificate is not in your wallet" );
 
     // check that prev txn contains certissuer
-    if(!theEscrow.UnserializeFromTx(tx))
+    if(!theCertIssuer.UnserializeFromTx(tx))
         throw runtime_error("could not unserialize certificate from txn");
 
     // get the certissuer certitem from certissuer
-    if(!theEscrow.GetEscrowItemByHash(vchEscrowKey, theEscrowItem))
+    if(!theCertIssuer.GetCertItemByHash(vchCertKey, theCertItem))
         throw runtime_error("could not find a certificate with this name");
 
     // get the certissuer id from DB
-    vector<unsigned char> vchEscrow;
-    vector<CEscrow> vtxPos;
-    if (!pcertdb->ReadEscrowItem(vchEscrowKey, vchEscrow))
+    vector<unsigned char> vchCertIssuer;
+    vector<CCertIssuer> vtxPos;
+    if (!pcertdb->ReadCertItem(vchCertKey, vchCertIssuer))
         throw runtime_error("could not read certificate from DB");
-    if (!pcertdb->ReadEscrow(vchEscrow, vtxPos))
+    if (!pcertdb->ReadCertIssuer(vchCertIssuer, vtxPos))
         throw runtime_error("could not read certificate issuer with this key from DB");
 
     // hashes should match
-    if(vtxPos.back().vchRand != theEscrow.vchRand)
+    if(vtxPos.back().vchRand != theCertIssuer.vchRand)
         throw runtime_error("certificate issuer hash mismatch.");
 
     // use the certissuer and certificate from the DB as basis
-    theEscrow = vtxPos.back();
-    if(!theEscrow.GetEscrowItemByHash(vchEscrowKey, theEscrowItem))
+    theCertIssuer = vtxPos.back();
+    if(!theCertIssuer.GetCertItemByHash(vchCertKey, theCertItem))
         throw runtime_error("could not find a certificate with this hash in DB");
 
     // get a key from our wallet set dest as ourselves
@@ -1838,7 +1673,7 @@ Value certtransfer(const Array& params, bool fHelp) {
     pwalletMain->GetKeyFromPool(newDefaultKey, false);
     scriptPubKeyOrig.SetDestination(sendAddr.Get());
     CScript scriptPubKey;
-    scriptPubKey << CScript::EncodeOP_N(OP_ESCROWA_TRANSFER) << vchEscrow << vchEscrowKey << OP_2DROP << OP_DROP;
+    scriptPubKey << CScript::EncodeOP_N(OP_CERT_TRANSFER) << vchCertIssuer << vchCertKey << OP_2DROP << OP_DROP;
     scriptPubKey += scriptPubKeyOrig;
 
     // make sure wallet is unlocked
@@ -1846,20 +1681,20 @@ Value certtransfer(const Array& params, bool fHelp) {
         "Error: Please enter the wallet passphrase with walletpassphrase first.");
 
     // calculate network fees
-    int64 nNetFee = GetEscrowNetworkFee(4, pindexBest->nHeight);
+    int64 nNetFee = GetCertNetworkFee(4, pindexBest->nHeight);
 
-    theEscrowItem.nFee += nNetFee;
-    theEscrow.certs.clear();
-    theEscrow.PutEscrowItem(theEscrowItem);
+    theCertItem.nFee += nNetFee;
+    theCertIssuer.certs.clear();
+    theCertIssuer.PutCertItem(theCertItem);
 
     // send the certissuer pay txn
     CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-    string strError = SendEscrowMoneyWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee,
-            wtxIn, wtx, false, theEscrow.SerializeToString());
+    string strError = SendCertMoneyWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee,
+            wtxIn, wtx, false, theCertIssuer.SerializeToString());
     if (strError != "")
         throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
-    mapMyEscrowItems[vchEscrowKey] = 0;
+    mapMyCertItems[vchCertKey] = 0;
 
     // return results
     vector<Value> res;
@@ -1873,14 +1708,14 @@ Value certissuerinfo(const Array& params, bool fHelp) {
         throw runtime_error("certissuerinfo <rand>\n"
                 "Show stored values of an certificate issuer.\n");
 
-    Object oLastEscrow;
-    vector<unsigned char> vchEscrow = vchFromValue(params[0]);
-    string certissuer = stringFromVch(vchEscrow);
+    Object oLastCertIssuer;
+    vector<unsigned char> vchCertIssuer = vchFromValue(params[0]);
+    string certissuer = stringFromVch(vchCertIssuer);
     {
         LOCK(pwalletMain->cs_wallet);
 
-        vector<CEscrow> vtxPos;
-        if (!pcertdb->ReadEscrow(vchEscrow, vtxPos))
+        vector<CCertIssuer> vtxPos;
+        if (!pcertdb->ReadCertIssuer(vchCertIssuer, vtxPos))
             throw JSONRPCError(RPC_WALLET_ERROR,
                     "failed to read from certissuer DB");
         if (vtxPos.size() < 1)
@@ -1893,49 +1728,49 @@ Value certissuerinfo(const Array& params, bool fHelp) {
         if (!GetTransaction(txHash, tx, blockHash, true))
             throw JSONRPCError(RPC_WALLET_ERROR, "failed to read transaction from disk");
 
-        CEscrow theEscrow = vtxPos.back();
+        CCertIssuer theCertIssuer = vtxPos.back();
 
-        Object oEscrow;
+        Object oCertIssuer;
         vector<unsigned char> vchValue;
-        Array aoEscrowItems;
-        for(unsigned int i=0;i<theEscrow.certs.size();i++) {
-            CEscrowItem ca = theEscrow.certs[i];
-            Object oEscrowItem;
+        Array aoCertItems;
+        for(unsigned int i=0;i<theCertIssuer.certs.size();i++) {
+            CCertItem ca = theCertIssuer.certs[i];
+            Object oCertItem;
             string sTime = strprintf("%llu", ca.nTime);
             string sHeight = strprintf("%llu", ca.nHeight);
 
-            oEscrowItem.push_back(Pair("id", HexStr(ca.vchRand)));
-            oEscrowItem.push_back(Pair("txid", ca.txHash.GetHex()));
-            oEscrowItem.push_back(Pair("height", sHeight));
-            oEscrowItem.push_back(Pair("time", sTime));
-            oEscrowItem.push_back(Pair("fee", (double)ca.nFee / COIN));
-            oEscrowItem.push_back(Pair("title", stringFromVch(ca.vchTitle)));
-            oEscrowItem.push_back(Pair("data", stringFromVch(ca.vchData)));
-            aoEscrowItems.push_back(oEscrowItem);
+            oCertItem.push_back(Pair("id", HexStr(ca.vchRand)));
+            oCertItem.push_back(Pair("txid", ca.txHash.GetHex()));
+            oCertItem.push_back(Pair("height", sHeight));
+            oCertItem.push_back(Pair("time", sTime));
+            oCertItem.push_back(Pair("fee", (double)ca.nFee / COIN));
+            oCertItem.push_back(Pair("title", stringFromVch(ca.vchTitle)));
+            oCertItem.push_back(Pair("data", stringFromVch(ca.vchData)));
+            aoCertItems.push_back(oCertItem);
         }
         int nHeight;
         uint256 certissuerHash;
-        if (GetValueOfEscrowTxHash(txHash, vchValue, certissuerHash, nHeight)) {
-            oEscrow.push_back(Pair("id", certissuer));
-            oEscrow.push_back(Pair("txid", tx.GetHash().GetHex()));
+        if (GetValueOfCertIssuerTxHash(txHash, vchValue, certissuerHash, nHeight)) {
+            oCertIssuer.push_back(Pair("id", certissuer));
+            oCertIssuer.push_back(Pair("txid", tx.GetHash().GetHex()));
             string strAddress = "";
-            GetEscrowAddress(tx, strAddress);
-            oEscrow.push_back(Pair("address", strAddress));
-            oEscrow.push_back(
+            GetCertAddress(tx, strAddress);
+            oCertIssuer.push_back(Pair("address", strAddress));
+            oCertIssuer.push_back(
                     Pair("expires_in",
-                            nHeight + GetEscrowDisplayExpirationDepth(nHeight)
+                            nHeight + GetCertDisplayExpirationDepth(nHeight)
                                     - pindexBest->nHeight));
-            if (nHeight + GetEscrowDisplayExpirationDepth(nHeight)
+            if (nHeight + GetCertDisplayExpirationDepth(nHeight)
                     - pindexBest->nHeight <= 0) {
-                oEscrow.push_back(Pair("expired", 1));
+                oCertIssuer.push_back(Pair("expired", 1));
             }
-            oEscrow.push_back(Pair("title", stringFromVch(theEscrow.vchTitle)));
-            oEscrow.push_back(Pair("data", stringFromVch(theEscrow.vchData)));
-            oEscrow.push_back(Pair("certificates", aoEscrowItems));
-            oLastEscrow = oEscrow;
+            oCertIssuer.push_back(Pair("title", stringFromVch(theCertIssuer.vchTitle)));
+            oCertIssuer.push_back(Pair("data", stringFromVch(theCertIssuer.vchData)));
+            oCertIssuer.push_back(Pair("certificates", aoCertItems));
+            oLastCertIssuer = oCertIssuer;
         }
     }
-    return oLastEscrow;
+    return oLastCertIssuer;
 
 }
 
@@ -1944,60 +1779,60 @@ Value certinfo(const Array& params, bool fHelp) {
         throw runtime_error("certissuerinfo <rand>\n"
                 "Show stored values of a single certificate and its issuer.\n");
 
-    vector<unsigned char> vchEscrowRand = ParseHex(params[0].get_str());
-    Object oEscrowItem;
+    vector<unsigned char> vchCertRand = ParseHex(params[0].get_str());
+    Object oCertItem;
 
     // look for a transaction with this key, also returns
     // an certissuer object if it is found
     CTransaction tx;
-    CEscrow theEscrow;
-    CEscrowItem theEscrowItem;
-    if (!GetTxOfEscrowItem(*pcertdb, vchEscrowRand, theEscrow, tx))
+    CCertIssuer theCertIssuer;
+    CCertItem theCertItem;
+    if (!GetTxOfCertItem(*pcertdb, vchCertRand, theCertIssuer, tx))
         throw runtime_error("could not find a certificate with this key");
     uint256 txHash = tx.GetHash();
 
     {
         LOCK(pwalletMain->cs_wallet);
 
-        if(!theEscrow.GetEscrowItemByHash(vchEscrowRand, theEscrowItem))
+        if(!theCertIssuer.GetCertItemByHash(vchCertRand, theCertItem))
             throw runtime_error("could not find a certificate with this hash in DB");
 
-        Object oEscrow;
+        Object oCertIssuer;
         vector<unsigned char> vchValue;
 
-        CEscrowItem ca = theEscrowItem;
+        CCertItem ca = theCertItem;
         string sTime = strprintf("%llu", ca.nTime);
         string sHeight = strprintf("%llu", ca.nHeight);
-        oEscrowItem.push_back(Pair("id", HexStr(ca.vchRand)));
-        oEscrowItem.push_back(Pair("txid", ca.txHash.GetHex()));
-        oEscrowItem.push_back(Pair("height", sHeight));
-        oEscrowItem.push_back(Pair("time", sTime));
-        oEscrowItem.push_back(Pair("fee", (double)ca.nFee / COIN));
-        oEscrowItem.push_back(Pair("title", stringFromVch(ca.vchTitle)));
-        oEscrowItem.push_back(Pair("data", stringFromVch(ca.vchData)));
+        oCertItem.push_back(Pair("id", HexStr(ca.vchRand)));
+        oCertItem.push_back(Pair("txid", ca.txHash.GetHex()));
+        oCertItem.push_back(Pair("height", sHeight));
+        oCertItem.push_back(Pair("time", sTime));
+        oCertItem.push_back(Pair("fee", (double)ca.nFee / COIN));
+        oCertItem.push_back(Pair("title", stringFromVch(ca.vchTitle)));
+        oCertItem.push_back(Pair("data", stringFromVch(ca.vchData)));
 
         int nHeight;
         uint256 certissuerHash;
-        if (GetValueOfEscrowTxHash(txHash, vchValue, certissuerHash, nHeight)) {
-            oEscrow.push_back(Pair("id", stringFromVch(theEscrow.vchRand) ));
-            oEscrow.push_back(Pair("txid", tx.GetHash().GetHex()));
+        if (GetValueOfCertIssuerTxHash(txHash, vchValue, certissuerHash, nHeight)) {
+            oCertIssuer.push_back(Pair("id", stringFromVch(theCertIssuer.vchRand) ));
+            oCertIssuer.push_back(Pair("txid", tx.GetHash().GetHex()));
             string strAddress = "";
-            GetEscrowAddress(tx, strAddress);
-            oEscrow.push_back(Pair("address", strAddress));
-            oEscrow.push_back(
+            GetCertAddress(tx, strAddress);
+            oCertIssuer.push_back(Pair("address", strAddress));
+            oCertIssuer.push_back(
                     Pair("expires_in",
-                            nHeight + GetEscrowDisplayExpirationDepth(nHeight)
+                            nHeight + GetCertDisplayExpirationDepth(nHeight)
                                     - pindexBest->nHeight));
-            if (nHeight + GetEscrowDisplayExpirationDepth(nHeight)
+            if (nHeight + GetCertDisplayExpirationDepth(nHeight)
                     - pindexBest->nHeight <= 0) {
-                oEscrow.push_back(Pair("expired", 1));
+                oCertIssuer.push_back(Pair("expired", 1));
             }
-            oEscrow.push_back(Pair("title", stringFromVch(theEscrow.vchTitle)));
-            oEscrow.push_back(Pair("data", stringFromVch(theEscrow.vchData)));
-            oEscrowItem.push_back(Pair("issuer", oEscrow));
+            oCertIssuer.push_back(Pair("title", stringFromVch(theCertIssuer.vchTitle)));
+            oCertIssuer.push_back(Pair("data", stringFromVch(theCertIssuer.vchData)));
+            oCertItem.push_back(Pair("issuer", oCertIssuer));
         }
     }
-    return oEscrowItem;
+    return oCertItem;
 }
 
 Value certissuerlist(const Array& params, bool fHelp) {
@@ -2043,17 +1878,17 @@ Value certissuerlist(const Array& params, bool fHelp) {
             // decode txn, skip non-alias txns
             vector<vector<unsigned char> > vvch;
             int op, nOut;
-            if (!DecodeEscrowTx(tx, op, nOut, vvch, -1) || !IsEscrowOp(op)) 
+            if (!DecodeCertTx(tx, op, nOut, vvch, -1) || !IsCertOp(op)) 
                 continue;
 
-            if(op == OP_ESCROWA_NEW || op == OP_ESCROWA_TRANSFER)
+            if(op == OP_CERT_NEW || op == OP_CERT_TRANSFER)
                 continue;
 
             // get the txn height
-            nHeight = GetEscrowTxHashHeight(hash);
+            nHeight = GetCertTxHashHeight(hash);
 
             // get the txn alias name
-            if(!GetNameOfEscrowTx(tx, vchName))
+            if(!GetNameOfCertIssuerTx(tx, vchName))
                 continue;
 
             // skip this alias if it doesn't match the given filter value
@@ -2061,7 +1896,7 @@ Value certissuerlist(const Array& params, bool fHelp) {
                 continue;
 
             // get the value of the alias txn
-            if(!GetValueOfEscrowTx(tx, vchValue))
+            if(!GetValueOfCertIssuerTx(tx, vchValue))
                 continue;
 
             // build the output object
@@ -2070,11 +1905,11 @@ Value certissuerlist(const Array& params, bool fHelp) {
             oName.push_back(Pair("value", stringFromVch(vchValue)));
             
             string strAddress = "";
-            GetEscrowAddress(tx, strAddress);
+            GetCertAddress(tx, strAddress);
             oName.push_back(Pair("address", strAddress));
-            oName.push_back(Pair("expires_in", nHeight + GetEscrowDisplayExpirationDepth(nHeight) - pindexBest->nHeight));
+            oName.push_back(Pair("expires_in", nHeight + GetCertDisplayExpirationDepth(nHeight) - pindexBest->nHeight));
             
-            if(nHeight + GetEscrowDisplayExpirationDepth(nHeight) - pindexBest->nHeight <= 0)
+            if(nHeight + GetCertDisplayExpirationDepth(nHeight) - pindexBest->nHeight <= 0)
                 oName.push_back(Pair("expired", 1));
 
             // get last active name only
@@ -2098,18 +1933,18 @@ Value certissuerhistory(const Array& params, bool fHelp) {
                 "List all stored values of an certissuer.\n");
 
     Array oRes;
-    vector<unsigned char> vchEscrow = vchFromValue(params[0]);
-    string certissuer = stringFromVch(vchEscrow);
+    vector<unsigned char> vchCertIssuer = vchFromValue(params[0]);
+    string certissuer = stringFromVch(vchCertIssuer);
 
     {
         LOCK(pwalletMain->cs_wallet);
 
-        vector<CEscrow> vtxPos;
-        if (!pcertdb->ReadEscrow(vchEscrow, vtxPos))
+        vector<CCertIssuer> vtxPos;
+        if (!pcertdb->ReadCertIssuer(vchCertIssuer, vtxPos))
             throw JSONRPCError(RPC_WALLET_ERROR,
                     "failed to read from certissuer DB");
 
-        CEscrow txPos2;
+        CCertIssuer txPos2;
         uint256 txHash;
         uint256 blockHash;
         BOOST_FOREACH(txPos2, vtxPos) {
@@ -2120,27 +1955,27 @@ Value certissuerhistory(const Array& params, bool fHelp) {
                 continue;
             }
 
-            Object oEscrow;
+            Object oCertIssuer;
             vector<unsigned char> vchValue;
             int nHeight;
             uint256 hash;
-            if (GetValueOfEscrowTxHash(txHash, vchValue, hash, nHeight)) {
-                oEscrow.push_back(Pair("certissuer", certissuer));
+            if (GetValueOfCertIssuerTxHash(txHash, vchValue, hash, nHeight)) {
+                oCertIssuer.push_back(Pair("certissuer", certissuer));
                 string value = stringFromVch(vchValue);
-                oEscrow.push_back(Pair("value", value));
-                oEscrow.push_back(Pair("txid", tx.GetHash().GetHex()));
+                oCertIssuer.push_back(Pair("value", value));
+                oCertIssuer.push_back(Pair("txid", tx.GetHash().GetHex()));
                 string strAddress = "";
-                GetEscrowAddress(tx, strAddress);
-                oEscrow.push_back(Pair("address", strAddress));
-                oEscrow.push_back(
+                GetCertAddress(tx, strAddress);
+                oCertIssuer.push_back(Pair("address", strAddress));
+                oCertIssuer.push_back(
                         Pair("expires_in",
-                                nHeight + GetEscrowDisplayExpirationDepth(nHeight)
+                                nHeight + GetCertDisplayExpirationDepth(nHeight)
                                         - pindexBest->nHeight));
-                if (nHeight + GetEscrowDisplayExpirationDepth(nHeight)
+                if (nHeight + GetCertDisplayExpirationDepth(nHeight)
                         - pindexBest->nHeight <= 0) {
-                    oEscrow.push_back(Pair("expired", 1));
+                    oCertIssuer.push_back(Pair("expired", 1));
                 }
-                oRes.push_back(oEscrow);
+                oRes.push_back(oCertIssuer);
             }
         }
     }
@@ -2184,15 +2019,15 @@ Value certissuerfilter(const Array& params, bool fHelp) {
     if (params.size() > 4)
         fStat = (params[4].get_str() == "stat" ? true : false);
 
-    //CEscrowDB dbEscrow("r");
+    //CCertDB dbCert("r");
     Array oRes;
 
-    vector<unsigned char> vchEscrow;
-    vector<pair<vector<unsigned char>, CEscrow> > certissuerScan;
-    if (!pcertdb->ScanEscrows(vchEscrow, 100000000, certissuerScan))
+    vector<unsigned char> vchCertIssuer;
+    vector<pair<vector<unsigned char>, CCertIssuer> > certissuerScan;
+    if (!pcertdb->ScanCertIssuers(vchCertIssuer, 100000000, certissuerScan))
         throw JSONRPCError(RPC_WALLET_ERROR, "scan failed");
 
-    pair<vector<unsigned char>, CEscrow> pairScan;
+    pair<vector<unsigned char>, CCertIssuer> pairScan;
     BOOST_FOREACH(pairScan, certissuerScan) {
         string certissuer = stringFromVch(pairScan.first);
 
@@ -2203,8 +2038,8 @@ Value certissuerfilter(const Array& params, bool fHelp) {
         if (strRegexp != "" && !regex_search(certissuer, certissuerparts, cregex))
             continue;
 
-        CEscrow txEscrow = pairScan.second;
-        int nHeight = txEscrow.nHeight;
+        CCertIssuer txCertIssuer = pairScan.second;
+        int nHeight = txCertIssuer.nHeight;
 
         // max age
         if (nMaxAge != 0 && pindexBest->nHeight - nHeight >= nMaxAge)
@@ -2215,24 +2050,24 @@ Value certissuerfilter(const Array& params, bool fHelp) {
         if (nCountFrom < nFrom + 1)
             continue;
 
-        Object oEscrow;
-        oEscrow.push_back(Pair("certissuer", certissuer));
+        Object oCertIssuer;
+        oCertIssuer.push_back(Pair("certissuer", certissuer));
         CTransaction tx;
         uint256 blockHash;
-        uint256 txHash = txEscrow.txHash;
-        if ((nHeight + GetEscrowDisplayExpirationDepth(nHeight) - pindexBest->nHeight
+        uint256 txHash = txCertIssuer.txHash;
+        if ((nHeight + GetCertDisplayExpirationDepth(nHeight) - pindexBest->nHeight
                 <= 0) || !GetTransaction(txHash, tx, blockHash, true)) {
-            oEscrow.push_back(Pair("expired", 1));
+            oCertIssuer.push_back(Pair("expired", 1));
         } else {
-            vector<unsigned char> vchValue = txEscrow.vchTitle;
+            vector<unsigned char> vchValue = txCertIssuer.vchTitle;
             string value = stringFromVch(vchValue);
-            oEscrow.push_back(Pair("value", value));
-            oEscrow.push_back(
+            oCertIssuer.push_back(Pair("value", value));
+            oCertIssuer.push_back(
                     Pair("expires_in",
-                            nHeight + GetEscrowDisplayExpirationDepth(nHeight)
+                            nHeight + GetCertDisplayExpirationDepth(nHeight)
                                     - pindexBest->nHeight));
         }
-        oRes.push_back(oEscrow);
+        oRes.push_back(oCertIssuer);
 
         nCountNb++;
         // nb limits
@@ -2257,10 +2092,10 @@ Value certissuerscan(const Array& params, bool fHelp) {
                 "certissuerscan [<start-certissuer>] [<max-returned>]\n"
                         "scan all certissuers, starting at start-certissuer and returning a maximum number of entries (default 500)\n");
 
-    vector<unsigned char> vchEscrow;
+    vector<unsigned char> vchCertIssuer;
     int nMax = 500;
     if (params.size() > 0) {
-        vchEscrow = vchFromValue(params[0]);
+        vchCertIssuer = vchFromValue(params[0]);
     }
 
     if (params.size() > 1) {
@@ -2269,116 +2104,114 @@ Value certissuerscan(const Array& params, bool fHelp) {
         nMax = (int) vMax.get_real();
     }
 
-    //CEscrowDB dbEscrow("r");
+    //CCertDB dbCert("r");
     Array oRes;
 
-    vector<pair<vector<unsigned char>, CEscrow> > certissuerScan;
-    if (!pcertdb->ScanEscrows(vchEscrow, nMax, certissuerScan))
+    vector<pair<vector<unsigned char>, CCertIssuer> > certissuerScan;
+    if (!pcertdb->ScanCertIssuers(vchCertIssuer, nMax, certissuerScan))
         throw JSONRPCError(RPC_WALLET_ERROR, "scan failed");
 
-    pair<vector<unsigned char>, CEscrow> pairScan;
+    pair<vector<unsigned char>, CCertIssuer> pairScan;
     BOOST_FOREACH(pairScan, certissuerScan) {
-        Object oEscrow;
+        Object oCertIssuer;
         string certissuer = stringFromVch(pairScan.first);
-        oEscrow.push_back(Pair("certissuer", certissuer));
+        oCertIssuer.push_back(Pair("certissuer", certissuer));
         CTransaction tx;
-        CEscrow txEscrow = pairScan.second;
+        CCertIssuer txCertIssuer = pairScan.second;
         uint256 blockHash;
 
-        int nHeight = txEscrow.nHeight;
-        vector<unsigned char> vchValue = txEscrow.vchTitle;
-        if ((nHeight + GetEscrowDisplayExpirationDepth(nHeight) - pindexBest->nHeight
-                <= 0) || !GetTransaction(txEscrow.txHash, tx, blockHash, true)) {
-            oEscrow.push_back(Pair("expired", 1));
+        int nHeight = txCertIssuer.nHeight;
+        vector<unsigned char> vchValue = txCertIssuer.vchTitle;
+        if ((nHeight + GetCertDisplayExpirationDepth(nHeight) - pindexBest->nHeight
+                <= 0) || !GetTransaction(txCertIssuer.txHash, tx, blockHash, true)) {
+            oCertIssuer.push_back(Pair("expired", 1));
         } else {
             string value = stringFromVch(vchValue);
             //string strAddress = "";
-            //GetEscrowAddress(tx, strAddress);
-            oEscrow.push_back(Pair("value", value));
-            //oEscrow.push_back(Pair("txid", tx.GetHash().GetHex()));
-            //oEscrow.push_back(Pair("address", strAddress));
-            oEscrow.push_back(
+            //GetCertAddress(tx, strAddress);
+            oCertIssuer.push_back(Pair("value", value));
+            //oCertIssuer.push_back(Pair("txid", tx.GetHash().GetHex()));
+            //oCertIssuer.push_back(Pair("address", strAddress));
+            oCertIssuer.push_back(
                     Pair("expires_in",
-                            nHeight + GetEscrowDisplayExpirationDepth(nHeight)
+                            nHeight + GetCertDisplayExpirationDepth(nHeight)
                                     - pindexBest->nHeight));
         }
-        oRes.push_back(oEscrow);
+        oRes.push_back(oCertIssuer);
     }
 
     return oRes;
 }
 
 
-
-/*
  Value certissuerclean(const Array& params, bool fHelp)
  {
- if (fHelp || params.size())
- throw runtime_error("certissuer_clean\nClean unsatisfiable transactions from the wallet - including certissuer_update on an already taken certissuer\n");
+     if (fHelp || params.size())
+     throw runtime_error("certissuer_clean\nClean unsatisfiable transactions from the wallet\n");
 
 
- {
- LOCK2(cs_main,pwalletMain->cs_wallet);
- map<uint256, CWalletTx> mapRemove;
+     {
+         LOCK2(cs_main,pwalletMain->cs_wallet);
+         map<uint256, CWalletTx> mapRemove;
 
- printf("-----------------------------\n");
+         printf("-----------------------------\n");
 
- {
- BOOST_FOREACH(PAIRTYPE(const uint256, CWalletTx)& item, pwalletMain->mapWallet)
- {
- CWalletTx& wtx = item.second;
- vector<unsigned char> vchEscrow;
- if (wtx.GetDepthInMainChain() < 1 && IsConflictedAliasTx(pblocktree, wtx, vchEscrow))
- {
- uint256 hash = wtx.GetHash();
- mapRemove[hash] = wtx;
- }
- }
+         {
+             BOOST_FOREACH(PAIRTYPE(const uint256, CWalletTx)& item, pwalletMain->mapWallet)
+             {
+                 CWalletTx& wtx = item.second;
+                 vector<unsigned char> vchCertIssuer;
+                 if (wtx.GetDepthInMainChain() < 1 && IsConflictedCertIssuerTx(*pblocktree, wtx, vchCertIssuer))
+                 {
+                     uint256 hash = wtx.GetHash();
+                     mapRemove[hash] = wtx;
+                 }
+             }
+         }
+
+         bool fRepeat = true;
+         while (fRepeat)
+         {
+             fRepeat = false;
+             BOOST_FOREACH(PAIRTYPE(const uint256, CWalletTx)& item, pwalletMain->mapWallet)
+             {
+                 CWalletTx& wtx = item.second;
+                 BOOST_FOREACH(const CTxIn& txin, wtx.vin)
+                 {
+                     uint256 hash = wtx.GetHash();
+
+                     // If this tx depends on a tx to be removed, remove it too
+                     if (mapRemove.count(txin.prevout.hash) && !mapRemove.count(hash))
+                     {
+                         mapRemove[hash] = wtx;
+                         fRepeat = true;
+                     }
+                 }
+             }
+         }
+
+         BOOST_FOREACH(PAIRTYPE(const uint256, CWalletTx)& item, mapRemove)
+         {
+             CWalletTx& wtx = item.second;
+
+             UnspendInputs(wtx);
+             wtx.RemoveFromMemoryPool();
+             pwalletMain->EraseFromWallet(wtx.GetHash());
+             vector<unsigned char> vchCertIssuer;
+             if (GetNameOfCertIssuerTx(wtx, vchCertIssuer) && mapCertIssuerPending.count(vchCertIssuer))
+             {
+                 string certissuer = stringFromVch(vchCertIssuer);
+                 printf("certissuer_clean() : erase %s from pending of certissuer %s",
+                 wtx.GetHash().GetHex().c_str(), certissuer.c_str());
+                 if (!mapCertIssuerPending[vchCertIssuer].erase(wtx.GetHash()))
+                     error("certissuer_clean() : erase but it was not pending");
+             }
+             wtx.print();
+         }
+
+         printf("-----------------------------\n");
+     }
+
+     return true;
  }
 
- bool fRepeat = true;
- while (fRepeat)
- {
- fRepeat = false;
- BOOST_FOREACH(PAIRTYPE(const uint256, CWalletTx)& item, pwalletMain->mapWallet)
- {
- CWalletTx& wtx = item.second;
- BOOST_FOREACH(const CTxIn& txin, wtx.vin)
- {
- uint256 hash = wtx.GetHash();
-
- // If this tx depends on a tx to be removed, remove it too
- if (mapRemove.count(txin.prevout.hash) && !mapRemove.count(hash))
- {
- mapRemove[hash] = wtx;
- fRepeat = true;
- }
- }
- }
- }
-
- BOOST_FOREACH(PAIRTYPE(const uint256, CWalletTx)& item, mapRemove)
- {
- CWalletTx& wtx = item.second;
-
- UnspendInputs(wtx);
- wtx.RemoveFromMemoryPool();
- pwalletMain->EraseFromWallet(wtx.GetHash());
- vector<unsigned char> vchEscrow;
- if (GetNameOfEscrowTx(wtx, vchEscrow) && mapEscrowPending.count(vchEscrow))
- {
- string certissuer = stringFromVch(vchEscrow);
- printf("certissuer_clean() : erase %s from pending of certissuer %s",
- wtx.GetHash().GetHex().c_str(), certissuer.c_str());
- if (!mapEscrowPending[vchEscrow].erase(wtx.GetHash()))
- error("certissuer_clean() : erase but it was not pending");
- }
- wtx.print();
- }
-
- printf("-----------------------------\n");
- }
-
- return true;
- }
- */
