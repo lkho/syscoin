@@ -154,7 +154,7 @@ public:
         vchTitle.clear(); 
         vchDescription.clear(); 
     }
-    bool IsNull() const { return (n == 0 && txHash == 0 && hash == 0 && nHeight == 0 && nNop == 0 && vchRand.size() == 0); }
+    bool IsNull() const { return (n == 0 && txHash == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchRand.size() == 0); }
 
     bool UnserializeFromTx(const CTransaction &tx);
     void SerializeToTx(CTransaction &tx);
@@ -197,15 +197,15 @@ public:
     }
 
     friend bool operator!=(const CAssetFee &a, const CAssetFee &b) { return !(a == b); }
-    void SetNull() { hash = nTime = nHeight = nFee = nOp = 0;}
-    bool IsNull() const { return (nTime == 0 && nFee == 0 && hash == 0 && nHeight == 0 && nOp == 0); }
+    void SetNull() { hash = nTime = nHeight = nFee = 0;}
+    bool IsNull() const { return (nTime == 0 && nFee == 0 && hash == 0 && nHeight == 0); }
 };
 
 class CAssetDB : public CLevelDB {
 public:
     CAssetDB(size_t nCacheSize, bool fMemory, bool fWipe) : CLevelDB(GetDataDir() / "assets", nCacheSize, fMemory, fWipe) {}
 
-    bool WriteAsset(const std::vector<unsigned char>& name, std::vector<CCertIssuer>& vtxPos) {
+    bool WriteAsset(const std::vector<unsigned char>& name, std::vector<CAsset>& vtxPos) {
         return Write(make_pair(std::string("asseti"), name), vtxPos);
     }
 
@@ -213,7 +213,7 @@ public:
         return Erase(make_pair(std::string("asseti"), name));
     }
 
-    bool ReadAsset(const std::vector<unsigned char>& name, std::vector<CCertIssuer>& vtxPos) {
+    bool ReadAsset(const std::vector<unsigned char>& name, std::vector<CAsset>& vtxPos) {
         return Read(make_pair(std::string("asseti"), name), vtxPos);
     }
 

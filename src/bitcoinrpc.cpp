@@ -324,19 +324,30 @@ static const CRPCCommand vRPCCommands[] =
   { "certissuerclean",       &certissuerclean,   false,      false,      true },
   { "certissuerfilter",      &certissuerfilter,  false,      false,      true },
 
+  // use the blockchain as an asset issuance platform
+  { "assetnew",      &assetnew,      false,      false,      true },
+  { "assetactivate", &assetactivate, false,      false,      true },
+  { "assetlist",     &assetlist,     false,      false,      true },
+  { "assetinfo",     &assetinfo,     false,      false,      true },
+  { "assethistory",  &assethistory,  false,      false,      true },
+  { "assetscan",     &assetscan,     false,      false,      true },
+  { "assetclean",    &assetclean,    false,      false,      true },
+  { "assetfilter",   &assetfilter,   false,      false,      true },
+
+
   // use the blockchain as a platform for escrow transactions
-  { "escrownew",       &phrpcfunc,     false,      false,      true },
-  { "escrowcancel",    &phrpcfunc,false,      false,      true },
-  { "escrowaccept",    &phrpcfunc,  false,      false,      true },
-  { "escrowreject",    &phrpcfunc,           false,      false,      true },
-  { "escrowrelease",   &phrpcfunc,      false,      false,      true },
-  { "escrowextend",    &phrpcfunc,      false,      false,      true },
-  { "escrowburn",      &phrpcfunc,      false,      false,      true },
-  { "escrowlist",      &phrpcfunc,    false,      false,      true },
-  { "escrowinfo",      &phrpcfunc,    false,      false,      true },
+  { "escrownew",       &phrpcfunc, false,      false,      true },
+  { "escrowcancel",    &phrpcfunc, false,      false,      true },
+  { "escrowaccept",    &phrpcfunc, false,      false,      true },
+  { "escrowreject",    &phrpcfunc, false,      false,      true },
+  { "escrowrelease",   &phrpcfunc, false,      false,      true },
+  { "escrowextend",    &phrpcfunc, false,      false,      true },
+  { "escrowburn",      &phrpcfunc, false,      false,      true },
+  { "escrowlist",      &phrpcfunc, false,      false,      true },
+  { "escrowinfo",      &phrpcfunc, false,      false,      true },
   { "escrowhistory",   &phrpcfunc, false,      false,      true },
-  { "escrowscan",      &phrpcfunc,    false,      false,      true },
-  { "escrowfilter",    &phrpcfunc,  false,      false,      true },
+  { "escrowscan",      &phrpcfunc, false,      false,      true },
+  { "escrowfilter",    &phrpcfunc, false,      false,      true },
 
 };
 

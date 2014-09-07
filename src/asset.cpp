@@ -76,7 +76,7 @@ int GetAssetExpirationDepth(int nHeight) {
 
 // For display purposes, pass the name height.
 int GetAssetDisplayExpirationDepth(int nHeight) {
-    return GetCertExpirationDepth(nHeight);
+    return GetAssetExpirationDepth(nHeight);
 }
 
 bool IsMyAsset(const CTransaction& tx, const CTxOut& txout) {
@@ -136,7 +136,7 @@ string CAsset::SerializeToString() {
 bool CAssetDB::ScanAssets(const std::vector<unsigned char>& vchAsset, unsigned int nMax,
         std::vector<std::pair<std::vector<unsigned char>, CAsset> >& assetScan) {
 
-    leveldb::Iterator *pcursor = pcertdb->NewIterator();
+    leveldb::Iterator *pcursor = passetdb->NewIterator();
 
     CDataStream ssKeySet(SER_DISK, CLIENT_VERSION);
     ssKeySet << make_pair(string("asseti"), vchAsset);
@@ -564,26 +564,37 @@ bool GetValueOfAssetTx(const CCoins& tx, vector<unsigned char>& value) {
 
     if(!IsAssetOp(op)) return false;
 
-    // get the asset so we can get the extended op code
-    CAsset txAsset;
-    if(!txAsset.UnserializeFromTx(tx))
-        return error("GetValueOfAssetTx() : failed to unserialize asset from tx");
+    // // get the asset so we can get the extended op code
+    // CAsset txAsset;
+    // if(!txAsset.UnserializeFromTx(tx))
+    //     return error("GetValueOfAssetTx() : failed to unserialize asset from tx");
 
-    switch (txAsset.nOp) {
-        case XOP_ASSET_NEW:
-            return false;
+    // switch (txAsset.nOp) {
+    //     case XOP_ASSET_NEW:
+    //         return false;
 
-        case XOP_ASSET_ACTIVATE:
-            value = vvch[2];
-            return true;
+    //     case XOP_ASSET_ACTIVATE:
+    //         value = vvch[2];
+    //         return true;
         
-        case XOP_ASSET_SEND:
-            value = vvch[1];
-            return true;
+    //     case XOP_ASSET_SEND:
+    //         value = vvch[1];
+    //         return true;
         
-        default:
-            return false;
+    //     default:
+    //         return false;
+    // }
+
+    if(vvch.size() == 3) {
+        value = vvch[2];
+        return true;
+    } 
+    else if(vvch.size() == 2) {
+        value = vvch[1];
+        return true;
     }
+    else 
+        return false;
 }
 
 bool DecodeAssetTx(const CCoins& tx, int& op, int& nOut, vector<vector<unsigned char> >& vvch, int nHeight) {
@@ -1087,7 +1098,7 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
         vector<CAsset> vtxPos;
         if(theAsset.nOp != XOP_ASSET_NEW)
             if (passetdb->ExistsAsset(vvchArgs[0])) {
-                if (!pcertdb->ReadAsset(vvchArgs[0], vtxPos))
+                if (!passetdb->ReadAsset(vvchArgs[0], vtxPos))
                     return error(
                             "CheckAssetInputs() : failed to read from asset DB");
             }
@@ -1112,7 +1123,7 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                     theAsset.nHeight = nHeight;
                     theAsset.GetAssetFromList(vtxPos);
 
-                    if(theAsset.nOp == XOP_ASSET_ACTIVATE || op == XOP_ASSET_TRANSFER)
+                    if(theAsset.nOp == XOP_ASSET_ACTIVATE || op == XOP_ASSET_SEND)
                         theAsset.nHeight = pindexBlock->nHeight;
 
                     // set the asset's txn-dependent values
@@ -1195,7 +1206,7 @@ bool ExtractAssetAddress(const CScript& script, string& address) {
 
 void rescanforassets(CBlockIndex *pindexRescan) {
     printf("Scanning blockchain for assets to create fast index...\n");
-    pcertdb->ReconstructAssetIndex(pindexRescan);
+    passetdb->ReconstructAssetIndex(pindexRescan);
 }
 
 int GetAssetTxPosHeight(const CDiskTxPos& txPos) {
@@ -1347,7 +1358,7 @@ Value assetactivate(const Array& params, bool fHelp) {
         // Make sure there is a previous asset tx on this asset and that the random value matches
         uint256 wtxInHash;
         if (params.size() == 1) {
-            if (!mapAssets.count(vchAsset))
+            if (!mapMyAssets.count(vchAsset))
                 throw runtime_error(
                         "could not find a coin with this asset, try specifying the assetnew transaction id");
             wtxInHash = mapMyAssets[vchAsset];
@@ -1417,7 +1428,7 @@ Value assetactivate(const Array& params, bool fHelp) {
                 stringFromVch(newAsset.vchSymbol).c_str(),
                 stringFromVch(newAsset.vchTitle).c_str(),
                 stringFromVch(newAsset.vchDescription).c_str(),
-                stringFromVch(newAsset).c_str(), 
+                stringFromVch(vchAsset).c_str(), 
                 wtx.GetHash().GetHex().c_str(),
                 stringFromVch(vchbdata).c_str() );
     }
@@ -1551,11 +1562,11 @@ Value assetlist(const Array& params, bool fHelp) {
             oName.push_back(Pair("value", stringFromVch(vchValue)));
             
             string strAddress = "";
-            GetCertAddress(tx, strAddress);
+            GetAssetAddress(tx, strAddress);
             oName.push_back(Pair("address", strAddress));
-            oName.push_back(Pair("expires_in", nHeight + GetCertDisplayExpirationDepth(nHeight) - pindexBest->nHeight));
+            oName.push_back(Pair("expires_in", nHeight + GetAssetDisplayExpirationDepth(nHeight) - pindexBest->nHeight));
             
-            if(nHeight + GetCertDisplayExpirationDepth(nHeight) - pindexBest->nHeight <= 0)
+            if(nHeight + GetAssetDisplayExpirationDepth(nHeight) - pindexBest->nHeight <= 0)
                 oName.push_back(Pair("expired", 1));
 
             // get last active name only
@@ -1586,7 +1597,7 @@ Value assethistory(const Array& params, bool fHelp) {
         LOCK(pwalletMain->cs_wallet);
 
         vector<CAsset> vtxPos;
-        if (!pcertdb->ReadAsset(vchAsset, vtxPos))
+        if (!passetdb->ReadAsset(vchAsset, vtxPos))
             throw JSONRPCError(RPC_WALLET_ERROR,
                     "failed to read from asset DB");
 
@@ -1611,13 +1622,13 @@ Value assethistory(const Array& params, bool fHelp) {
                 oAsset.push_back(Pair("value", value));
                 oAsset.push_back(Pair("txid", tx.GetHash().GetHex()));
                 string strAddress = "";
-                GetCertAddress(tx, strAddress);
+                GetAssetAddress(tx, strAddress);
                 oAsset.push_back(Pair("address", strAddress));
                 oAsset.push_back(
                         Pair("expires_in",
-                                nHeight + GetCertDisplayExpirationDepth(nHeight)
+                                nHeight + GetAssetDisplayExpirationDepth(nHeight)
                                         - pindexBest->nHeight));
-                if (nHeight + GetCertDisplayExpirationDepth(nHeight)
+                if (nHeight + GetAssetDisplayExpirationDepth(nHeight)
                         - pindexBest->nHeight <= 0) {
                     oAsset.push_back(Pair("expired", 1));
                 }
@@ -1670,7 +1681,7 @@ Value assetfilter(const Array& params, bool fHelp) {
 
     vector<unsigned char> vchAsset;
     vector<pair<vector<unsigned char>, CAsset> > assetScan;
-    if (!pcertdb->ScanAssets(vchAsset, 100000000, assetScan))
+    if (!passetdb->ScanAssets(vchAsset, 100000000, assetScan))
         throw JSONRPCError(RPC_WALLET_ERROR, "scan failed");
 
     pair<vector<unsigned char>, CAsset> pairScan;
@@ -1754,7 +1765,7 @@ Value assetscan(const Array& params, bool fHelp) {
     Array oRes;
 
     vector<pair<vector<unsigned char>, CAsset> > assetScan;
-    if (!pcertdb->ScanAssets(vchAsset, nMax, assetScan))
+    if (!passetdb->ScanAssets(vchAsset, nMax, assetScan))
         throw JSONRPCError(RPC_WALLET_ERROR, "scan failed");
 
     pair<vector<unsigned char>, CAsset> pairScan;

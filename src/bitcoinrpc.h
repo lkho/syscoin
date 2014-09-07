@@ -259,6 +259,15 @@ extern json_spirit::Value certissuerfilter(const json_spirit::Array& params, boo
 extern json_spirit::Value certissuerscan(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value certissuerclean(const json_spirit::Array& params, bool fHelp);
 
+extern json_spirit::Value assetnew(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetactivate(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetinfo(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetlist(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assethistory(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetfilter(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetscan(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetclean(const json_spirit::Array& params, bool fHelp);
+
 extern json_spirit::Value phrpcfunc(const json_spirit::Array& params, bool fHelp);
 
 #endif

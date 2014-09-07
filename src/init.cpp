@@ -28,10 +28,12 @@ using namespace boost;
 extern CAliasDB *paliasdb;
 extern COfferDB *pofferdb;
 extern CCertDB *pcertdb;
+extern CAssetDB *passetdb;
 
 void rescanforaliases(CBlockIndex *pindexRescan);
 void rescanforoffers(CBlockIndex *pindexRescan);
 void rescanforcertissuers(CBlockIndex *pindexRescan);
+void rescanforassets(CBlockIndex *pindexRescan);
 
 CWallet* pwalletMain;
 CClientUIInterface uiInterface;
@@ -124,13 +126,16 @@ void Shutdown()
         if (pofferdb)
             pofferdb->Flush(); 
         if (pcertdb)
-            pcertdb->Flush();   
+            pcertdb->Flush();  
+        if (passetdb)
+            passetdb->Flush();  
         delete pcoinsTip; pcoinsTip = NULL;
         delete pcoinsdbview; pcoinsdbview = NULL;
         delete pblocktree; pblocktree = NULL;
         delete paliasdb; paliasdb = NULL;
         delete pofferdb; pofferdb = NULL;
         delete pcertdb; pcertdb = NULL;
+        delete passetdb; passetdb = NULL;
     }
     if (pwalletMain)
         bitdb.Flush(true);
@@ -900,6 +905,7 @@ bool AppInit2(boost::thread_group& threadGroup)
                 delete paliasdb;
                 delete pofferdb;
                 delete pcertdb;
+                delete passetdb;
 
                 pblocktree = new CBlockTreeDB(nBlockTreeDBCache, false, fReindex);
                 pcoinsdbview = new CCoinsViewDB(nCoinDBCache, false, fReindex);
@@ -907,6 +913,7 @@ bool AppInit2(boost::thread_group& threadGroup)
                 paliasdb = new CAliasDB(nNameDBCache, false, fReindex);
                 pofferdb = new COfferDB(nNameDBCache*2, false, fReindex);
                 pcertdb = new CCertDB(nNameDBCache*2, false, fReindex);
+                passetdb = new CAssetDB(nNameDBCache*2, false, fReindex);
 
                 if (fReindex)
                     pblocktree->WriteReindexing(true);
@@ -1095,6 +1102,7 @@ bool AppInit2(boost::thread_group& threadGroup)
     		rescanforaliases(pindexRescan);
     		rescanforoffers(pindexRescan);
     		rescanforcertissuers(pindexRescan);
+            rescanforassets(pindexRescan);
             nWalletDBUpdated++;
         }
     } // (!fDisableWallet)
