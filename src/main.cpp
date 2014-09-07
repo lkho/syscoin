@@ -790,7 +790,7 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
 	        }
 	        // unserialize asset object from txn, check for valid
         	CAsset theAsset;
-        	theAsset.UnserializeFromTx(tx);
+        	theAsset.UnserializeFromTx(*this);
         	if (theAsset.IsNull()) {
             	ret[iter] = error("asset transaction with null asset object");
             	continue;
@@ -814,7 +814,6 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
 	                ret[iter] = error("asset transaction has unknown op");
 	        }
         }
-
     }
     return ret[0] || ret[1];
 }
@@ -1636,10 +1635,10 @@ bool LoadSyscoinFees() {
 
     // read cert issuer network fees
     lstAssetFees.clear();
-    vector<CAssetFee> vc;
-    passetdb->ReadAssetFees(vc);
-    list<CAssetFee> lCF(vc.begin(), vc.end());
-    lstAssetFees = lCF;
+    vector<CAssetFee> vac;
+    passetdb->ReadAssetFees(vac);
+    list<CAssetFee> lAAF(vac.begin(), vac.end());
+    lstAssetFees = lAAF;
 	BOOST_FOREACH(CAssetFee& fee, lstAssetFees) {
 		printf("asset Fee - height: %llu \t value: %llu\n", fee.nHeight, fee.nFee);
 	}
@@ -2107,7 +2106,7 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 
                         // make sure the offeraccept is also in the serialized offer in the txn
                         if(!theIssuer.GetCertItemByHash(vvchCert, theCert))
-                            return error("DisconnectBlock() : not found in offer for offer accept %s %s\n",
+                            return error("DisconnectBlock() : not found in certificate issuer for cert %s %s\n",
                                     opName.c_str(), HexStr(vvchCert).c_str());
 
                         // make sure offer accept db record already exists
@@ -2120,7 +2119,7 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                     if (vtxPos.size()) {
                         CDiskTxPos txindex;
                         if (!pblocktree->ReadTxIndex(tx.GetHash(), txindex))
-                            return error("DisconnectBlock() : failed to read tx index for offer %s %s %s\n",
+                            return error("DisconnectBlock() : failed to read tx index for certissuer %s %s %s\n",
                                     opName.c_str(), stringFromVch(vvchArgs[0]).c_str(), tx.GetHash().ToString().c_str());
 
                         while(vtxPos.back().txHash == tx.GetHash())
@@ -2131,7 +2130,7 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 
                     // write new offer state to db
                     if(!pcertdb->WriteCertIssuer(vvchArgs[0], vtxPos))
-                        return error("DisconnectBlock() : failed to write to offer DB");
+                        return error("DisconnectBlock() : failed to write to certissuer DB");
 
                     // compute verify and write fee data to DB
                     int64 nTheFee = GetCertNetFee(tx);
@@ -2145,6 +2144,58 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                     pcertdb->EraseCertIssuer(theIssuer.vchRand);
                 }
         		printf("DISCONNECTED CERT TXN: title=%s hash=%s height=%d\n",
+                    op == OP_CERTISSUER_NEW ? HexStr(vvchArgs[0]).c_str() : stringFromVch(vvchArgs[0]).c_str(),
+	                tx.GetHash().ToString().c_str(),
+	                pindex->nHeight);
+            }
+
+			// assets
+			good = DecodeAssetTx(tx, op, nOut, vvchArgs, pindex->nHeight);
+            if (good && IsAssetOp(op)) {
+                string opName = assetFromOp(op);
+
+                CAsset theAsset;
+                theAsset.UnserializeFromTx(tx);
+                if (theAsset.IsNull())
+                    error("DisconnectBlock() : null asset object");
+
+                if(theAsset.nOp != XOP_ASSET_NEW) {
+                    // make sure a DB record exists for this asset
+                    vector<CAsset> vtxPos;
+                    if (!passetdb->ReadAsset(vvchArgs[0], vtxPos))
+                        return error("DisconnectBlock() : failed to read from asset DB for %s %s\n",
+                                opName.c_str(), stringFromVch(vvchArgs[0]).c_str());
+
+                    // vtxPos might be empty if we pruned expired transactions.  However, it should normally still not
+                    // be empty, since a reorg cannot go that far back.  Be safe anyway and do not try to pop if empty.
+                    if (vtxPos.size()) {
+                        CDiskTxPos txindex;
+                        if (!pblocktree->ReadTxIndex(tx.GetHash(), txindex))
+                            return error("DisconnectBlock() : failed to read tx index for asset %s %s %s\n",
+                                    opName.c_str(), stringFromVch(vvchArgs[0]).c_str(), tx.GetHash().ToString().c_str());
+
+                        while(vtxPos.back().txHash == tx.GetHash())
+                            vtxPos.pop_back();
+
+                        // TODO validate that the first pos is the current tx pos
+                    }
+
+                    // write new asset state to db
+                    if(!passetdb->WriteAsset(vvchArgs[0], vtxPos))
+                        return error("DisconnectBlock() : failed to write to asset DB");
+
+                    // compute verify and write fee data to DB
+                    int64 nTheFee = GetAssetNetFee(tx);
+                    InsertAssetFee(pindex, tx.GetHash(), nTheFee);
+                    if(nTheFee > 0) printf("DisconnectBlock(): Added %lf in asset fees to track for regeneration.\n", (double) nTheFee / COIN);
+                    vector<CAssetFee> vAssetFees(lstAssetFees.begin(), lstAssetFees.end());
+                    if (!passetdb->WriteAssetFees(vAssetFees))
+                        return error( "DisconnectBlock() : failed to write fees to asset DB");
+                }
+                else {
+                    passetdb->EraseAsset(theAsset.vchRand);
+                }
+        		printf("DISCONNECTED ASSET TXN: title=%s hash=%s height=%d\n",
                     op == OP_CERTISSUER_NEW ? HexStr(vvchArgs[0]).c_str() : stringFromVch(vvchArgs[0]).c_str(),
 	                tx.GetHash().ToString().c_str(),
 	                pindex->nHeight);
@@ -2527,6 +2578,7 @@ bool SetBestChain(CValidationState &state, CBlockIndex* pindexNew) {
 	assert(paliasdb->Flush());
 	assert(pofferdb->Flush());
 	assert(pcertdb->Flush());
+	assert(passetdb->Flush());
 	int64 nTime = GetTimeMicros() - nStart;
 	if (fBenchmark)
 		printf("- Flush %i transactions: %.2fms (%.4fms/tx)\n", nModified,
