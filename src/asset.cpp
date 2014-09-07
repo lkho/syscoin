@@ -265,7 +265,7 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
 int CheckAssetTransactionAtRelativeDepth(CBlockIndex* pindexBlock,
         const CCoins *txindex, int maxDepth) {
     for (CBlockIndex* pindex = pindexBlock;
-            pindex && pindexBlock->nHeight - pindex->nHeight < maxDepth;
+            pindex /*&& pindexBlock->nHeight - pindex->nHeight < maxDepth */;
             pindex = pindex->pprev)
         if (pindex->nHeight == (int) txindex->nHeight)
             return pindexBlock->nHeight - pindex->nHeight;
@@ -1374,11 +1374,12 @@ Value assetactivate(const Array& params, bool fHelp) {
         BOOST_FOREACH(CTxOut& out, wtxIn.vout) {
             vector<vector<unsigned char> > vvch;
             int op;
-            if (DecodeCertScript(out.scriptPubKey, op, vvch)) {
+            if (DecodeAssetScript(out.scriptPubKey, op, vvch)) {
                 if (op != OP_ASSET)
                     throw runtime_error(
                             "previous transaction wasn't asset");
-                vchHash = vvch[0]; found = true;
+                vchHash = vvch[0]; 
+                found = true;
                 break;
             }
         }
@@ -1453,7 +1454,7 @@ Value assetinfo(const Array& params, bool fHelp) {
         if (vtxPos.size() < 1)
             throw JSONRPCError(RPC_WALLET_ERROR, "no result returned");
 
-        // get transaction pointed to by alias
+        // get transaction pointed to by asset
         CTransaction tx;
         uint256 blockHash;
         uint256 txHash = vtxPos.back().txHash;
@@ -1495,7 +1496,7 @@ Value assetinfo(const Array& params, bool fHelp) {
 Value assetlist(const Array& params, bool fHelp) {
     if (fHelp || 1 < params.size())
         throw runtime_error("assetlist [<asset>]\n"
-                "list my own certificate issuers");
+                "list my own assets");
 
     vector<unsigned char> vchName;
 
@@ -1532,7 +1533,7 @@ Value assetlist(const Array& params, bool fHelp) {
             if (tx.nVersion != SYSCOIN_TX_VERSION)
                 continue;
 
-            // decode txn, skip non-alias txns
+            // decode txn, skip non-asset txns
             vector<vector<unsigned char> > vvch;
             int op, nOut;
             if (!DecodeCertTx(tx, op, nOut, vvch, -1) || !IsCertOp(op)) 
@@ -1544,15 +1545,15 @@ Value assetlist(const Array& params, bool fHelp) {
             // get the txn height
             nHeight = GetCertTxHashHeight(hash);
 
-            // get the txn alias name
+            // get the txn asset name
             if(!GetNameOfAssetTx(tx, vchName))
                 continue;
 
-            // skip this alias if it doesn't match the given filter value
+            // skip this asset if it doesn't match the given filter value
             if(vchNameUniq.size() > 0 && vchNameUniq != vchName)
                 continue;
 
-            // get the value of the alias txn
+            // get the value of the asset txn
             if(!GetValueOfAssetTx(tx, vchValue))
                 continue;
 

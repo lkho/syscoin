@@ -1454,7 +1454,7 @@ Value offernew(const Array& params, bool fHelp) {
 	else {
 	    BOOST_FOREACH(const PAIRTYPE(CTxDestination, string)& entry, pwalletMain->mapAddressBook) {
 	        if (IsMine(*pwalletMain, entry.first)) {
-	            // sign the data and store it as the alias value
+	            // sign the data and store it as the offer value
 	            CKeyID keyID;
 	            payAddr.Set(entry.first);
 	            if (payAddr.GetKeyID(keyID) && payAddr.IsValid()) {
@@ -2094,7 +2094,7 @@ Value offerlist(const Array& params, bool fHelp) {
             if (tx.nVersion != SYSCOIN_TX_VERSION)
                 continue;
 
-            // decode txn, skip non-alias txns
+            // decode txn, skip non-offer txns
             vector<vector<unsigned char> > vvch;
             int op, nOut;
             if (!DecodeOfferTx(tx, op, nOut, vvch, -1) || !IsOfferOp(op))
@@ -2103,15 +2103,15 @@ Value offerlist(const Array& params, bool fHelp) {
             // get the txn height
             nHeight = GetOfferTxHashHeight(hash);
 
-            // get the txn alias name
+            // get the txn offer name
             if(!GetNameOfOfferTx(tx, vchName))
                 continue;
 
-            // skip this alias if it doesn't match the given filter value
+            // skip this offer if it doesn't match the given filter value
             if(vchNameUniq.size() > 0 && vchNameUniq != vchName)
                 continue;
 
-            // get the value of the alias txn
+            // get the value of the offer txn
             if(!GetValueOfOfferTx(tx, vchValue))
                 continue;
 

@@ -17,7 +17,7 @@ class CDiskTxPos;
 bool CheckAssetInputs(CBlockIndex *pindex, const CTransaction &tx, CValidationState &state, CCoinsViewCache &inputs,
                      std::map<std::vector<unsigned char>,uint256> &mapTestPool, bool fBlock, bool fMiner, bool fJustCheck);
 bool IsAssetMine(const CTransaction& tx);
-bool IsAssetMine(const CTransaction& tx, const CTxOut& txout, bool ignore_aliasnew = false);
+bool IsAssetMine(const CTransaction& tx, const CTxOut& txout, bool ignore_assetnew = false);
 std::string SendAssetMoneyWithInputTx(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxIn,
                                      CWalletTx& wtxNew, bool fAskFee, const std::string& txData = "");
 bool CreateAssetTransactionWithInputTx(const std::vector<std::pair<CScript, int64> >& vecSend, CWalletTx& wtxIn,
