@@ -13,6 +13,7 @@
 #include "alias.h"
 #include "offer.h"
 #include "cert.h"
+#include "asset.h"
 #include "txdb.h"
 #include "script.h"
 

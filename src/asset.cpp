@@ -198,7 +198,7 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
             vector<vector<unsigned char> > vvchArgs;
             int op, nOut;
 
-            // decode the certissuer op, params, height
+            // decode the asset op, params, height
             bool o = DecodeAssetTx(tx, op, nOut, vvchArgs, nHeight);
             if (!o || !IsAssetOp(op)) continue;
 
@@ -208,7 +208,7 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
             if(!GetTransaction(tx.GetHash(), tx, txblkhash, true))
                 continue;
 
-            // attempt to read certissuer from txn
+            // attempt to read asset from txn
             CAsset txAsset;
             if(!txAsset.UnserializeFromTx(tx))
                 return error("ReconstructAssetIndex() : failed to unserialize asset from tx");
@@ -216,7 +216,7 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
             // skip news - todo CB readdress - why skip?
             if (txAsset.nOp == XOP_ASSET_NEW) continue;
 
-            // read certissuer from DB if it exists
+            // read asset from DB if it exists
             vector<CAsset> vtxPos;
             if (ExistsAsset(vchAsset)) {
                 if (!ReadAsset(vchAsset, vtxPos))
@@ -909,7 +909,7 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
             if(!found)vvchPrevArgs.clear();
         }
 
-        // Make sure certissuer outputs are not spent by a regular transaction, or the certissuer would be lost
+        // Make sure asset outputs are not spent by a regular transaction, or the asset would be lost
         if (tx.nVersion != SYSCOIN_TX_VERSION) {
             if (found)
                 return error(
@@ -927,7 +927,7 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
         int nDepth;
         int64 nNetFee;
 
-        // unserialize certissuer object from txn, check for valid
+        // unserialize asset object from txn, check for valid
         CAsset theAsset;
         theAsset.UnserializeFromTx(tx);
         if (theAsset.IsNull())
@@ -1080,42 +1080,42 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
             return error( "CheckAssetInputs() : asset transaction has unknown op");
         }
 
-        // save serialized certissuer for later use
+        // save serialized asset for later use
         CAsset serializedAsset = theAsset;
 
-        // if not an certissuernew, load the certissuer data from the DB
+        // if not an assetnew, load the asset data from the DB
         vector<CAsset> vtxPos;
         if(theAsset.nOp != XOP_ASSET_NEW)
             if (passetdb->ExistsAsset(vvchArgs[0])) {
                 if (!pcertdb->ReadAsset(vvchArgs[0], vtxPos))
                     return error(
-                            "CheckAssetInputs() : failed to read from certissuer DB");
+                            "CheckAssetInputs() : failed to read from asset DB");
             }
 
         //todo fucking suspect
-        // // for certissuerupdate or certtransfer check to make sure the previous txn exists and is valid
+        // // for assetupdate or certtransfer check to make sure the previous txn exists and is valid
         // if (!fBlock && fJustCheck && (op == OP_CERTISSUER_UPDATE || op == OP_CERT_TRANSFER)) {
-        // 	if (!CheckCertIssuerTxPos(vtxPos, prevCoins->nHeight))
+        // 	if (!CheckAssetTxPos(vtxPos, prevCoins->nHeight))
         // 		return error(
-        // 				"CheckCertInputs() : tx %s rejected, since previous tx (%s) is not in the certissuer DB\n",
+        // 				"CheckCertInputs() : tx %s rejected, since previous tx (%s) is not in the asset DB\n",
         // 				tx.GetHash().ToString().c_str(),
         // 				prevOutput->hash.ToString().c_str());
         // }
 
-        // these ifs are problably total bullshit except for the certissuernew
+        // these ifs are problably total bullshit except for the assetnew
         if (fBlock || (!fBlock && !fMiner && !fJustCheck)) {
             if (theAsset.nOp != XOP_ASSET_NEW) {
                 if (!fMiner && !fJustCheck && pindexBlock->nHeight != pindexBest->nHeight) {
                     int nHeight = pindexBlock->nHeight;
 
-                    // get the latest certissuer from the db
+                    // get the latest asset from the db
                     theAsset.nHeight = nHeight;
                     theAsset.GetAssetFromList(vtxPos);
 
                     if(theAsset.nOp == XOP_ASSET_ACTIVATE || op == XOP_ASSET_TRANSFER)
                         theAsset.nHeight = pindexBlock->nHeight;
 
-                    // set the certissuer's txn-dependent values
+                    // set the asset's txn-dependent values
                     theAsset.vchRand = vvchArgs[0];
                     theAsset.txHash = tx.GetHash();
                     theAsset.nTime = pindexBlock->nTime;
@@ -1132,7 +1132,7 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                     if(nTheFee > 0) printf("ASSET FEES: Added %lf in fees to track for regeneration.\n", (double) nTheFee / COIN);
                     vector<CAssetFee> vAssetFees(lstAssetFees.begin(), lstAssetFees.end());
                     if (!passetdb->WriteAssetFees(vAssetFees))
-                        return error( "CheckAssetInputs() : failed to write fees to certissuer DB");
+                        return error( "CheckAssetInputs() : failed to write fees to asset DB");
 
                     // remove asset from pendings
                     vector<unsigned char> vchAsset = theAsset.nOp == XOP_ASSET_NEW ?
@@ -1145,7 +1145,7 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
 
                     // debug
                     printf( "CONNECTED ASSET: op=%s asset=%s symbol=%s title=%s hash=%s height=%d fees=%llu\n",
-                            certissuerFromOp(op).c_str(),
+                            assetFromOp(op).c_str(),
                             stringFromVch(vvchArgs[0]).c_str(),
                             stringFromVch(theAsset.vchSymbol).c_str(),
                             stringFromVch(theAsset.vchTitle).c_str(),
@@ -1198,7 +1198,7 @@ void rescanforassets(CBlockIndex *pindexRescan) {
     pcertdb->ReconstructAssetIndex(pindexRescan);
 }
 
-int GetCertTxPosHeight(const CDiskTxPos& txPos) {
+int GetAssetTxPosHeight(const CDiskTxPos& txPos) {
     // Read block header
     CBlock block;
     if (!block.ReadFromDisk(txPos)) return 0;
@@ -1210,38 +1210,47 @@ int GetCertTxPosHeight(const CDiskTxPos& txPos) {
     return pindex->nHeight;
 }
 
-int GetCertTxPosHeight2(const CDiskTxPos& txPos, int nHeight) {
-    nHeight = GetCertTxPosHeight(txPos);
+int GetAssetTxPosHeight2(const CDiskTxPos& txPos, int nHeight) {
+    nHeight = GetAssetTxPosHeight(txPos);
     return nHeight;
 }
 
-Value certissuernew(const Array& params, bool fHelp) {
-    // if(!fTestNet && !fCakeNet)
-    //     throw runtime_error(
-    //     "certissuernew is currently restricted to testnet and cakenet."
-    //             + HelpRequiringPassphrase());
-            
-    if (fHelp || params.size() != 2)
+Value assetnew(const Array& params, bool fHelp) {
+     
+    if (fHelp || params.size() != 4)
         throw runtime_error(
-                "certissuernew <title> <data>\n"
+                "assetnew <symbol> <title> <description> <totalshares>\n"
+                        "<symbol> symbol, 255 bytes max."
                         "<title> title, 255 bytes max."
-                        "<data> data, 64KB max."
+                        "<description> description, 16KB max."
+                        "<totalshares> total number of shares, 1 min, 2^64 - 1 max."
                         + HelpRequiringPassphrase());
     // gather inputs
-    vector<unsigned char> vchTitle = vchFromValue(params[0]);
-    vector<unsigned char> vchData = vchFromValue(params[1]);
+    vector<unsigned char> vchSymbol = vchFromValue(params[0]);
+    vector<unsigned char> vchTitle = vchFromValue(params[1]);
+    vector<unsigned char> vchDescription = vchFromValue(params[2]);
+    uint64 nTotalQty = atoi(params[3].get_str().c_str()); // TODO CB better translation for total quantity
+
+    if(vchSymbol.size() < 1)
+        throw runtime_error("asset symbol < 1 bytes!\n");
+
+    if(vchSymbol.size() > 10)
+        throw runtime_error("asset symbol > 10 bytes!\n");
 
     if(vchTitle.size() < 1)
-        throw runtime_error("certificate title < 1 bytes!\n");
+        throw runtime_error("asset title < 1 bytes!\n");
 
     if(vchTitle.size() > 255)
-        throw runtime_error("certificate title > 255 bytes!\n");
+        throw runtime_error("asset title > 255 bytes!\n");
 
-    if (vchData.size() < 1)
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "certificate data < 1 bytes!\n");
+    if (vchDescription.size() < 1)
+        throw runtime_error("asset description < 1 bytes!\n");
 
-    if (vchData.size() > 64 * 1024)
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "certificate data > 65536 bytes!\n");
+    if (vchDescription.size() > 16 * 1024)
+        throw runtime_error("asset description > 16384 bytes!\n");
+
+    if(nTotalQty<1)
+        throw runtime_error("asset total quantity < 1!\n");
 
     // set wallet tx ver
     CWalletTx wtx;
@@ -1250,18 +1259,22 @@ Value certissuernew(const Array& params, bool fHelp) {
     // generate rand identifier
     uint64 rand = GetRand((uint64) -1);
     vector<unsigned char> vchRand = CBigNum(rand).getvch();
-    vector<unsigned char> vchCertIssuer = vchFromString(HexStr(vchRand));
+    vector<unsigned char> vchAsset = vchFromString(HexStr(vchRand));
     vector<unsigned char> vchToHash(vchRand);
-    vchToHash.insert(vchToHash.end(), vchCertIssuer.begin(), vchCertIssuer.end());
-    uint160 certissuerHash = Hash160(vchToHash);
+    vchToHash.insert(vchToHash.end(), vchAsset.begin(), vchAsset.end());
+    uint160 assetHash = Hash160(vchToHash);
 
-    // build certissuer object
-    CCertIssuer newCertIssuer;
-    newCertIssuer.vchRand = vchCertIssuer;
-    newCertIssuer.vchTitle = vchTitle;
-    newCertIssuer.vchData = vchData;
+    // build asset object
+    CAsset newAsset;
+    newAsset.nOp = XOP_ASSET_NEW;
+    newAsset.vchRand = vchAsset;
+    newAsset.vchSymbol = vchSymbol;
+    newAsset.vchTitle = vchTitle;
+    newAsset.vchDescription = vchDescription;
+    newAsset.nTotalQty = nTotalQty;
+    newAsset.nQty = nTotalQty;
 
-    string bdata = newCertIssuer.SerializeToString();
+    string bdata = newAsset.SerializeToString();
 
     // create transaction keys
     CPubKey newDefaultKey;
@@ -1269,21 +1282,22 @@ Value certissuernew(const Array& params, bool fHelp) {
     CScript scriptPubKeyOrig;
     scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
     CScript scriptPubKey;
-    scriptPubKey << CScript::EncodeOP_N(OP_CERTISSUER_NEW) << certissuerHash << OP_2DROP;
+    scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << assetHash << OP_2DROP;
     scriptPubKey += scriptPubKeyOrig;
 
     // send transaction
     {
         LOCK(cs_main);
         EnsureWalletIsUnlocked();
-        string strError = pwalletMain->SendMoney(scriptPubKey, MIN_AMOUNT, wtx,
-                false, bdata);
-        if (strError != "")
-            throw JSONRPCError(RPC_WALLET_ERROR, strError);
-        mapMyCertIssuers[vchCertIssuer] = wtx.GetHash();
+        string strError = pwalletMain->SendMoney(scriptPubKey, MIN_AMOUNT, wtx, false, bdata);
+        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
+        mapMyAssets[vchAsset] = wtx.GetHash();
     }
-    printf("SENT:CERTNEW : title=%s, rand=%s, tx=%s, data:\n%s\n",
-            stringFromVch(vchTitle).c_str(), stringFromVch(vchCertIssuer).c_str(),
+    printf("SENT:ASSETNEW : symbol=%s title=%s, description=%s, rand=%s, tx=%s, data:\n%s\n",
+            stringFromVch(vchSymbol).c_str(), 
+            stringFromVch(vchTitle).c_str(), 
+            stringFromVch(vchDescription).c_str(), 
+            stringFromVch(vchAsset).c_str(),
             wtx.GetHash().GetHex().c_str(), bdata.c_str());
 
     // return results
@@ -1294,56 +1308,55 @@ Value certissuernew(const Array& params, bool fHelp) {
     return res;
 }
 
-Value certissueractivate(const Array& params, bool fHelp) {
+Value assetactivate(const Array& params, bool fHelp) {
     if (fHelp || params.size() < 1 || params.size() > 2)
         throw runtime_error(
-                "certissueractivate <rand> [<tx>]\n"
-                        "Activate a certificate issuer after creating one with certissuernew.\n"
-                        "<rand> certificate issuer randkey.\n"
+                "assetactivate <guid> [<tx>]\n"
+                        "Activate an asset after creating one with assetnew.\n"
+                        "<rand> asset guid.\n"
                         + HelpRequiringPassphrase());
 
     // gather inputs
     vector<unsigned char> vchRand = ParseHex(params[0].get_str());
-    vector<unsigned char> vchCertIssuer = vchFromValue(params[0]);
+    vector<unsigned char> vchAsset = vchFromValue(params[0]);
 
     // this is a syscoin transaction
     CWalletTx wtx;
     wtx.nVersion = SYSCOIN_TX_VERSION;
 
-    // check for existing pending certissuers
+    // check for existing pending assets
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
-        if (mapCertIssuerPending.count(vchCertIssuer)
-                && mapCertIssuerPending[vchCertIssuer].size()) {
-            error( "certissueractivate() : there are %d pending operations on that certificate issuer, including %s",
-                   (int) mapCertIssuerPending[vchCertIssuer].size(),
-                   mapCertIssuerPending[vchCertIssuer].begin()->GetHex().c_str());
-            throw runtime_error("there are pending operations on that certissuer");
+        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
+            error( "assetactivate() : there are %d pending operations on that asset, including %s",
+                   (int) mapAssetPending[vchAsset].size(),
+                   mapAssetPending[vchAsset].begin()->GetHex().c_str());
+            throw runtime_error("there are pending operations on that asset");
         }
 
-        // look for an certificate issuer with identical hex rand keys. wont happen.
+        // look for an asset with identical hex rand keys. wont happen.
         CTransaction tx;
-        if (GetTxOfCertIssuer(*pcertdb, vchCertIssuer, tx)) {
-            error( "certissueractivate() : this certificate issuer is already active with tx %s",
+        if (GetTxOfAsset(*passetdb, vchAsset, tx)) {
+            error( "assetactivate() : this asset is already active with tx %s",
                    tx.GetHash().GetHex().c_str());
-            throw runtime_error("this certificate issuer is already active");
+            throw runtime_error("this asset is already active");
         }
 
         EnsureWalletIsUnlocked();
 
-        // Make sure there is a previous certissuernew tx on this certificate issuer and that the random value matches
+        // Make sure there is a previous asset tx on this asset and that the random value matches
         uint256 wtxInHash;
         if (params.size() == 1) {
-            if (!mapMyCertIssuers.count(vchCertIssuer))
+            if (!mapAssets.count(vchAsset))
                 throw runtime_error(
-                        "could not find a coin with this certissuer, try specifying the certissuernew transaction id");
-            wtxInHash = mapMyCertIssuers[vchCertIssuer];
+                        "could not find a coin with this asset, try specifying the assetnew transaction id");
+            wtxInHash = mapMyAssets[vchAsset];
         } else
             wtxInHash.SetHex(params[1].get_str());
         if (!pwalletMain->mapWallet.count(wtxInHash))
             throw runtime_error("previous transaction is not in the wallet");
 
-        // verify previous txn was certissuernew
+        // verify previous txn was asset
         CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
         vector<unsigned char> vchHash;
         bool found = false;
@@ -1351,373 +1364,81 @@ Value certissueractivate(const Array& params, bool fHelp) {
             vector<vector<unsigned char> > vvch;
             int op;
             if (DecodeCertScript(out.scriptPubKey, op, vvch)) {
-                if (op != OP_CERTISSUER_NEW)
+                if (op != OP_ASSET)
                     throw runtime_error(
-                            "previous transaction wasn't a certissuernew");
+                            "previous transaction wasn't asset");
                 vchHash = vvch[0]; found = true;
                 break;
             }
         }
         if (!found)
-            throw runtime_error("Could not decode certissuer transaction");
+            throw runtime_error("Could not decode asset transaction");
 
         // calculate network fees
-        int64 nNetFee = GetCertNetworkFee(1, pindexBest->nHeight);
+        int64 nNetFee = GetAssetNetworkFee(1, pindexBest->nHeight);
 
-        // unserialize certissuer object from txn, serialize back
-        CCertIssuer newCertIssuer;
-        if(!newCertIssuer.UnserializeFromTx(wtxIn))
+        // unserialize asset object from txn, serialize back
+        CAsset newAsset;
+        if(!newAsset.UnserializeFromTx(wtxIn))
             throw runtime_error(
-                    "could not unserialize certissuer from txn");
+                    "could not unserialize asset from txn");
+        if (newAsset.nOp != XOP_ASSET_NEW)
+            throw runtime_error(
+                    "previous transaction wasn't asset new");
 
-        newCertIssuer.vchRand = vchCertIssuer;
-        newCertIssuer.nFee = nNetFee;
+        newAsset.nOp = XOP_ASSET_ACTIVATE;
+        newAsset.vchRand = vchAsset;
+        newAsset.nFee = nNetFee;
 
-        string bdata = newCertIssuer.SerializeToString();
+        string bdata = newAsset.SerializeToString();
         vector<unsigned char> vchbdata = vchFromString(bdata);
 
         // check this hash against previous, ensure they match
         vector<unsigned char> vchToHash(vchRand);
-        vchToHash.insert(vchToHash.end(), vchCertIssuer.begin(), vchCertIssuer.end());
+        vchToHash.insert(vchToHash.end(), vchAsset.begin(), vchAsset.end());
         uint160 hash = Hash160(vchToHash);
         if (uint160(vchHash) != hash)
-            throw runtime_error("previous tx used a different random value");
+            throw runtime_error("previous tx has a different guid");
 
-        //create certissueractivate txn keys
+        //create assetactivate txn keys
         CPubKey newDefaultKey;
         pwalletMain->GetKeyFromPool(newDefaultKey, false);
         CScript scriptPubKeyOrig;
         scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
         CScript scriptPubKey;
-        scriptPubKey << CScript::EncodeOP_N(OP_CERTISSUER_ACTIVATE) << vchCertIssuer
-                << vchRand << newCertIssuer.vchTitle << OP_2DROP << OP_2DROP;
+        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchRand << newAsset.vchSymbol << OP_2DROP << OP_2DROP;
         scriptPubKey += scriptPubKeyOrig;
 
         // send the tranasction
-        string strError = SendCertMoneyWithInputTx(scriptPubKey, MIN_AMOUNT,
-                nNetFee, wtxIn, wtx, false, bdata);
-        if (strError != "")
-            throw JSONRPCError(RPC_WALLET_ERROR, strError);
+        string strError = SendAssetMoneyWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee, wtxIn, wtx, false, bdata);
+        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
-        printf("SENT:CERTACTIVATE: title=%s, rand=%s, tx=%s, data:\n%s\n",
-                stringFromVch(newCertIssuer.vchTitle).c_str(),
-                stringFromVch(vchCertIssuer).c_str(), wtx.GetHash().GetHex().c_str(),
+        printf("SENT:ASSETACTIVATE: symbol=%s title=%s description=%s rand=%s tx=%s data:\n%s\n",
+                stringFromVch(newAsset.vchSymbol).c_str(),
+                stringFromVch(newAsset.vchTitle).c_str(),
+                stringFromVch(newAsset.vchDescription).c_str(),
+                stringFromVch(newAsset).c_str(), 
+                wtx.GetHash().GetHex().c_str(),
                 stringFromVch(vchbdata).c_str() );
     }
     return wtx.GetHash().GetHex();
 }
 
-Value certissuerupdate(const Array& params, bool fHelp) {
-    if (fHelp || params.size() != 3)
-        throw runtime_error(
-                "certissuerupdate <rand> <title> <data>\n"
-                        "Perform an update on an certificate issuer you control.\n"
-                        "<rand> certificate issuer randkey.\n"
-                        "<title> certificate issuer title, 255 bytes max.\n"
-                        "<data> certificate issuer data, 64 KB max.\n"
-                        + HelpRequiringPassphrase());
-
-    // gather & validate inputs
-    vector<unsigned char> vchCertIssuer = vchFromValue(params[0]);
-    vector<unsigned char> vchTitle = vchFromValue(params[1]);
-    vector<unsigned char> vchData = vchFromValue(params[2]);
-
-    if(vchTitle.size() < 1)
-        throw runtime_error("certificate issuer title < 1 bytes!\n");
-
-    if(vchTitle.size() > 255)
-        throw runtime_error("certificate issuer title > 255 bytes!\n");
-
-    if (vchData.size() < 1)
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "certificate issuer data < 1 bytes!\n");
-
-    if (vchData.size() > 64 * 1024)
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "certificate issuer data > 65536 bytes!\n");
-
-    // this is a syscoind txn
-    CWalletTx wtx;
-    wtx.nVersion = SYSCOIN_TX_VERSION;
-    CScript scriptPubKeyOrig;
-
-    // get a key from our wallet set dest as ourselves
-    CPubKey newDefaultKey;
-    pwalletMain->GetKeyFromPool(newDefaultKey, false);
-    scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
-
-    // create CERTUPDATE txn keys
-    CScript scriptPubKey;
-    scriptPubKey << CScript::EncodeOP_N(OP_CERTISSUER_UPDATE) << vchCertIssuer << vchTitle
-            << OP_2DROP << OP_DROP;
-    scriptPubKey += scriptPubKeyOrig;
-
-    {
-        LOCK2(cs_main, pwalletMain->cs_wallet);
-
-        if (mapCertIssuerPending.count(vchCertIssuer)
-                && mapCertIssuerPending[vchCertIssuer].size())
-            throw runtime_error("there are pending operations on that certificate issuer");
-
-        EnsureWalletIsUnlocked();
-
-        // look for a transaction with this key
-        CTransaction tx;
-        if (!GetTxOfCertIssuer(*pcertdb, vchCertIssuer, tx))
-            throw runtime_error("could not find a certificate issuer with this key");
-
-        // make sure certissuer is in wallet
-        uint256 wtxInHash = tx.GetHash();
-        if (!pwalletMain->mapWallet.count(wtxInHash))
-            throw runtime_error("this certificate issuer is not in your wallet");
-
-        // unserialize certissuer object from txn
-        CCertIssuer theCertIssuer;
-        if(!theCertIssuer.UnserializeFromTx(tx))
-            throw runtime_error("cannot unserialize certissuer from txn");
-
-        // get the certissuer from DB
-        vector<CCertIssuer> vtxPos;
-        if (!pcertdb->ReadCertIssuer(vchCertIssuer, vtxPos))
-            throw runtime_error("could not read certissuer from DB");
-        theCertIssuer = vtxPos.back();
-        theCertIssuer.certs.clear();
-
-        // calculate network fees
-        int64 nNetFee = GetCertNetworkFee(2, pindexBest->nHeight);
-
-        // update certissuer values
-        theCertIssuer.vchTitle = vchTitle;
-        theCertIssuer.vchData = vchData;
-        theCertIssuer.nFee += nNetFee;
-
-        // serialize certissuer object
-        string bdata = theCertIssuer.SerializeToString();
-
-        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        string strError = SendCertMoneyWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee,
-                wtxIn, wtx, false, bdata);
-        if (strError != "")
-            throw JSONRPCError(RPC_WALLET_ERROR, strError);
-    }
-    return wtx.GetHash().GetHex();
-}
-
-Value certnew(const Array& params, bool fHelp) {
-    if (fHelp || params.size() != 4)
-        throw runtime_error("certnew <issuerkey> <address> <title> <data>\n"
-                "Issue a new certificate.\n" 
-                "<issuerkey> certificate issuer randkey.\n"
-                "<title> certificate title, 255 bytes max.\n"
-                "<data> certificate data, 64 KB max.\n"
-                + HelpRequiringPassphrase());
-
-    vector<unsigned char> vchCertIssuer = vchFromValue(params[0]);
-    vector<unsigned char> vchAddress = vchFromValue(params[1]);
-    vector<unsigned char> vchTitle = vchFromValue(params[2]);
-    vector<unsigned char> vchData = vchFromValue(params[3]);
-    CBitcoinAddress sendAddr(stringFromVch(vchAddress));
-    if(!sendAddr.IsValid())
-        throw runtime_error("Invalid Syscoin address.");
-
-    if(vchTitle.size() < 1)
-        throw runtime_error("certificate title < 1 bytes!\n");
-
-    if(vchTitle.size() > 255)
-        throw runtime_error("certificate title > 255 bytes!\n");
-
-    if (vchData.size() < 1)
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "certificate data < 1 bytes!\n");
-
-    if (vchData.size() > 64 * 1024)
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "certificate data > 65536 bytes!\n");
-
-    // this is a syscoin txn
-    CWalletTx wtx;
-    wtx.nVersion = SYSCOIN_TX_VERSION;
-
-    // generate certissuer certitem identifier and hash
-    uint64 rand = GetRand((uint64) -1);
-    vector<unsigned char> vchCertItemRand = CBigNum(rand).getvch();
-    vector<unsigned char> vchToHash(vchCertItemRand);
-    vchToHash.insert(vchToHash.end(), vchCertIssuer.begin(), vchCertIssuer.end());
-    uint160 certitemHash = Hash160(vchToHash);
-
-    CScript scriptPubKeyOrig;
-    scriptPubKeyOrig.SetDestination(sendAddr.Get());
-    CScript scriptPubKey;
-    scriptPubKey << CScript::EncodeOP_N(OP_CERT_NEW)
-            << vchCertIssuer << vchCertItemRand << certitemHash << OP_2DROP << OP_2DROP;
-    scriptPubKey += scriptPubKeyOrig;
-    {
-        LOCK2(cs_main, pwalletMain->cs_wallet);
-
-        if (mapCertIssuerPending.count(vchCertIssuer)
-                && mapCertIssuerPending[vchCertIssuer].size()) {
-            error(  "certnew() : there are %d pending operations on that certificate issuer, including %s",
-                    (int) mapCertIssuerPending[vchCertIssuer].size(),
-                    mapCertIssuerPending[vchCertIssuer].begin()->GetHex().c_str());
-            throw runtime_error("there are pending operations on that certificate issuer");
-        }
-
-        EnsureWalletIsUnlocked();
-
-        // look for a transaction with this key
-        CTransaction tx;
-        if (!GetTxOfCertIssuer(*pcertdb, vchCertIssuer, tx))
-            throw runtime_error("could not find a certificate issuer with this identifier");
-
-        // unserialize certissuer object from txn
-        CCertIssuer theCertIssuer;
-        if(!theCertIssuer.UnserializeFromTx(tx))
-            throw runtime_error("could not unserialize certificate issuer from txn");
-
-        // get the certissuer id from DB
-        vector<CCertIssuer> vtxPos;
-        if (!pcertdb->ReadCertIssuer(vchCertIssuer, vtxPos))
-            throw runtime_error("could not read certificate issuer with this key from DB");
-        theCertIssuer = vtxPos.back();
-
-        // create certitem object
-        CCertItem txCertItem;
-        txCertItem.vchRand = vchCertItemRand;
-        txCertItem.vchTitle = vchTitle;
-        txCertItem.vchData = vchData;
-        theCertIssuer.certs.clear();
-        theCertIssuer.PutCertItem(txCertItem);
-
-        // serialize certissuer object
-        string bdata = theCertIssuer.SerializeToString();
-
-        string strError = pwalletMain->SendMoney(scriptPubKey, MIN_AMOUNT, wtx,
-                false, bdata);
-        if (strError != "")
-            throw JSONRPCError(RPC_WALLET_ERROR, strError);
-        mapMyCertItems[vchCertItemRand] = wtx.GetHash();
-    }
-    // return results
-    vector<Value> res;
-    res.push_back(wtx.GetHash().GetHex());
-    res.push_back(HexStr(vchCertItemRand));
-
-    return res;
-}
-
-Value certtransfer(const Array& params, bool fHelp) {
-    if (fHelp || 2 != params.size())
-        throw runtime_error("certtransfer <certkey> <address>\n"
-                "Transfer a certificate to a syscoin address.\n"
-                "<certkey> certificate randkey.\n"
-                "<address> receiver syscoin address.\n"
-                + HelpRequiringPassphrase());
-
-    // gather & validate inputs
-    vector<unsigned char> vchCertKey = ParseHex(params[0].get_str());
-    vector<unsigned char> vchAddress = vchFromValue(params[1]);
-    CBitcoinAddress sendAddr(stringFromVch(vchAddress));
-    if(!sendAddr.IsValid())
-        throw runtime_error("Invalid Syscoin address.");
-
-    // this is a syscoin txn
-    CWalletTx wtx;
-    wtx.nVersion = SYSCOIN_TX_VERSION;
-    CScript scriptPubKeyOrig;
-
-    {
-    LOCK2(cs_main, pwalletMain->cs_wallet);
-
-    if (mapCertItemPending.count(vchCertKey)
-            && mapCertItemPending[vchCertKey].size())
-        throw runtime_error( "certtransfer() : there are pending operations on that certificate" );
-
-    EnsureWalletIsUnlocked();
-
-    // look for a transaction with this key, also returns
-    // an certissuer object if it is found
-    CTransaction tx;
-    CCertIssuer theCertIssuer;
-    CCertItem theCertItem;
-    if (!GetTxOfCertItem(*pcertdb, vchCertKey, theCertIssuer, tx))
-        throw runtime_error("could not find a certificate with this key");
-
-    // check to see if certificate in wallet
-    uint256 wtxInHash = tx.GetHash();
-    if (!pwalletMain->mapWallet.count(wtxInHash))
-        throw runtime_error("certtransfer() : certificate is not in your wallet" );
-
-    // check that prev txn contains certissuer
-    if(!theCertIssuer.UnserializeFromTx(tx))
-        throw runtime_error("could not unserialize certificate from txn");
-
-    // get the certissuer certitem from certissuer
-    if(!theCertIssuer.GetCertItemByHash(vchCertKey, theCertItem))
-        throw runtime_error("could not find a certificate with this name");
-
-    // get the certissuer id from DB
-    vector<unsigned char> vchCertIssuer;
-    vector<CCertIssuer> vtxPos;
-    if (!pcertdb->ReadCertItem(vchCertKey, vchCertIssuer))
-        throw runtime_error("could not read certificate from DB");
-    if (!pcertdb->ReadCertIssuer(vchCertIssuer, vtxPos))
-        throw runtime_error("could not read certificate issuer with this key from DB");
-
-    // hashes should match
-    if(vtxPos.back().vchRand != theCertIssuer.vchRand)
-        throw runtime_error("certificate issuer hash mismatch.");
-
-    // use the certissuer and certificate from the DB as basis
-    theCertIssuer = vtxPos.back();
-    if(!theCertIssuer.GetCertItemByHash(vchCertKey, theCertItem))
-        throw runtime_error("could not find a certificate with this hash in DB");
-
-    // get a key from our wallet set dest as ourselves
-    CPubKey newDefaultKey;
-    pwalletMain->GetKeyFromPool(newDefaultKey, false);
-    scriptPubKeyOrig.SetDestination(sendAddr.Get());
-    CScript scriptPubKey;
-    scriptPubKey << CScript::EncodeOP_N(OP_CERT_TRANSFER) << vchCertIssuer << vchCertKey << OP_2DROP << OP_DROP;
-    scriptPubKey += scriptPubKeyOrig;
-
-    // make sure wallet is unlocked
-    if (pwalletMain->IsLocked()) throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED,
-        "Error: Please enter the wallet passphrase with walletpassphrase first.");
-
-    // calculate network fees
-    int64 nNetFee = GetCertNetworkFee(4, pindexBest->nHeight);
-
-    theCertItem.nFee += nNetFee;
-    theCertIssuer.certs.clear();
-    theCertIssuer.PutCertItem(theCertItem);
-
-    // send the certissuer pay txn
-    CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-    string strError = SendCertMoneyWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee,
-            wtxIn, wtx, false, theCertIssuer.SerializeToString());
-    if (strError != "")
-        throw JSONRPCError(RPC_WALLET_ERROR, strError);
-    }
-    mapMyCertItems[vchCertKey] = 0;
-
-    // return results
-    vector<Value> res;
-    res.push_back(wtx.GetHash().GetHex());
-
-    return res;
-}
-
-Value certissuerinfo(const Array& params, bool fHelp) {
+Value assetinfo(const Array& params, bool fHelp) {
     if (fHelp || 1 != params.size())
-        throw runtime_error("certissuerinfo <rand>\n"
-                "Show stored values of an certificate issuer.\n");
+        throw runtime_error("assetinfo <rand>\n"
+                "Show stored values of an asset.\n");
 
-    Object oLastCertIssuer;
-    vector<unsigned char> vchCertIssuer = vchFromValue(params[0]);
-    string certissuer = stringFromVch(vchCertIssuer);
+    Object oLastAsset;
+    vector<unsigned char> vchAsset = vchFromValue(params[0]);
+    string asset = stringFromVch(vchAsset);
     {
         LOCK(pwalletMain->cs_wallet);
 
-        vector<CCertIssuer> vtxPos;
-        if (!pcertdb->ReadCertIssuer(vchCertIssuer, vtxPos))
+        vector<CAsset> vtxPos;
+        if (!passetdb->ReadAsset(vchAsset, vtxPos))
             throw JSONRPCError(RPC_WALLET_ERROR,
-                    "failed to read from certissuer DB");
+                    "failed to read from asset DB");
         if (vtxPos.size() < 1)
             throw JSONRPCError(RPC_WALLET_ERROR, "no result returned");
 
@@ -1728,116 +1449,41 @@ Value certissuerinfo(const Array& params, bool fHelp) {
         if (!GetTransaction(txHash, tx, blockHash, true))
             throw JSONRPCError(RPC_WALLET_ERROR, "failed to read transaction from disk");
 
-        CCertIssuer theCertIssuer = vtxPos.back();
+        CAsset theAsset = vtxPos.back();
 
-        Object oCertIssuer;
+        Object oAsset;
         vector<unsigned char> vchValue;
-        Array aoCertItems;
-        for(unsigned int i=0;i<theCertIssuer.certs.size();i++) {
-            CCertItem ca = theCertIssuer.certs[i];
-            Object oCertItem;
-            string sTime = strprintf("%llu", ca.nTime);
-            string sHeight = strprintf("%llu", ca.nHeight);
-
-            oCertItem.push_back(Pair("id", HexStr(ca.vchRand)));
-            oCertItem.push_back(Pair("txid", ca.txHash.GetHex()));
-            oCertItem.push_back(Pair("height", sHeight));
-            oCertItem.push_back(Pair("time", sTime));
-            oCertItem.push_back(Pair("fee", (double)ca.nFee / COIN));
-            oCertItem.push_back(Pair("title", stringFromVch(ca.vchTitle)));
-            oCertItem.push_back(Pair("data", stringFromVch(ca.vchData)));
-            aoCertItems.push_back(oCertItem);
-        }
         int nHeight;
-        uint256 certissuerHash;
-        if (GetValueOfCertIssuerTxHash(txHash, vchValue, certissuerHash, nHeight)) {
-            oCertIssuer.push_back(Pair("id", certissuer));
-            oCertIssuer.push_back(Pair("txid", tx.GetHash().GetHex()));
+        uint256 assetHash;
+        if (GetValueOfAssetTxHash(txHash, vchValue, assetHash, nHeight)) {
+            oAsset.push_back(Pair("id", asset));
+            oAsset.push_back(Pair("txid", tx.GetHash().GetHex()));
             string strAddress = "";
-            GetCertAddress(tx, strAddress);
-            oCertIssuer.push_back(Pair("address", strAddress));
-            oCertIssuer.push_back(
+            GetAssetAddress(tx, strAddress);
+            oAsset.push_back(Pair("address", strAddress));
+            oAsset.push_back(
                     Pair("expires_in",
                             nHeight + GetCertDisplayExpirationDepth(nHeight)
                                     - pindexBest->nHeight));
             if (nHeight + GetCertDisplayExpirationDepth(nHeight)
                     - pindexBest->nHeight <= 0) {
-                oCertIssuer.push_back(Pair("expired", 1));
+                oAsset.push_back(Pair("expired", 1));
             }
-            oCertIssuer.push_back(Pair("title", stringFromVch(theCertIssuer.vchTitle)));
-            oCertIssuer.push_back(Pair("data", stringFromVch(theCertIssuer.vchData)));
-            oCertIssuer.push_back(Pair("certificates", aoCertItems));
-            oLastCertIssuer = oCertIssuer;
+            oAsset.push_back(Pair("symbol", stringFromVch(theAsset.vchTitle)));
+            oAsset.push_back(Pair("title", stringFromVch(theAsset.vchTitle)));
+            oAsset.push_back(Pair("description", stringFromVch(theAsset.vchDescription)));
+            oAsset.push_back(Pair("total_quantity", strprintf("%llu", theAsset.nTotalQty)));
+            oAsset.push_back(Pair("quantity", strprintf("%llu", theAsset.nQty)));
+            oLastAsset = oAsset;
         }
     }
-    return oLastCertIssuer;
+    return oLastAsset;
 
 }
 
-Value certinfo(const Array& params, bool fHelp) {
-    if (fHelp || 1 != params.size())
-        throw runtime_error("certissuerinfo <rand>\n"
-                "Show stored values of a single certificate and its issuer.\n");
-
-    vector<unsigned char> vchCertRand = ParseHex(params[0].get_str());
-    Object oCertItem;
-
-    // look for a transaction with this key, also returns
-    // an certissuer object if it is found
-    CTransaction tx;
-    CCertIssuer theCertIssuer;
-    CCertItem theCertItem;
-    if (!GetTxOfCertItem(*pcertdb, vchCertRand, theCertIssuer, tx))
-        throw runtime_error("could not find a certificate with this key");
-    uint256 txHash = tx.GetHash();
-
-    {
-        LOCK(pwalletMain->cs_wallet);
-
-        if(!theCertIssuer.GetCertItemByHash(vchCertRand, theCertItem))
-            throw runtime_error("could not find a certificate with this hash in DB");
-
-        Object oCertIssuer;
-        vector<unsigned char> vchValue;
-
-        CCertItem ca = theCertItem;
-        string sTime = strprintf("%llu", ca.nTime);
-        string sHeight = strprintf("%llu", ca.nHeight);
-        oCertItem.push_back(Pair("id", HexStr(ca.vchRand)));
-        oCertItem.push_back(Pair("txid", ca.txHash.GetHex()));
-        oCertItem.push_back(Pair("height", sHeight));
-        oCertItem.push_back(Pair("time", sTime));
-        oCertItem.push_back(Pair("fee", (double)ca.nFee / COIN));
-        oCertItem.push_back(Pair("title", stringFromVch(ca.vchTitle)));
-        oCertItem.push_back(Pair("data", stringFromVch(ca.vchData)));
-
-        int nHeight;
-        uint256 certissuerHash;
-        if (GetValueOfCertIssuerTxHash(txHash, vchValue, certissuerHash, nHeight)) {
-            oCertIssuer.push_back(Pair("id", stringFromVch(theCertIssuer.vchRand) ));
-            oCertIssuer.push_back(Pair("txid", tx.GetHash().GetHex()));
-            string strAddress = "";
-            GetCertAddress(tx, strAddress);
-            oCertIssuer.push_back(Pair("address", strAddress));
-            oCertIssuer.push_back(
-                    Pair("expires_in",
-                            nHeight + GetCertDisplayExpirationDepth(nHeight)
-                                    - pindexBest->nHeight));
-            if (nHeight + GetCertDisplayExpirationDepth(nHeight)
-                    - pindexBest->nHeight <= 0) {
-                oCertIssuer.push_back(Pair("expired", 1));
-            }
-            oCertIssuer.push_back(Pair("title", stringFromVch(theCertIssuer.vchTitle)));
-            oCertIssuer.push_back(Pair("data", stringFromVch(theCertIssuer.vchData)));
-            oCertItem.push_back(Pair("issuer", oCertIssuer));
-        }
-    }
-    return oCertItem;
-}
-
-Value certissuerlist(const Array& params, bool fHelp) {
+Value assetlist(const Array& params, bool fHelp) {
     if (fHelp || 1 < params.size())
-        throw runtime_error("certissuerlist [<certissuer>]\n"
+        throw runtime_error("assetlist [<asset>]\n"
                 "list my own certificate issuers");
 
     vector<unsigned char> vchName;
@@ -1888,7 +1534,7 @@ Value certissuerlist(const Array& params, bool fHelp) {
             nHeight = GetCertTxHashHeight(hash);
 
             // get the txn alias name
-            if(!GetNameOfCertIssuerTx(tx, vchName))
+            if(!GetNameOfAssetTx(tx, vchName))
                 continue;
 
             // skip this alias if it doesn't match the given filter value
@@ -1896,7 +1542,7 @@ Value certissuerlist(const Array& params, bool fHelp) {
                 continue;
 
             // get the value of the alias txn
-            if(!GetValueOfCertIssuerTx(tx, vchValue))
+            if(!GetValueOfAssetTx(tx, vchValue))
                 continue;
 
             // build the output object
@@ -1927,24 +1573,24 @@ Value certissuerlist(const Array& params, bool fHelp) {
     return oRes;
 }
 
-Value certissuerhistory(const Array& params, bool fHelp) {
+Value assethistory(const Array& params, bool fHelp) {
     if (fHelp || 1 != params.size())
-        throw runtime_error("certissuerhistory <certissuer>\n"
-                "List all stored values of an certissuer.\n");
+        throw runtime_error("assethistory <asset>\n"
+                "List all stored values of an asset.\n");
 
     Array oRes;
-    vector<unsigned char> vchCertIssuer = vchFromValue(params[0]);
-    string certissuer = stringFromVch(vchCertIssuer);
+    vector<unsigned char> vchAsset = vchFromValue(params[0]);
+    string asset = stringFromVch(vchAsset);
 
     {
         LOCK(pwalletMain->cs_wallet);
 
-        vector<CCertIssuer> vtxPos;
-        if (!pcertdb->ReadCertIssuer(vchCertIssuer, vtxPos))
+        vector<CAsset> vtxPos;
+        if (!pcertdb->ReadAsset(vchAsset, vtxPos))
             throw JSONRPCError(RPC_WALLET_ERROR,
-                    "failed to read from certissuer DB");
+                    "failed to read from asset DB");
 
-        CCertIssuer txPos2;
+        CAsset txPos2;
         uint256 txHash;
         uint256 blockHash;
         BOOST_FOREACH(txPos2, vtxPos) {
@@ -1955,46 +1601,46 @@ Value certissuerhistory(const Array& params, bool fHelp) {
                 continue;
             }
 
-            Object oCertIssuer;
+            Object oAsset;
             vector<unsigned char> vchValue;
             int nHeight;
             uint256 hash;
-            if (GetValueOfCertIssuerTxHash(txHash, vchValue, hash, nHeight)) {
-                oCertIssuer.push_back(Pair("certissuer", certissuer));
+            if (GetValueOfAssetTxHash(txHash, vchValue, hash, nHeight)) {
+                oAsset.push_back(Pair("asset", asset));
                 string value = stringFromVch(vchValue);
-                oCertIssuer.push_back(Pair("value", value));
-                oCertIssuer.push_back(Pair("txid", tx.GetHash().GetHex()));
+                oAsset.push_back(Pair("value", value));
+                oAsset.push_back(Pair("txid", tx.GetHash().GetHex()));
                 string strAddress = "";
                 GetCertAddress(tx, strAddress);
-                oCertIssuer.push_back(Pair("address", strAddress));
-                oCertIssuer.push_back(
+                oAsset.push_back(Pair("address", strAddress));
+                oAsset.push_back(
                         Pair("expires_in",
                                 nHeight + GetCertDisplayExpirationDepth(nHeight)
                                         - pindexBest->nHeight));
                 if (nHeight + GetCertDisplayExpirationDepth(nHeight)
                         - pindexBest->nHeight <= 0) {
-                    oCertIssuer.push_back(Pair("expired", 1));
+                    oAsset.push_back(Pair("expired", 1));
                 }
-                oRes.push_back(oCertIssuer);
+                oRes.push_back(oAsset);
             }
         }
     }
     return oRes;
 }
 
-Value certissuerfilter(const Array& params, bool fHelp) {
+Value assetfilter(const Array& params, bool fHelp) {
     if (fHelp || params.size() > 5)
         throw runtime_error(
-                "certissuerfilter [[[[[regexp] maxage=36000] from=0] nb=0] stat]\n"
-                        "scan and filter certissueres\n"
-                        "[regexp] : apply [regexp] on certissueres, empty means all certissueres\n"
+                "assetfilter [[[[[regexp] maxage=36000] from=0] nb=0] stat]\n"
+                        "scan and filter assets\n"
+                        "[regexp] : apply [regexp] on assets, empty means all assets\n"
                         "[maxage] : look in last [maxage] blocks\n"
                         "[from] : show results from number [from]\n"
                         "[nb] : show [nb] results, 0 means all\n"
                         "[stats] : show some stats instead of results\n"
-                        "certissuerfilter \"\" 5 # list certissueres updated in last 5 blocks\n"
-                        "certissuerfilter \"^certissuer\" # list all certissueres starting with \"certissuer\"\n"
-                        "certissuerfilter 36000 0 0 stat # display stats (number of certissuers) on active certissueres\n");
+                        "assetfilter \"\" 5 # list assets updated in last 5 blocks\n"
+                        "assetfilter \"^asset\" # list all assets starting with \"asset\"\n"
+                        "assetfilter 36000 0 0 stat # display stats (number of assets) on active assets\n");
 
     string strRegexp;
     int nFrom = 0;
@@ -2022,24 +1668,24 @@ Value certissuerfilter(const Array& params, bool fHelp) {
     //CCertDB dbCert("r");
     Array oRes;
 
-    vector<unsigned char> vchCertIssuer;
-    vector<pair<vector<unsigned char>, CCertIssuer> > certissuerScan;
-    if (!pcertdb->ScanCertIssuers(vchCertIssuer, 100000000, certissuerScan))
+    vector<unsigned char> vchAsset;
+    vector<pair<vector<unsigned char>, CAsset> > assetScan;
+    if (!pcertdb->ScanAssets(vchAsset, 100000000, assetScan))
         throw JSONRPCError(RPC_WALLET_ERROR, "scan failed");
 
-    pair<vector<unsigned char>, CCertIssuer> pairScan;
-    BOOST_FOREACH(pairScan, certissuerScan) {
-        string certissuer = stringFromVch(pairScan.first);
+    pair<vector<unsigned char>, CAsset> pairScan;
+    BOOST_FOREACH(pairScan, assetScan) {
+        string asset = stringFromVch(pairScan.first);
 
         // regexp
         using namespace boost::xpressive;
-        smatch certissuerparts;
+        smatch assetparts;
         sregex cregex = sregex::compile(strRegexp);
-        if (strRegexp != "" && !regex_search(certissuer, certissuerparts, cregex))
+        if (strRegexp != "" && !regex_search(asset, assetparts, cregex))
             continue;
 
-        CCertIssuer txCertIssuer = pairScan.second;
-        int nHeight = txCertIssuer.nHeight;
+        CAsset txAsset = pairScan.second;
+        int nHeight = txAsset.nHeight;
 
         // max age
         if (nMaxAge != 0 && pindexBest->nHeight - nHeight >= nMaxAge)
@@ -2050,24 +1696,24 @@ Value certissuerfilter(const Array& params, bool fHelp) {
         if (nCountFrom < nFrom + 1)
             continue;
 
-        Object oCertIssuer;
-        oCertIssuer.push_back(Pair("certissuer", certissuer));
+        Object oAsset;
+        oAsset.push_back(Pair("asset", asset));
         CTransaction tx;
         uint256 blockHash;
-        uint256 txHash = txCertIssuer.txHash;
+        uint256 txHash = txAsset.txHash;
         if ((nHeight + GetCertDisplayExpirationDepth(nHeight) - pindexBest->nHeight
                 <= 0) || !GetTransaction(txHash, tx, blockHash, true)) {
-            oCertIssuer.push_back(Pair("expired", 1));
+            oAsset.push_back(Pair("expired", 1));
         } else {
-            vector<unsigned char> vchValue = txCertIssuer.vchTitle;
+            vector<unsigned char> vchValue = txAsset.vchTitle;
             string value = stringFromVch(vchValue);
-            oCertIssuer.push_back(Pair("value", value));
-            oCertIssuer.push_back(
+            oAsset.push_back(Pair("value", value));
+            oAsset.push_back(
                     Pair("expires_in",
                             nHeight + GetCertDisplayExpirationDepth(nHeight)
                                     - pindexBest->nHeight));
         }
-        oRes.push_back(oCertIssuer);
+        oRes.push_back(oAsset);
 
         nCountNb++;
         // nb limits
@@ -2086,16 +1732,16 @@ Value certissuerfilter(const Array& params, bool fHelp) {
     return oRes;
 }
 
-Value certissuerscan(const Array& params, bool fHelp) {
+Value assetscan(const Array& params, bool fHelp) {
     if (fHelp || 2 > params.size())
         throw runtime_error(
-                "certissuerscan [<start-certissuer>] [<max-returned>]\n"
-                        "scan all certissuers, starting at start-certissuer and returning a maximum number of entries (default 500)\n");
+                "assetscan [<start-asset>] [<max-returned>]\n"
+                        "scan all assets, starting at start-asset and returning a maximum number of entries (default 500)\n");
 
-    vector<unsigned char> vchCertIssuer;
+    vector<unsigned char> vchAsset;
     int nMax = 500;
     if (params.size() > 0) {
-        vchCertIssuer = vchFromValue(params[0]);
+        vchAsset = vchFromValue(params[0]);
     }
 
     if (params.size() > 1) {
@@ -2107,47 +1753,47 @@ Value certissuerscan(const Array& params, bool fHelp) {
     //CCertDB dbCert("r");
     Array oRes;
 
-    vector<pair<vector<unsigned char>, CCertIssuer> > certissuerScan;
-    if (!pcertdb->ScanCertIssuers(vchCertIssuer, nMax, certissuerScan))
+    vector<pair<vector<unsigned char>, CAsset> > assetScan;
+    if (!pcertdb->ScanAssets(vchAsset, nMax, assetScan))
         throw JSONRPCError(RPC_WALLET_ERROR, "scan failed");
 
-    pair<vector<unsigned char>, CCertIssuer> pairScan;
-    BOOST_FOREACH(pairScan, certissuerScan) {
-        Object oCertIssuer;
-        string certissuer = stringFromVch(pairScan.first);
-        oCertIssuer.push_back(Pair("certissuer", certissuer));
+    pair<vector<unsigned char>, CAsset> pairScan;
+    BOOST_FOREACH(pairScan, assetScan) {
+        Object oAsset;
+        string asset = stringFromVch(pairScan.first);
+        oAsset.push_back(Pair("asset", asset));
         CTransaction tx;
-        CCertIssuer txCertIssuer = pairScan.second;
+        CAsset txAsset = pairScan.second;
         uint256 blockHash;
 
-        int nHeight = txCertIssuer.nHeight;
-        vector<unsigned char> vchValue = txCertIssuer.vchTitle;
+        int nHeight = txAsset.nHeight;
+        vector<unsigned char> vchValue = txAsset.vchTitle;
         if ((nHeight + GetCertDisplayExpirationDepth(nHeight) - pindexBest->nHeight
-                <= 0) || !GetTransaction(txCertIssuer.txHash, tx, blockHash, true)) {
-            oCertIssuer.push_back(Pair("expired", 1));
+                <= 0) || !GetTransaction(txAsset.txHash, tx, blockHash, true)) {
+            oAsset.push_back(Pair("expired", 1));
         } else {
             string value = stringFromVch(vchValue);
             //string strAddress = "";
             //GetCertAddress(tx, strAddress);
-            oCertIssuer.push_back(Pair("value", value));
-            //oCertIssuer.push_back(Pair("txid", tx.GetHash().GetHex()));
-            //oCertIssuer.push_back(Pair("address", strAddress));
-            oCertIssuer.push_back(
+            oAsset.push_back(Pair("value", value));
+            //oAsset.push_back(Pair("txid", tx.GetHash().GetHex()));
+            //oAsset.push_back(Pair("address", strAddress));
+            oAsset.push_back(
                     Pair("expires_in",
                             nHeight + GetCertDisplayExpirationDepth(nHeight)
                                     - pindexBest->nHeight));
         }
-        oRes.push_back(oCertIssuer);
+        oRes.push_back(oAsset);
     }
 
     return oRes;
 }
 
 
- Value certissuerclean(const Array& params, bool fHelp)
+ Value assetclean(const Array& params, bool fHelp)
  {
      if (fHelp || params.size())
-     throw runtime_error("certissuer_clean\nClean unsatisfiable transactions from the wallet\n");
+     throw runtime_error("asset_clean\nClean unsatisfiable transactions from the wallet\n");
 
 
      {
@@ -2160,8 +1806,8 @@ Value certissuerscan(const Array& params, bool fHelp) {
              BOOST_FOREACH(PAIRTYPE(const uint256, CWalletTx)& item, pwalletMain->mapWallet)
              {
                  CWalletTx& wtx = item.second;
-                 vector<unsigned char> vchCertIssuer;
-                 if (wtx.GetDepthInMainChain() < 1 && IsConflictedCertIssuerTx(*pblocktree, wtx, vchCertIssuer))
+                 vector<unsigned char> vchAsset;
+                 if (wtx.GetDepthInMainChain() < 1 && IsConflictedAssetTx(*pblocktree, wtx, vchAsset))
                  {
                      uint256 hash = wtx.GetHash();
                      mapRemove[hash] = wtx;
@@ -2197,14 +1843,14 @@ Value certissuerscan(const Array& params, bool fHelp) {
              UnspendInputs(wtx);
              wtx.RemoveFromMemoryPool();
              pwalletMain->EraseFromWallet(wtx.GetHash());
-             vector<unsigned char> vchCertIssuer;
-             if (GetNameOfCertIssuerTx(wtx, vchCertIssuer) && mapCertIssuerPending.count(vchCertIssuer))
+             vector<unsigned char> vchAsset;
+             if (GetNameOfAssetTx(wtx, vchAsset) && mapAssetPending.count(vchAsset))
              {
-                 string certissuer = stringFromVch(vchCertIssuer);
-                 printf("certissuer_clean() : erase %s from pending of certissuer %s",
-                 wtx.GetHash().GetHex().c_str(), certissuer.c_str());
-                 if (!mapCertIssuerPending[vchCertIssuer].erase(wtx.GetHash()))
-                     error("certissuer_clean() : erase but it was not pending");
+                 string asset = stringFromVch(vchAsset);
+                 printf("asset_clean() : erase %s from pending of asset %s",
+                 wtx.GetHash().GetHex().c_str(), asset.c_str());
+                 if (!mapAssetPending[vchAsset].erase(wtx.GetHash()))
+                     error("asset_clean() : erase but it was not pending");
              }
              wtx.print();
          }

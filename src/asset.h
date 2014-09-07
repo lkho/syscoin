@@ -1,5 +1,5 @@
-#ifndef CERT_H
-#define CERT_H
+#ifndef ASSET_H
+#define ASSET_H
 
 #include "bitcoinrpc.h"
 #include "leveldb.h"
@@ -236,9 +236,9 @@ public:
 
     bool ReconstructAssetIndex(CBlockIndex *pindexRescan);
 };
-extern std::list<CCertFee> lstCertIssuerFees;
+extern std::list<CAssetFee> lstAssetFees;
 
 
-bool GetTxOfCertIssuer(CCertDB& dbCertIssuer, const std::vector<unsigned char> &vchCertIssuer, CTransaction& tx);
+bool GetTxOfAsset(CAssetDB& dbAsset, const std::vector<unsigned char> &vchAsset, CTransaction& tx);
 
-#endif // CERT_H
+#endif // ASSET_H

@@ -13,6 +13,7 @@
 #include "alias.h"
 #include "offer.h"
 #include "cert.h"
+#include "asset.h"
 #include <boost/algorithm/string/replace.hpp>
 
 using namespace std;
@@ -366,8 +367,11 @@ void CWallet::WalletUpdateSpent(const CTransaction &tx)
                     wtx.WriteToDisk();
                     NotifyTransactionChanged(this, txin.prevout.hash, CT_UPDATED);
 
+                    // notify if this transaction is an alias, offer, cert, or asset
                     vector<vector<unsigned char> > vvchArgs;
                     int op, nOut;
+
+                    // alias
                     bool good = DecodeAliasTx(tx, op, nOut, vvchArgs, -1);
                     if(good && IsAliasOp(op)) {
                         const vector<unsigned char> &vchName = vvchArgs[0];
@@ -376,6 +380,7 @@ void CWallet::WalletUpdateSpent(const CTransaction &tx)
                             NotifyAliasListChanged(this, &tx, vtxPos.back(), CT_UPDATED);
                         }
                     } 
+                    // offers
                     good = DecodeOfferTx(tx, op, nOut, vvchArgs, -1);
                     if (good && IsOfferOp(op)) {
                         COffer theOffer;
@@ -383,12 +388,21 @@ void CWallet::WalletUpdateSpent(const CTransaction &tx)
                         if(!theOffer.IsNull())
                             NotifyOfferListChanged(this, &tx, theOffer, CT_UPDATED);
                     }
+                    // certificates
                     good = DecodeCertTx(tx, op, nOut, vvchArgs, -1);
                     if(good && IsCertOp(op)) {
                         CCertIssuer theCI;
                         theCI.UnserializeFromTx(tx);
                         if(!theCI.IsNull())
                             NotifyCertIssuerListChanged(this, &tx, theCI, CT_UPDATED);
+                    }
+                    // assets
+                    good = DecodeAssetTx(tx, op, nOut, vvchArgs, -1);
+                    if(good && IsAssetOp(op)) {
+                        CAsset theAsset;
+                        theAsset.UnserializeFromTx(tx);
+                        if(!theAsset.IsNull())
+                            NotifyAssetListChanged(this, &tx, theAsset, CT_UPDATED);
                     }
                 }
             }
@@ -522,26 +536,40 @@ bool CWallet::AddToWallet(const CWalletTx& wtxIn)
 
         // Notify UI of new or updated transaction
         NotifyTransactionChanged(this, hash, fInsertedNew ? CT_NEW : CT_UPDATED);
+        
+        // notify service UI screens of new or updated syscoin transaction
         vector<vector<unsigned char> > vvchArgs;
-        int op;
-        int nOut;
+        int op, nOut;
+
+        // alias
         bool good = DecodeAliasTx(wtx, op, nOut, vvchArgs, -1);
-        if (good){
-            if(IsAliasOp(op)) {
-                const vector<unsigned char> &vchName = vvchArgs[0];
-                vector<CAliasIndex> vtxPos;
-                if (paliasdb->ReadAlias(vchName, vtxPos)) {
-                    NotifyAliasListChanged(this, &wtx, vtxPos.back(), fInsertedNew ? CT_NEW : CT_UPDATED);
-                }
-            } else if (IsOfferOp(op)) {
-                COffer theOffer;
-                theOffer.UnserializeFromTx(wtx);
-                NotifyOfferListChanged(this, &wtx, theOffer, fInsertedNew ? CT_NEW : CT_UPDATED);
-            } else if(IsCertOp(op)) {
-                CCertIssuer theCI;
-                theCI.UnserializeFromTx(wtx);
-                NotifyCertIssuerListChanged(this, &wtx, theCI, fInsertedNew ? CT_NEW : CT_UPDATED);
+        if (good && IsAliasOp(op)){
+            const vector<unsigned char> &vchName = vvchArgs[0];
+            vector<CAliasIndex> vtxPos;
+            if (paliasdb->ReadAlias(vchName, vtxPos)) {
+                NotifyAliasListChanged(this, &wtx, vtxPos.back(), fInsertedNew ? CT_NEW : CT_UPDATED);
             }
+        }
+        // offer
+        good = DecodeOfferTx(wtx, op, nOut, vvchArgs, -1);
+        if (good && IsOfferOp(op)){
+            COffer theOffer;
+            theOffer.UnserializeFromTx(wtx);
+            NotifyOfferListChanged(this, &wtx, theOffer, fInsertedNew ? CT_NEW : CT_UPDATED);
+        }
+        // certificates
+        good = DecodeCertTx(wtx, op, nOut, vvchArgs, -1);
+        if (good && IsCertOp(op)){
+            CCertIssuer theCI;
+            theCI.UnserializeFromTx(wtx);
+            NotifyCertIssuerListChanged(this, &wtx, theCI, fInsertedNew ? CT_NEW : CT_UPDATED);
+        }
+        // assets
+        good = DecodeAssetTx(wtx, op, nOut, vvchArgs, -1);
+        if (good && IsAssetOp(op)){
+            CAsset theAsset;
+            theAsset.UnserializeFromTx(wtx);
+            NotifyAssetListChanged(this, &wtx, theAsset, fInsertedNew ? CT_NEW : CT_UPDATED);
         }
 
         // notify an external script when a wallet transaction comes in or is updated
@@ -639,7 +667,8 @@ int64 CWallet::GetDebitInclName(const CTxIn &txin) const
                 if (IsMine(prev.vout[txin.prevout.n]) 
                     || IsAliasMine(prev, prev.vout[txin.prevout.n]) 
                     || IsOfferMine(prev, prev.vout[txin.prevout.n])
-                    || IsCertMine(prev, prev.vout[txin.prevout.n]))
+                    || IsCertMine(prev, prev.vout[txin.prevout.n])
+                    || IsAssetMine(prev, prev.vout[txin.prevout.n]))
                     return prev.vout[txin.prevout.n].nValue;
         }
     }
@@ -752,15 +781,14 @@ void CWalletTx::GetAmounts(list<pair<CTxDestination, int64> >& listReceived,
         CTxDestination address;
         string saddress;
         uint160 hash160;
-        if(!ExtractDestination(txout.scriptPubKey, address)) {
-            if (!ExtractAliasAddress(txout.scriptPubKey, saddress)) {
-                if (!ExtractOfferAddress(txout.scriptPubKey, saddress)) {
-                    if (!ExtractCertIssuerAddress(txout.scriptPubKey, saddress)) {
-                        printf("CWalletTx::GetAmounts: Unknown transaction type found, txid %s\n",
-                       this->GetHash().ToString().c_str());
-                    }
-                }
-            }
+
+        if(   !ExtractDestination(txout.scriptPubKey, address)
+            &&!ExtractAliasAddress(txout.scriptPubKey, saddress)
+            &&!ExtractOfferAddress(txout.scriptPubKey, saddress) 
+            &&!ExtractCertIssuerAddress(txout.scriptPubKey, saddress)
+            &&!ExtractAssetAddress(txout.scriptPubKey, saddress) ) {
+            printf("CWalletTx::GetAmounts: Unknown transaction type found, txid %s\n",
+            this->GetHash().ToString().c_str());            
         }
 
         vector<vector<unsigned char> > vvch;
@@ -780,6 +808,12 @@ void CWalletTx::GetAmounts(list<pair<CTxDestination, int64> >& listReceived,
             if (op != OP_CERTISSUER_NEW)
                 continue;
         }
+        else if (DecodeAssetScript(txout.scriptPubKey, op, vvch) && IsAssetOp(op)) {
+            nCarriedOverCoin -= txout.nValue;
+            // TODO CB get the txn to determine the XOP
+            //if (op != OP_CERTISSUER_NEW)
+            //    continue;
+        }
 
         // Don't report 'change' txouts
         if (nDebit > 0 && pwallet->IsChange(txout))
@@ -791,7 +825,8 @@ void CWalletTx::GetAmounts(list<pair<CTxDestination, int64> >& listReceived,
         if (pwallet->IsMine(txout) 
             || IsAliasMine(*this, txout, true) 
             || IsOfferMine(*this, txout, true)
-            || IsCertMine(*this, txout, true))
+            || IsCertMine(*this, txout, true)
+            || IsAssetMine(*this, txout, true))
             listReceived.push_back(make_pair(address, txout.nValue));
     }
 
@@ -989,6 +1024,7 @@ void CWalletTx::RelayWalletTransaction()
 {
     BOOST_FOREACH(const CMerkleTx& tx, vtxPrev)
     {
+        // TODO CB This sounds exactly like what we've been seeing??
         // Important: versions of bitcoin before 0.8.6 had a bug that inserted
         // empty transactions into the vtxPrev, which will cause the node to be
         // banned when retransmitted, hence the check for !tx.vin.empty()
@@ -1510,28 +1546,42 @@ bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey)
                 coin.BindWallet(this);
                 coin.MarkSpent(txin.prevout.n);
                 coin.WriteToDisk();
+                
                 NotifyTransactionChanged(this, coin.GetHash(), CT_UPDATED);
+                
+                // notify if syscoin txn
                 vector<vector<unsigned char> > vvchArgs;
-                int op;
-                int nOut;
+                int op, nOut;
+                //alias
                 bool good = DecodeAliasTx(wtxNew, op, nOut, vvchArgs, -1);
-                if (good){
-                    if(IsAliasOp(op)) {
-                        const vector<unsigned char> &vchName = vvchArgs[0];
-                        vector<CAliasIndex> vtxPos;
-                        if (paliasdb->ReadAlias(vchName, vtxPos)) {
-                            NotifyAliasListChanged(this, &wtxNew, vtxPos.back(), CT_UPDATED);
-                        }
-                    } else if (IsOfferOp(op)) {
-                        COffer theOffer;
-                        theOffer.UnserializeFromTx(wtxNew);
-                        NotifyOfferListChanged(this, &wtxNew, theOffer, CT_UPDATED);
-                    } else if(IsCertOp(op)) {
-                        CCertIssuer theCI;
-                        theCI.UnserializeFromTx(wtxNew);
-                        NotifyCertIssuerListChanged(this, &wtxNew, theCI, CT_UPDATED);
+                if (good && IsAliasOp(op)){
+                    const vector<unsigned char> &vchName = vvchArgs[0];
+                    vector<CAliasIndex> vtxPos;
+                    if (paliasdb->ReadAlias(vchName, vtxPos)) {
+                        NotifyAliasListChanged(this, &wtxNew, vtxPos.back(), CT_UPDATED);
                     }
                 }
+                // offer
+                good = DecodeOfferTx(wtxNew, op, nOut, vvchArgs, -1);
+                if (good && IsOfferOp(op)){
+                    COffer theOffer;
+                    theOffer.UnserializeFromTx(wtxNew);
+                    NotifyOfferListChanged(this, &wtxNew, theOffer, CT_UPDATED);
+                }
+                // certificates       
+                good = DecodeCertTx(wtxNew, op, nOut, vvchArgs, -1);
+                if (good && IsCertOp(op)) {
+                    CCertIssuer theCI;
+                    theCI.UnserializeFromTx(wtxNew);
+                    NotifyCertIssuerListChanged(this, &wtxNew, theCI, CT_UPDATED);
+                }
+                // asset
+                good = DecodeAssetTx(wtxNew, op, nOut, vvchArgs, -1);
+                if (good && IsAssetOp(op)) {
+                    CAsset theAsset;
+                    theAsset.UnserializeFromTx(wtxNew);
+                    NotifyAssetListChanged(this, &wtxNew, theAsset, CT_UPDATED);
+                }    
             }
 
             if (fFileBacked)
@@ -2087,27 +2137,40 @@ void CWallet::UpdatedTransaction(const uint256 &hashTx)
             CWalletTx wtx;
             if (!GetTransaction(hashTx, wtx))
                 return;
+
+            // notify if syscoin txn
             vector<vector<unsigned char> > vvchArgs;
-            int op;
-            int nOut;
+            int op, nOut;
+            //alias
             bool good = DecodeAliasTx(wtx, op, nOut, vvchArgs, -1);
-            if (good){
-                if(IsAliasOp(op)) {
-                    const vector<unsigned char> &vchName = vvchArgs[0];
-                    vector<CAliasIndex> vtxPos;
-                    if (paliasdb->ReadAlias(vchName, vtxPos)) {
-                        NotifyAliasListChanged(this, &wtx, vtxPos.back(), CT_UPDATED);
-                    }
-                } else if (IsOfferOp(op)) {
-                    COffer theOffer;
-                    theOffer.UnserializeFromTx(wtx);
-                    NotifyOfferListChanged(this, &wtx, theOffer, CT_UPDATED);
-                } else if(IsCertOp(op)) {
-                    CCertIssuer theCI;
-                    theCI.UnserializeFromTx(wtx);
-                    NotifyCertIssuerListChanged(this, &wtx, theCI, CT_UPDATED);
+            if (good && IsAliasOp(op)){
+                const vector<unsigned char> &vchName = vvchArgs[0];
+                vector<CAliasIndex> vtxPos;
+                if (paliasdb->ReadAlias(vchName, vtxPos)) {
+                    NotifyAliasListChanged(this, &wtx, vtxPos.back(), CT_UPDATED);
                 }
             }
+            // offer
+            good = DecodeOfferTx(wtx, op, nOut, vvchArgs, -1);
+            if (good && IsOfferOp(op)){
+                COffer theOffer;
+                theOffer.UnserializeFromTx(wtx);
+                NotifyOfferListChanged(this, &wtx, theOffer, CT_UPDATED);
+            }
+            // certificates       
+            good = DecodeCertTx(wtx, op, nOut, vvchArgs, -1);
+            if (good && IsCertOp(op)) {
+                CCertIssuer theCI;
+                theCI.UnserializeFromTx(wtx);
+                NotifyCertIssuerListChanged(this, &wtx, theCI, CT_UPDATED);
+            }
+            // asset
+            good = DecodeAssetTx(wtx, op, nOut, vvchArgs, -1);
+            if (good && IsAssetOp(op)) {
+                CAsset theAsset;
+                theAsset.UnserializeFromTx(wtx);
+                NotifyAssetListChanged(this, &wtx, theAsset, CT_UPDATED);
+            }    
         }
     }
 }
