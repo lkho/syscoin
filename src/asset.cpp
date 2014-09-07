@@ -1436,6 +1436,111 @@ Value assetactivate(const Array& params, bool fHelp) {
     return wtx.GetHash().GetHex();
 }
 
+Value assetsend(const Array& params, bool fHelp) {
+    if (fHelp || params.size() != 3)
+        throw runtime_error(
+                "assetsend <guid> <address> <amount>\n"
+                        "Send shares of an asset you control to another address.\n"
+                        "<guid> asset guid.\n"
+                        "<address> destination syscoin address.\n"
+                        "<amount> number of shares to send. minimum 1.\n"
+                        + HelpRequiringPassphrase());
+
+    // gather & validate inputs
+    vector<unsigned char> vchAsset = vchFromValue(params[0]);
+    vector<unsigned char> vchAddress = vchFromValue(params[1]);
+    uint64 nQty = atoi(params[2].get_str().c_str()); // TODO CB better translation for total quantity
+    if(nQty < 1) throw runtime_error("Invalid asset quantity.");
+
+    CBitcoinAddress sendAddr(stringFromVch(vchAddress));
+    if(!sendAddr.IsValid())
+        throw runtime_error("Invalid Syscoin address.");
+
+    // this is a syscoind txn
+    CWalletTx wtx;
+    wtx.nVersion = SYSCOIN_TX_VERSION;
+    CScript scriptPubKeyOrig;
+
+    // get a key from our wallet set dest as ourselves
+    CPubKey newDefaultKey;
+    pwalletMain->GetKeyFromPool(newDefaultKey, false);
+    scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
+
+    // create OP_ASSET txn keys
+    CScript scriptPubKey;
+    scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAddress << OP_2DROP << OP_DROP;
+    scriptPubKey += scriptPubKeyOrig;
+
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+
+        if (mapAssetPending.count(vchAsset)
+                && mapAssetPending[vchAsset].size())
+            throw runtime_error("there are pending operations on that asset");
+
+        EnsureWalletIsUnlocked();
+
+        // look for a transaction with this key
+        CTransaction tx;
+        if (!GetTxOfAsset(*passetdb, vchAsset, tx))
+            throw runtime_error("could not find an asset with this key");
+
+        // make sure certissuer is in wallet
+        uint256 wtxInHash = tx.GetHash();
+        if (!pwalletMain->mapWallet.count(wtxInHash))
+            throw runtime_error("this asset is not in your wallet");
+
+        // unserialize certissuer object from txn
+        CAsset theAsset;
+        if(!theAsset.UnserializeFromTx(tx))
+            throw runtime_error("cannot unserialize asset from txn");
+
+        // get the certissuer from DB
+        vector<CAsset> vtxPos;
+        if (!passetdb->ReadAsset(vchAsset, vtxPos))
+            throw runtime_error("could not read asset from DB");
+        theAsset = vtxPos.back();
+
+        if(theAsset.nQty < nQty) {
+            throw runtime_error("insufficient asset quantity");
+        }
+        // calculate network fees
+        int64 nNetFee = GetCertNetworkFee(2, pindexBest->nHeight);
+
+        // update certissuer values
+        theAsset.nOp  = XOP_ASSET_SEND;
+        theAsset.nQty = -nQty;
+        theAsset.nFee += nNetFee;
+
+        // serialize certissuer object
+        string bdata = theAsset.SerializeToString();
+
+        // send the asset to myself
+        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
+        string strError = SendAssetMoneyWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee, wtxIn, wtx, false, bdata);
+        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
+
+        // update asset quantities, re-serialize for receiver
+        theAsset.nQty = nQty;
+        theAsset.nFee = nNetFee;
+        bdata = theAsset.SerializeToString();
+
+        // this asset txn goes to receiver
+        CScript dscriptPubKeyOrig;
+        dscriptPubKeyOrig.SetDestination(sendAddr.Get());
+        CScript dscriptPubKey;
+        dscriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAddress << OP_2DROP << OP_DROP;
+        dscriptPubKey += dscriptPubKeyOrig;
+
+        // send the asset to receiver
+        CWalletTx wtx;
+        wtx.nVersion = SYSCOIN_TX_VERSION;
+        strError = pwalletMain->SendMoney(dscriptPubKey, MIN_AMOUNT, wtx, false, bdata);
+        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);        
+    }
+    return wtx.GetHash().GetHex();
+}
+
 Value assetinfo(const Array& params, bool fHelp) {
     if (fHelp || 1 != params.size())
         throw runtime_error("assetinfo <rand>\n"
@@ -1473,15 +1578,7 @@ Value assetinfo(const Array& params, bool fHelp) {
             string strAddress = "";
             GetAssetAddress(tx, strAddress);
             oAsset.push_back(Pair("address", strAddress));
-            oAsset.push_back(
-                    Pair("expires_in",
-                            nHeight + GetCertDisplayExpirationDepth(nHeight)
-                                    - pindexBest->nHeight));
-            if (nHeight + GetCertDisplayExpirationDepth(nHeight)
-                    - pindexBest->nHeight <= 0) {
-                oAsset.push_back(Pair("expired", 1));
-            }
-            oAsset.push_back(Pair("symbol", stringFromVch(theAsset.vchTitle)));
+            oAsset.push_back(Pair("symbol", stringFromVch(theAsset.vchSymbol)));
             oAsset.push_back(Pair("title", stringFromVch(theAsset.vchTitle)));
             oAsset.push_back(Pair("description", stringFromVch(theAsset.vchDescription)));
             oAsset.push_back(Pair("total_quantity", strprintf("%llu", theAsset.nTotalQty)));

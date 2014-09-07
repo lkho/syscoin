@@ -327,6 +327,7 @@ static const CRPCCommand vRPCCommands[] =
   // use the blockchain as an asset issuance platform
   { "assetnew",      &assetnew,      false,      false,      true },
   { "assetactivate", &assetactivate, false,      false,      true },
+  { "assetsend",     &assetsend,     false,      false,      true },
   { "assetlist",     &assetlist,     false,      false,      true },
   { "assetinfo",     &assetinfo,     false,      false,      true },
   { "assethistory",  &assethistory,  false,      false,      true },
