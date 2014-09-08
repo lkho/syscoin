@@ -360,7 +360,7 @@ int GetAssetHeight(vector<unsigned char> vchAsset) {
     vector<CAsset> vtxPos;
     if (passetdb->ExistsAsset(vchAsset)) {
         if (!passetdb->ReadAsset(vchAsset, vtxPos))
-            return error("GetCertHeight() : failed to read from asset DB");
+            return error("GetAssetHeight() : failed to read from asset DB");
         if (vtxPos.empty()) return -1;
         CAsset& txPos = vtxPos.back();
         return txPos.nHeight;
@@ -971,7 +971,7 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
 
             // validate conditions
             if ((!found || prevOp != OP_ASSET) && !fJustCheck)
-                return error("CheckCertInputs() : assetactivate tx without previous assetnew tx");
+                return error("CheckAssetInputs() : assetactivate tx without previous assetnew tx");
 
             if (vvchArgs[1].size() > 20)
                 return error("assetactivate tx with rand too big");
@@ -1132,7 +1132,7 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                     theAsset.nTime = pindexBlock->nTime;
                     theAsset.PutToAssetList(vtxPos);
 
-                    // write cert issuer 
+                    // write asset
                     if (!passetdb->WriteAsset(vvchArgs[0], vtxPos))
                         return error( "CheckAssetInputs() : failed to write to asset DB");
                     mapTestPool[vvchArgs[0]] = tx.GetHash();
@@ -1457,11 +1457,12 @@ Value assetsend(const Array& params, bool fHelp) {
         throw runtime_error("Invalid Syscoin address.");
 
     // this is a syscoind txn
-    CWalletTx wtx;
+    CWalletTx wtx, wtxDest;
     wtx.nVersion = SYSCOIN_TX_VERSION;
-    CScript scriptPubKeyOrig;
+    wtxDest.nVersion = SYSCOIN_TX_VERSION;
 
     // get a key from our wallet set dest as ourselves
+    CScript scriptPubKeyOrig;
     CPubKey newDefaultKey;
     pwalletMain->GetKeyFromPool(newDefaultKey, false);
     scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
@@ -1474,8 +1475,7 @@ Value assetsend(const Array& params, bool fHelp) {
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
 
-        if (mapAssetPending.count(vchAsset)
-                && mapAssetPending[vchAsset].size())
+        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size())
             throw runtime_error("there are pending operations on that asset");
 
         EnsureWalletIsUnlocked();
@@ -1485,17 +1485,17 @@ Value assetsend(const Array& params, bool fHelp) {
         if (!GetTxOfAsset(*passetdb, vchAsset, tx))
             throw runtime_error("could not find an asset with this key");
 
-        // make sure certissuer is in wallet
+        // make sure asset is in wallet
         uint256 wtxInHash = tx.GetHash();
         if (!pwalletMain->mapWallet.count(wtxInHash))
             throw runtime_error("this asset is not in your wallet");
 
-        // unserialize certissuer object from txn
+        // unserialize asset object from txn
         CAsset theAsset;
         if(!theAsset.UnserializeFromTx(tx))
             throw runtime_error("cannot unserialize asset from txn");
 
-        // get the certissuer from DB
+        // get the asset from DB
         vector<CAsset> vtxPos;
         if (!passetdb->ReadAsset(vchAsset, vtxPos))
             throw runtime_error("could not read asset from DB");
@@ -1505,14 +1505,14 @@ Value assetsend(const Array& params, bool fHelp) {
             throw runtime_error("insufficient asset quantity");
         }
         // calculate network fees
-        int64 nNetFee = GetCertNetworkFee(2, pindexBest->nHeight);
+        int64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
 
-        // update certissuer values
+        // update asset values
         theAsset.nOp  = XOP_ASSET_SEND;
         theAsset.nQty = -nQty;
         theAsset.nFee += nNetFee;
 
-        // serialize certissuer object
+        // serialize asset object
         string bdata = theAsset.SerializeToString();
 
         // send the asset to myself
@@ -1533,12 +1533,14 @@ Value assetsend(const Array& params, bool fHelp) {
         dscriptPubKey += dscriptPubKeyOrig;
 
         // send the asset to receiver
-        CWalletTx wtx;
-        wtx.nVersion = SYSCOIN_TX_VERSION;
-        strError = pwalletMain->SendMoney(dscriptPubKey, MIN_AMOUNT, wtx, false, bdata);
+        strError = pwalletMain->SendMoney(dscriptPubKey, MIN_AMOUNT, wtxDest, false, bdata);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);        
     }
-    return wtx.GetHash().GetHex();
+    vector<Value> res;
+    res.push_back(wtx.GetHash().GetHex());
+    res.push_back(wtxDest.GetHash().GetHex());
+
+    return res;
 }
 
 Value assetinfo(const Array& params, bool fHelp) {
@@ -1633,14 +1635,11 @@ Value assetlist(const Array& params, bool fHelp) {
             // decode txn, skip non-asset txns
             vector<vector<unsigned char> > vvch;
             int op, nOut;
-            if (!DecodeCertTx(tx, op, nOut, vvch, -1) || !IsCertOp(op)) 
-                continue;
-
-            if(op == OP_CERT_NEW || op == OP_CERT_TRANSFER)
+            if (!DecodeAssetTx(tx, op, nOut, vvch, -1) || !IsAssetOp(op)) 
                 continue;
 
             // get the txn height
-            nHeight = GetCertTxHashHeight(hash);
+            nHeight = GetAssetTxHashHeight(hash);
 
             // get the txn asset name
             if(!GetNameOfAssetTx(tx, vchName))
@@ -1774,7 +1773,6 @@ Value assetfilter(const Array& params, bool fHelp) {
     if (params.size() > 4)
         fStat = (params[4].get_str() == "stat" ? true : false);
 
-    //CCertDB dbCert("r");
     Array oRes;
 
     vector<unsigned char> vchAsset;
@@ -1810,7 +1808,7 @@ Value assetfilter(const Array& params, bool fHelp) {
         CTransaction tx;
         uint256 blockHash;
         uint256 txHash = txAsset.txHash;
-        if ((nHeight + GetCertDisplayExpirationDepth(nHeight) - pindexBest->nHeight
+        if ((nHeight + GetAssetDisplayExpirationDepth(nHeight) - pindexBest->nHeight
                 <= 0) || !GetTransaction(txHash, tx, blockHash, true)) {
             oAsset.push_back(Pair("expired", 1));
         } else {
@@ -1819,7 +1817,7 @@ Value assetfilter(const Array& params, bool fHelp) {
             oAsset.push_back(Pair("value", value));
             oAsset.push_back(
                     Pair("expires_in",
-                            nHeight + GetCertDisplayExpirationDepth(nHeight)
+                            nHeight + GetAssetDisplayExpirationDepth(nHeight)
                                     - pindexBest->nHeight));
         }
         oRes.push_back(oAsset);
@@ -1859,7 +1857,6 @@ Value assetscan(const Array& params, bool fHelp) {
         nMax = (int) vMax.get_real();
     }
 
-    //CCertDB dbCert("r");
     Array oRes;
 
     vector<pair<vector<unsigned char>, CAsset> > assetScan;
@@ -1877,7 +1874,7 @@ Value assetscan(const Array& params, bool fHelp) {
 
         int nHeight = txAsset.nHeight;
         vector<unsigned char> vchValue = txAsset.vchTitle;
-        if ((nHeight + GetCertDisplayExpirationDepth(nHeight) - pindexBest->nHeight
+        if ((nHeight + GetAssetDisplayExpirationDepth(nHeight) - pindexBest->nHeight
                 <= 0) || !GetTransaction(txAsset.txHash, tx, blockHash, true)) {
             oAsset.push_back(Pair("expired", 1));
         } else {
@@ -1889,7 +1886,7 @@ Value assetscan(const Array& params, bool fHelp) {
             //oAsset.push_back(Pair("address", strAddress));
             oAsset.push_back(
                     Pair("expires_in",
-                            nHeight + GetCertDisplayExpirationDepth(nHeight)
+                            nHeight + GetAssetDisplayExpirationDepth(nHeight)
                                     - pindexBest->nHeight));
         }
         oRes.push_back(oAsset);
