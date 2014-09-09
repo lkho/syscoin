@@ -809,6 +809,13 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
 	                if (vvch[2].size() > MAX_VALUE_LENGTH)
 	                    ret[iter] = error("asset tx with value too long");
 	                break;
+	            case XOP_ASSET_SEND:
+	            // TODO CB fix these checks
+	                // if (vvch[1].size() > 20)
+	                //     ret[iter] = error("asset tx with rand too big");
+	                // if (vvch[2].size() > MAX_ADDRESS_LENGTH)
+	                //     ret[iter] = error("asset tx with address too long");
+	                break;	                
 	            // TODO CB asset send
 	            default:
 	                ret[iter] = error("asset transaction has unknown op");
@@ -2010,7 +2017,7 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 	                if (!paliasdb->WriteAliasTxFees(vAliasFees))
 	                    return error( "DisconnectBlock() : failed to write fees to alias DB");
 		    	} else {
-                	paliasdb->EraseAlias(vvchArgs[0]);		    		
+                	//paliasdb->EraseAlias(vvchArgs[0]);		    		
 		    	}
     			printf("DISCONNECTED ALIAS TXN: alias=%s op=%s hash=%s  height=%d\n",
 	                stringFromVch(vvchArgs[0]).c_str(),
@@ -2074,7 +2081,7 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 						return error( "DisconnectBlock() : failed to write fees to offer DB");
 				} 
                 else {
-					pofferdb->EraseOffer(theOffer.vchRand);
+					//pofferdb->EraseOffer(theOffer.vchRand);
 				}
 	        	printf("DISCONNECTED OFFER TXN: offer=%s op=%s hash=%s height=%d\n",
 	                stringFromVch(vvchArgs[0]).c_str(),
@@ -2141,7 +2148,7 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                         return error( "DisconnectBlock() : failed to write fees to certissuer DB");
                 }
                 else {
-                    pcertdb->EraseCertIssuer(theIssuer.vchRand);
+                    //pcertdb->EraseCertIssuer(theIssuer.vchRand);
                 }
         		printf("DISCONNECTED CERT TXN: title=%s hash=%s height=%d\n",
                     op == OP_CERTISSUER_NEW ? HexStr(vvchArgs[0]).c_str() : stringFromVch(vvchArgs[0]).c_str(),
@@ -2193,10 +2200,10 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                         return error( "DisconnectBlock() : failed to write fees to asset DB");
                 }
                 else {
-                    passetdb->EraseAsset(theAsset.vchRand);
+                    //passetdb->EraseAsset(theAsset.vchRand);
                 }
         		printf("DISCONNECTED ASSET TXN: title=%s hash=%s height=%d\n",
-                    op == OP_CERTISSUER_NEW ? HexStr(vvchArgs[0]).c_str() : stringFromVch(vvchArgs[0]).c_str(),
+                    op == OP_ASSET ? HexStr(vvchArgs[0]).c_str() : stringFromVch(vvchArgs[0]).c_str(),
 	                tx.GetHash().ToString().c_str(),
 	                pindex->nHeight);
             }

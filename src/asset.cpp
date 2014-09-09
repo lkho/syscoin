@@ -1032,16 +1032,7 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                         tx.GetHash().GetHex().c_str(),
                         (long unsigned int) nNetFee);
 
-            // validate conditions
-            if ((!found || prevOp != OP_ASSET) && !fJustCheck)
-                return error("CheckAssetInputs() : assetsend tx without previous assetactivate tx");
-
-            if (vvchArgs[1].size() > 20)
-                return error("assetsend tx with rand too big");
-
-            if (vvchArgs[2].size() > MAX_VALUE_LENGTH)
-                return error("assetsend tx with value too long");
-
+            // TODO CB add logic back
             if (fBlock && !fJustCheck) {
                 // Check hash
                 const vector<unsigned char> &vchHash = vvchPrevArgs[0];
@@ -1055,33 +1046,6 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                     return error(
                             "CheckAssetInputs() : asset hash mismatch prev : %s cur %s",
                             HexStr(stringFromVch(vchHash)).c_str(), HexStr(stringFromVch(vchToHash)).c_str());
-
-                // min activation depth is 1
-                nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 1);
-                if ((fBlock || fMiner) && nDepth >= 0 && (unsigned int) nDepth < 1)
-                    return false;
-
-                // check for previous asset
-                nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 0);
-                if (nDepth == -1)
-                    return error(
-                            "CheckAssetInputs() : assetactivate cannot be mined if assetnew is not already in chain and unexpired");
-
-                // disallow activate on an already activated asset
-                nPrevHeight = GetAssetHeight(vchAsset);
-                if (!fBlock && nPrevHeight >= 0)
-                    return error(
-                            "CheckAssetInputs() : assetactivate on an unexpired asset.");
-
-                if(pindexBlock->nHeight == pindexBest->nHeight) {
-                    BOOST_FOREACH(const MAPTESTPOOLTYPE& s, mapTestPool) {
-                        if (vvchArgs[0] == s.first) {
-                           return error("CheckInputs() : will not mine assetactivate %s because it clashes with %s",
-                                   tx.GetHash().GetHex().c_str(),
-                                   s.second.GetHex().c_str());
-                        }
-                    }
-                }
             }
 
 
@@ -1123,7 +1087,7 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                     theAsset.nHeight = nHeight;
                     theAsset.GetAssetFromList(vtxPos);
 
-                    if(theAsset.nOp == XOP_ASSET_ACTIVATE || op == XOP_ASSET_SEND)
+                    if(theAsset.nOp == XOP_ASSET_ACTIVATE || theAsset.nOp == XOP_ASSET_SEND)
                         theAsset.nHeight = pindexBlock->nHeight;
 
                     // set the asset's txn-dependent values
@@ -1283,7 +1247,7 @@ Value assetnew(const Array& params, bool fHelp) {
     newAsset.vchTitle = vchTitle;
     newAsset.vchDescription = vchDescription;
     newAsset.nTotalQty = nTotalQty;
-    newAsset.nQty = nTotalQty;
+    newAsset.nQty = 0;
 
     string bdata = newAsset.SerializeToString();
 
@@ -1400,6 +1364,7 @@ Value assetactivate(const Array& params, bool fHelp) {
 
         newAsset.nOp = XOP_ASSET_ACTIVATE;
         newAsset.vchRand = vchAsset;
+        newAsset.nQty = newAsset.nTotalQty;
         newAsset.nFee = nNetFee;
 
         string bdata = newAsset.SerializeToString();
@@ -1448,7 +1413,9 @@ Value assetsend(const Array& params, bool fHelp) {
 
     // gather & validate inputs
     vector<unsigned char> vchAsset = vchFromValue(params[0]);
+    vector<unsigned char> vchRand = ParseHex(params[0].get_str());
     vector<unsigned char> vchAddress = vchFromValue(params[1]);
+
     uint64 nQty = atoi(params[2].get_str().c_str()); // TODO CB better translation for total quantity
     if(nQty < 1) throw runtime_error("Invalid asset quantity.");
 
@@ -1469,7 +1436,7 @@ Value assetsend(const Array& params, bool fHelp) {
 
     // create OP_ASSET txn keys
     CScript scriptPubKey;
-    scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAddress << OP_2DROP << OP_DROP;
+    scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchRand << vchAddress << OP_2DROP << OP_2DROP;
     scriptPubKey += scriptPubKeyOrig;
 
     {
@@ -1521,6 +1488,7 @@ Value assetsend(const Array& params, bool fHelp) {
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
         // update asset quantities, re-serialize for receiver
+        theAsset.nOp  = XOP_ASSET_SEND;
         theAsset.nQty = nQty;
         theAsset.nFee = nNetFee;
         bdata = theAsset.SerializeToString();
@@ -1529,7 +1497,7 @@ Value assetsend(const Array& params, bool fHelp) {
         CScript dscriptPubKeyOrig;
         dscriptPubKeyOrig.SetDestination(sendAddr.Get());
         CScript dscriptPubKey;
-        dscriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAddress << OP_2DROP << OP_DROP;
+        dscriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchRand << vchAddress << OP_2DROP << OP_2DROP;
         dscriptPubKey += dscriptPubKeyOrig;
 
         // send the asset to receiver
@@ -1584,7 +1552,12 @@ Value assetinfo(const Array& params, bool fHelp) {
             oAsset.push_back(Pair("title", stringFromVch(theAsset.vchTitle)));
             oAsset.push_back(Pair("description", stringFromVch(theAsset.vchDescription)));
             oAsset.push_back(Pair("total_quantity", strprintf("%llu", theAsset.nTotalQty)));
-            oAsset.push_back(Pair("quantity", strprintf("%llu", theAsset.nQty)));
+
+            if(IsAssetMine(tx))
+                oAsset.push_back(Pair("quantity", strprintf("%llu", theAsset.nQty)));
+            else
+                oAsset.push_back(Pair("quantity", "0"));
+
             oLastAsset = oAsset;
         }
     }
