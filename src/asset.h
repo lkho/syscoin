@@ -54,6 +54,7 @@ public:
     std::vector<unsigned char> vchDescription;
     uint64 nTotalQty;
     uint64 nQty;
+    bool isChange;
 
     uint256 txHash;
     uint64 nHeight;
@@ -74,6 +75,7 @@ public:
         READWRITE(vchTitle);
         READWRITE(vchDescription);
         READWRITE(nTotalQty);
+        READWRITE(isChange);
         READWRITE(nQty);
         READWRITE(txHash);
         READWRITE(nHeight);
@@ -117,6 +119,7 @@ public:
         && a.vchDescription == b.vchDescription
         && a.nTotalQty == b.nTotalQty
         && a.nQty == b.nQty
+        && a.isChange == b.isChange
         && a.nFee == b.nFee
         && a.n == b.n
         && a.hash == b.hash
@@ -135,6 +138,7 @@ public:
         vchDescription = b.vchDescription;
         nTotalQty = b.nTotalQty;
         nQty = b.nQty;
+        isChange = b.isChange;
         nFee = b.nFee;
         n = b.n;
         hash = b.hash;
@@ -153,6 +157,7 @@ public:
         nHeight = n = nOp = 0; 
         txHash = hash = 0; 
         nTotalQty = nQty = 0;
+        isChange = false;
         vchRand.clear(); 
         vchGuid.clear();
         vchSymbol.clear(); 

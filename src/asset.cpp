@@ -202,9 +202,10 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
                 continue;
 
             // attempt to read asset from txn
-            CAsset txAsset;
+            CAsset txAsset, serializedAsset;
             if(!txAsset.UnserializeFromTx(tx))
                 return error("ReconstructAssetIndex() : failed to unserialize asset from tx");
+            serializedAsset = txAsset;
 
             // skip news - todo CB readdress - why skip?
             if (txAsset.nOp == XOP_ASSET_NEW) continue;
@@ -227,14 +228,24 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
             // asset only visible after NEW?
             if(txAsset.nOp != XOP_ASSET_NEW) {
                 // txn-specific values to asset object
-                txAsset.vchRand = vvchArgs[0];
-                txAsset.txHash = tx.GetHash();
-                txAsset.nHeight = nHeight;
-                txAsset.nTime = pindex->nTime;
-                txAsset.PutToAssetList(vtxPos);
 
                 if(txAsset.nOp == XOP_ASSET_ACTIVATE
                 	|| (txAsset.nOp == XOP_ASSET_SEND && IsAssetMine(tx))) {
+
+                    if(txAsset.nOp == XOP_ASSET_SEND) {
+                    	if(txAsset.isChange) txAsset.nQty = serializedAsset.nQty;
+                    	else txAsset.nQty += serializedAsset.nQty;
+                    }
+                    else
+                    	txAsset.nQty = serializedAsset.nQty;
+
+                    txAsset.vchRand = vvchArgs[0];
+                    txAsset.txHash = tx.GetHash();
+                    txAsset.nHeight = nHeight;
+                    txAsset.nTime = pindex->nTime;
+
+                    txAsset.PutToAssetList(vtxPos);
+
                     if (!WriteAsset(vchAsset, vtxPos))
                         return error("ReconstructAssetIndex() : failed to write to asset DB");
                 }
@@ -384,16 +395,14 @@ int IndexOfAssetOutput(const CTransaction& tx) {
 bool GetNameOfAssetTx(const CTransaction& tx, vector<unsigned char>& asset) {
     if (tx.nVersion != SYSCOIN_TX_VERSION)
         return false;
+
     vector<vector<unsigned char> > vvchArgs;
     int op, nOut;
     if (!DecodeAssetTx(tx, op, nOut, vvchArgs, -1))
         return error("GetNameOfAssetTx() : could not decode asset tx");
-    switch (op) {
-        case OP_ASSET:
-            asset = vvchArgs[0];
-            return true;
-    }
-    return false;
+
+	asset = vvchArgs[0];
+	return true;
 }
 
 //TODO come back here check to see how / where this is used
@@ -436,11 +445,8 @@ bool GetValueOfAssetTx(const CTransaction& tx, vector<unsigned char>& value) {
             return false;
 
         case XOP_ASSET_ACTIVATE:
-            value = vvch[2];
-            return true;
-        
         case XOP_ASSET_SEND:
-            value = vvch[1];
+            value = vvch[vvch.size()-1];
             return true;
         
         default:
@@ -528,7 +534,7 @@ bool GetTxOfAsset(CAssetDB& dbAsset, const vector<unsigned char> &vchAsset, CTra
     if (!passetdb->ReadAsset(vchAsset, vtxPos) || vtxPos.empty())
         return false;
     CAsset& txPos = vtxPos.back();
-    int nHeight = txPos.nHeight;
+    //int nHeight = txPos.nHeight;
     uint256 hashBlock;
     if (!GetTransaction(txPos.txHash, tx, hashBlock, true))
         return error("GetTxOfAsset() : could not read tx from disk");
@@ -563,14 +569,10 @@ bool GetValueOfAssetTx(const CCoins& tx, vector<unsigned char>& value) {
 
     // value of transaction is always last param
     // transactions with 2 or 3 params have values
-    if(vvch.size() == 3) {
-        value = vvch[2];
+    if(vvch.size() != 1) {
+        value = vvch[vvch.size()-1];
         return true;
     } 
-    else if(vvch.size() == 2) {
-        value = vvch[1];
-        return true;
-    }
     else 
         return false;
 }
@@ -1051,11 +1053,13 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
             // remove asset from pendings
             vector<unsigned char> vchAsset = theAsset.nOp == XOP_ASSET_NEW
             		? vchFromString(HexStr(vvchArgs[0])) : vvchArgs[0];
+
+            // TODO CB this lock needed?
             LOCK(cs_main);
+
             std::map<std::vector<unsigned char>, std::set<uint256> >::iterator
                     mi = mapAssetPending.find(vchAsset);
-            if (mi != mapAssetPending.end())
-                mi->second.erase(tx.GetHash());
+            if (mi != mapAssetPending.end())  mi->second.erase(tx.GetHash());
 
             // get the fee for this asset txn
             int64 nTheFee = GetAssetNetFee(tx);
@@ -1073,15 +1077,23 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
         	// only record asset info to the database if it's activate (so everyone can see it)
         	// or if it's a send and we are the recipient
             if(theAsset.nOp == XOP_ASSET_ACTIVATE
-            	|| (theAsset.nOp == XOP_ASSET_SEND && IsAssetMine(tx))) {
+            	|| (theAsset.nOp == XOP_ASSET_SEND && IsAssetMine(tx) ) ) {
                 if (!fMiner && !fJustCheck && pindexBlock->nHeight != pindexBest->nHeight) {
                     int nHeight = pindexBlock->nHeight;
 
                     // get the latest asset from the db
-                    theAsset.GetAssetFromList(vtxPos);
+					theAsset.GetAssetFromList(vtxPos);
 
-                    // set the new local asset quantity
-                    theAsset.nQty = serializedAsset.nQty;
+                    // set the new local asset quantity. if a prev txn exists
+                    // then we increment the asset count. otherwise set it to qty
+                    if(serializedAsset.nOp == XOP_ASSET_SEND) {
+                    	if(serializedAsset.isChange)
+                    		theAsset.nQty = serializedAsset.nQty;
+                    	else
+                    		theAsset.nQty += serializedAsset.nQty;
+                    }
+                    else
+                    	theAsset.nQty = IsAssetMine(tx) ? serializedAsset.nQty : 0;
 
                     // set the asset's txn-dependent values
                     theAsset.nHeight = pindexBlock->nHeight;
@@ -1454,9 +1466,10 @@ Value assetsend(const Array& params, bool fHelp) {
         int64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
 
         // update asset values
-        theAsset.nOp  = XOP_ASSET_SEND;
+        theAsset.nOp   = XOP_ASSET_SEND;
         theAsset.nQty -= nQty;
-        theAsset.nFee = nNetFee;
+        theAsset.nFee  = nNetFee;
+        theAsset.isChange = true;
 
         // serialize asset object
         string bdata = theAsset.SerializeToString();
@@ -1476,14 +1489,13 @@ Value assetsend(const Array& params, bool fHelp) {
 
         // send the asset change to myself
         CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        string strError = SendAssetMoneyWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee, wtxIn, wtx, false, bdata);
+        string strError  = SendAssetMoneyWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee, wtxIn, wtx, false, bdata);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
         // update asset quantities, re-serialize for receiver
-        theAsset.nOp  = XOP_ASSET_SEND;
-        theAsset.nQty = nQty;
-        theAsset.nFee = nNetFee;
-        bdata = theAsset.SerializeToString();
+        theAsset.nQty     = nQty;
+        theAsset.isChange = false;
+        bdata 			  = theAsset.SerializeToString();
 
         vchAmount = CBigNum(theAsset.nQty).getvch();
 
@@ -1497,6 +1509,16 @@ Value assetsend(const Array& params, bool fHelp) {
         // send the asset to receiver
         strError = pwalletMain->SendMoney(dscriptPubKey, MIN_AMOUNT, wtxDest, false, bdata);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
+
+        printf("SENT:ASSETSEND: symbol=%s title=%s amount=%s description=%s guid=%s tx=%s txchange=%s data:\n%s\n",
+                stringFromVch(theAsset.vchSymbol).c_str(),
+                stringFromVch(theAsset.vchTitle).c_str(),
+                stringFromVch(vchAmount).c_str(),
+                stringFromVch(theAsset.vchDescription).c_str(),
+                stringFromVch(vchAsset).c_str(),
+                wtxDest.GetHash().GetHex().c_str(),
+                wtx.GetHash().GetHex().c_str(),
+                bdata.c_str());
     }
     vector<Value> res;
     res.push_back(wtx.GetHash().GetHex());
@@ -1542,11 +1564,11 @@ Value assetinfo(const Array& params, bool fHelp) {
             string strAddress = "";
             GetAssetAddress(tx, strAddress);
             oAsset.push_back(Pair("address", strAddress));
+            oAsset.push_back(Pair("value", stringFromVch(vchValue)));
             oAsset.push_back(Pair("symbol", stringFromVch(theAsset.vchSymbol)));
             oAsset.push_back(Pair("title", stringFromVch(theAsset.vchTitle)));
             oAsset.push_back(Pair("description", stringFromVch(theAsset.vchDescription)));
             oAsset.push_back(Pair("total_quantity", strprintf("%llu", theAsset.nTotalQty)));
-
             if(IsAssetMine(tx))
                 oAsset.push_back(Pair("quantity", strprintf("%llu", theAsset.nQty)));
             else
@@ -1628,10 +1650,6 @@ Value assetlist(const Array& params, bool fHelp) {
             string strAddress = "";
             GetAssetAddress(tx, strAddress);
             oName.push_back(Pair("address", strAddress));
-            oName.push_back(Pair("expires_in", nHeight + GetAssetDisplayExpirationDepth(nHeight) - pindexBest->nHeight));
-            
-            if(nHeight + GetAssetDisplayExpirationDepth(nHeight) - pindexBest->nHeight <= 0)
-                oName.push_back(Pair("expired", 1));
 
             // get last active name only
             if(vNamesI.find(vchName) != vNamesI.end() && vNamesI[vchName] > nHeight)
