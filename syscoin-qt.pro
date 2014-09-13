@@ -183,6 +183,7 @@ HEADERS += src/qt/bitcoingui.h \
     src/alias.h \
     src/offer.h \
     src/cert.h \
+    src/asset.h \
     src/json/json_spirit_writer_template.h \
     src/json/json_spirit_writer.h \
     src/json/json_spirit_value.h \

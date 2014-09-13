@@ -2187,13 +2187,19 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                         // TODO validate that the first pos is the current tx pos
                     }
 
-                    // write new asset state to db
-                    if(!passetdb->WriteAsset(vvchArgs[0], vtxPos))
-                        return error("DisconnectBlock() : failed to write to asset DB");
+                    if(theAsset.nOp == XOP_ASSET_ACTIVATE
+                    	// TODO CB has to disable the following line because IsAssetMine crashes.
+                    	// this will have the effect of never writing to the DB on disconnectblock
+                    	//|| (theAsset.nOp == XOP_ASSET_SEND && IsAssetMine(tx))
+                    ) {
+                        // write new asset state to db
+                        if(!passetdb->WriteAsset(vvchArgs[0], vtxPos))
+                            return error("DisconnectBlock() : failed to write to asset DB");
+                    }
 
                     // compute verify and write fee data to DB
                     int64 nTheFee = GetAssetNetFee(tx);
-                    InsertAssetFee(pindex, tx.GetHash(), nTheFee);
+                    InsertAssetFee(pindex, tx.GetHash(), theAsset.nOp, nTheFee);
                     if(nTheFee > 0) printf("DisconnectBlock(): Added %lf in asset fees to track for regeneration.\n", (double) nTheFee / COIN);
                     vector<CAssetFee> vAssetFees(lstAssetFees.begin(), lstAssetFees.end());
                     if (!passetdb->WriteAssetFees(vAssetFees))
@@ -3576,7 +3582,7 @@ bool LoadBlockIndex() {
         pchMessageStart[2] = 0xf1;
         pchMessageStart[3] = 0xf9;
 		hashGenesisBlock =
-				uint256("0xa86ee2d873489d24564405287c18807f369f0c82d54dfe756f2d8c3d2af15908");
+				uint256("0x5db85560bace75e9f4cae7d1771962af0557c4745618cbcfd00f9df69fdff8f0");
 	}	
 
 	//
@@ -3629,8 +3635,8 @@ bool InitBlockIndex() {
 		
 		if (fCakeNet) {
 			block.nTime = 1405483900;
-			block.nBits = 0x20008ff0;
-			block.nNonce = 214;
+			block.nBits = 0x2000fff0;
+			block.nNonce = 115;
 		}
 		
 		//// debug print

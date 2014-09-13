@@ -35,7 +35,7 @@ int GetAssetTxPosHeight2(const CDiskTxPos& txPos, int nHeight);
 int GetAssetDisplayExpirationDepth(int nHeight);
 int64 GetAssetNetworkFee(int seed, int nHeight);
 int64 GetAssetNetFee(const CTransaction& tx);
-bool InsertAssetFee(CBlockIndex *pindex, uint256 hash, uint64 nValue);
+bool InsertAssetFee(CBlockIndex *pindex, uint256 hash, int nOp, uint64 nValue);
 bool ExtractAssetAddress(const CScript& script, std::string& address);
 
 std::string assetFromOp(int op);
@@ -48,6 +48,7 @@ class CBitcoinAddress;
 class CAsset {
 public:
     std::vector<unsigned char> vchRand;
+    std::vector<unsigned char> vchGuid;
     std::vector<unsigned char> vchSymbol;
     std::vector<unsigned char> vchTitle;
     std::vector<unsigned char> vchDescription;
@@ -68,6 +69,7 @@ public:
 
     IMPLEMENT_SERIALIZE (
         READWRITE(vchRand);
+    	READWRITE(vchGuid);
         READWRITE(vchSymbol);
         READWRITE(vchTitle);
         READWRITE(vchDescription);
@@ -109,6 +111,7 @@ public:
     friend bool operator==(const CAsset &a, const CAsset &b) {
         return (
            a.vchRand == b.vchRand
+        && a.vchGuid == b.vchGuid
         && a.vchTitle == b.vchTitle
         && a.vchSymbol == b.vchSymbol
         && a.vchDescription == b.vchDescription
@@ -126,6 +129,7 @@ public:
 
     CAsset operator=(const CAsset &b) {
         vchRand = b.vchRand;
+        vchGuid = b.vchGuid;
         vchTitle = b.vchTitle;
         vchSymbol = b.vchSymbol;
         vchDescription = b.vchDescription;
@@ -150,11 +154,12 @@ public:
         txHash = hash = 0; 
         nTotalQty = nQty = 0;
         vchRand.clear(); 
+        vchGuid.clear();
         vchSymbol.clear(); 
         vchTitle.clear(); 
         vchDescription.clear(); 
     }
-    bool IsNull() const { return (n == 0 && txHash == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchRand.size() == 0); }
+    bool IsNull() const { return (n == 0 && txHash == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchRand.size() == 0 && vchGuid.size() == 0); }
 
     bool UnserializeFromTx(const CTransaction &tx);
     void SerializeToTx(CTransaction &tx);
@@ -166,16 +171,18 @@ public:
     uint256 hash;
     uint64 nHeight;
     uint64 nTime;
+    int    nOp;
     uint64 nFee;
 
     CAssetFee() {
-        nTime = 0; nHeight = 0; hash = 0; nFee = 0;
+        nTime = 0; nHeight = 0; hash = 0; nOp = 0;  nFee = 0;
     }
 
     IMPLEMENT_SERIALIZE (
         READWRITE(hash);
         READWRITE(nHeight);
         READWRITE(nTime);
+        READWRITE(nOp);
         READWRITE(nFee);
     )
 
@@ -184,6 +191,7 @@ public:
         a.nTime==b.nTime
         && a.hash==b.hash
         && a.nHeight==b.nHeight
+        && a.nOp==b.nOp
         && a.nFee == b.nFee
         );
     }
@@ -192,13 +200,14 @@ public:
         nTime = b.nTime;
         nFee = b.nFee;
         hash = b.hash;
+        nOp = b.nOp;
         nHeight = b.nHeight;
         return *this;
     }
 
     friend bool operator!=(const CAssetFee &a, const CAssetFee &b) { return !(a == b); }
-    void SetNull() { hash = nTime = nHeight = nFee = 0;}
-    bool IsNull() const { return (nTime == 0 && nFee == 0 && hash == 0 && nHeight == 0); }
+    void SetNull() { hash = nTime = nHeight = nOp = nFee = 0;}
+    bool IsNull() const { return (nTime == 0 && nFee == 0 && hash == 0 && nOp == 0 && nHeight == 0); }
 };
 
 class CAssetDB : public CLevelDB {

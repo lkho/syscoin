@@ -137,7 +137,7 @@ std::vector<unsigned char> vchFromString(const std::string &str);
 std::string stringFromValue(const json_spirit::Value& value);
 
 static const int SYSCOIN_TX_VERSION = 0x7400;
-static const int64 MIN_AMOUNT = COIN;
+static const int64 MIN_AMOUNT = CENT;
 static const unsigned int MAX_NAME_LENGTH = 255;
 static const unsigned int MAX_VALUE_LENGTH = 1023;
 static const unsigned int MAX_ADDRESS_LENGTH = 33;
