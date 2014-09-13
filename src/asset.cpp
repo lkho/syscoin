@@ -195,8 +195,6 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
             bool o = DecodeAssetTx(tx, op, nOut, vvchArgs, nHeight);
             if (!o || !IsAssetOp(op)) continue;
 
-            vector<unsigned char> vchAsset = vvchArgs[0];
-
             // get the transaction
             if(!GetTransaction(tx.GetHash(), tx, txblkhash, true))
                 continue;
@@ -206,14 +204,16 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
             if(!txAsset.UnserializeFromTx(tx))
                 return error("ReconstructAssetIndex() : failed to unserialize asset from tx");
             serializedAsset = txAsset;
+            uint64 xop = serializedAsset.nOp;
 
-            // skip news - todo CB readdress - why skip?
-            if (txAsset.nOp == XOP_ASSET_NEW) continue;
+            vector<unsigned char> vchSymbol = txAsset.vchSymbol;
+
+            if (xop == XOP_ASSET_NEW) continue;
 
             // read asset from DB if it exists
             vector<CAsset> vtxPos;
-            if (ExistsAsset(vchAsset)) {
-                if (!ReadAsset(vchAsset, vtxPos))
+            if (ExistsAsset(vchSymbol)) {
+                if (!ReadAsset(vchSymbol, vtxPos))
                     return error("ReconstructAssetIndex() : failed to read asset from DB");
                 if(vtxPos.size()!=0) {
                     txAsset.nHeight = nHeight;
@@ -226,34 +226,31 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
             InsertAssetFee(pindex, tx.GetHash(), txAsset.nOp, nTheFee);
 
             // asset only visible after NEW?
-            if(txAsset.nOp != XOP_ASSET_NEW) {
+            if(xop != XOP_ASSET_NEW) {
                 // txn-specific values to asset object
+                if(xop == XOP_ASSET_ACTIVATE || (xop == XOP_ASSET_SEND && IsAssetMine(tx))) {
 
-                if(txAsset.nOp == XOP_ASSET_ACTIVATE
-                	|| (txAsset.nOp == XOP_ASSET_SEND && IsAssetMine(tx))) {
-
-                    if(txAsset.nOp == XOP_ASSET_SEND) {
-                    	if(txAsset.isChange) txAsset.nQty = serializedAsset.nQty;
+                    if(xop == XOP_ASSET_SEND) {
+                    	if(serializedAsset.isChange) txAsset.nQty = serializedAsset.nQty;
                     	else txAsset.nQty += serializedAsset.nQty;
                     }
                     else
                     	txAsset.nQty = serializedAsset.nQty;
 
-                    txAsset.vchRand = vvchArgs[0];
                     txAsset.txHash = tx.GetHash();
                     txAsset.nHeight = nHeight;
                     txAsset.nTime = pindex->nTime;
 
                     txAsset.PutToAssetList(vtxPos);
 
-                    if (!WriteAsset(vchAsset, vtxPos))
+                    if (!WriteAsset(vchSymbol, vtxPos))
                         return error("ReconstructAssetIndex() : failed to write to asset DB");
                 }
             }
 
             printf( "RECONSTRUCT ASSET: op=%s asset=%s symbol=%s title=%s hash=%s height=%d fees=%llu\n",
                     assetFromOp(txAsset.nOp).c_str(),
-                    stringFromVch(vvchArgs[0]).c_str(),
+                    stringFromVch(txAsset.vchRand).c_str(),
                     stringFromVch(txAsset.vchSymbol).c_str(),
                     stringFromVch(txAsset.vchTitle).c_str(),
                     tx.GetHash().ToString().c_str(),
@@ -401,7 +398,14 @@ bool GetNameOfAssetTx(const CTransaction& tx, vector<unsigned char>& asset) {
     if (!DecodeAssetTx(tx, op, nOut, vvchArgs, -1))
         return error("GetNameOfAssetTx() : could not decode asset tx");
 
-	asset = vvchArgs[0];
+    CAsset theAsset;
+    if(!theAsset.UnserializeFromTx(tx))
+        return error("cannot unserialize asset from txn");
+
+    if(theAsset.nOp != XOP_ASSET_NEW) {
+    	asset = vvchArgs[0];
+    	return true;
+    }
 	return true;
 }
 
@@ -525,7 +529,7 @@ bool GetValueOfAsset(CAssetDB& dbAsset, const vector<unsigned char> &vchAsset, v
         return false;
     CAsset& txPos = vtxPos.back();
     nHeight = txPos.nHeight;
-    vchValue = txPos.vchRand;
+    vchValue = vchFromString(strprintf("%llu", txPos.nQty));
     return true;
 }
 
@@ -595,8 +599,7 @@ bool DecodeAssetTx(const CCoins& tx, int& op, int& nOut, vector<vector<unsigned 
     return found;
 }
 
-bool DecodeAssetScript(const CScript& script, int& op,
-        vector<vector<unsigned char> > &vvch) {
+bool DecodeAssetScript(const CScript& script, int& op, vector<vector<unsigned char> > &vvch) {
     CScript::const_iterator pc = script.begin();
     return DecodeAssetScript(script, op, vvch, pc);
 }
@@ -1232,7 +1235,7 @@ Value assetnew(const Array& params, bool fHelp) {
 
     // concatenate string representation to number,  hash it
     vector<unsigned char> vchToHash(vchRand);
-    vchToHash.insert(vchToHash.end(), vchAsset.begin(), vchAsset.end());
+    vchToHash.insert(vchToHash.end(), vchSymbol.begin(), vchSymbol.end());
     uint160 assetHash = Hash160(vchToHash);
 
     // build asset object
@@ -1263,7 +1266,7 @@ Value assetnew(const Array& params, bool fHelp) {
         EnsureWalletIsUnlocked();
         string strError = pwalletMain->SendMoney(scriptPubKey, MIN_AMOUNT, wtx, false, bdata);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
-        mapMyAssets[vchAsset] = wtx.GetHash();
+        mapMyAssets[vchSymbol] = wtx.GetHash();
     }
     printf("SENT:ASSETNEW : symbol=%s title=%s, description=%s, rand=%s, tx=%s, data:\n%s\n",
             stringFromVch(vchSymbol).c_str(), 
@@ -1281,16 +1284,19 @@ Value assetnew(const Array& params, bool fHelp) {
 }
 
 Value assetactivate(const Array& params, bool fHelp) {
-    if (fHelp || params.size() < 1 || params.size() > 2)
+    if (fHelp || params.size() < 2 || params.size() > 3)
         throw runtime_error(
-                "assetactivate <guid> [<tx>]\n"
-                        "Activate an asset after creating one with assetnew.\n"
-                        "<rand> asset guid.\n"
-                        + HelpRequiringPassphrase());
+                "assetactivate <symbol> <guid> [<tx>]\n"
+                "Activate an asset after creating one with assetnew.\n"
+				"<symbol> asset symbol.\n"
+        		"<guid> asset guid.\n"
+        		"[<txid>] assetnew transaction id, if required.\n"
+                + HelpRequiringPassphrase());
 
     // gather inputs
-    vector<unsigned char> vchRand = ParseHex(params[0].get_str());
-    vector<unsigned char> vchAsset = vchFromValue(params[0]);
+    vector<unsigned char> vcAssetHash = vchFromValue(params[1]);
+    vector<unsigned char> vchRand = ParseHex(params[1].get_str());
+    vector<unsigned char> vchSymbol = vchFromString(params[0].get_str());
 
     // this is a syscoin transaction
     CWalletTx wtx;
@@ -1299,16 +1305,15 @@ Value assetactivate(const Array& params, bool fHelp) {
     // check for existing pending assets
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
-        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
+        if (mapAssetPending.count(vchSymbol) && mapAssetPending[vchSymbol].size()) {
             error( "assetactivate() : there are %d pending operations on that asset, including %s",
-                   (int) mapAssetPending[vchAsset].size(),
-                   mapAssetPending[vchAsset].begin()->GetHex().c_str());
+                   (int) mapAssetPending[vchSymbol].size(),
+                   mapAssetPending[vchSymbol].begin()->GetHex().c_str());
             throw runtime_error("there are pending operations on that asset");
         }
 
-        // look for an asset with identical hex rand keys. wont happen.
         CTransaction tx;
-        if (GetTxOfAsset(*passetdb, vchAsset, tx)) {
+        if (GetTxOfAsset(*passetdb, vchSymbol, tx)) {
             error( "assetactivate() : this asset is already active with tx %s",
                    tx.GetHash().GetHex().c_str());
             throw runtime_error("this asset is already active");
@@ -1318,13 +1323,13 @@ Value assetactivate(const Array& params, bool fHelp) {
 
         // Make sure there is a previous asset tx on this asset and that the random value matches
         uint256 wtxInHash;
-        if (params.size() == 1) {
-            if (!mapMyAssets.count(vchAsset))
+        if (params.size() == 2) {
+            if (!mapMyAssets.count(vchSymbol))
                 throw runtime_error(
                         "could not find a coin with this asset, try specifying the assetnew transaction id");
-            wtxInHash = mapMyAssets[vchAsset];
+            wtxInHash = mapMyAssets[vchSymbol];
         } else
-            wtxInHash.SetHex(params[1].get_str());
+            wtxInHash.SetHex(params[2].get_str());
         if (!pwalletMain->mapWallet.count(wtxInHash))
             throw runtime_error("previous transaction is not in the wallet");
 
@@ -1360,7 +1365,6 @@ Value assetactivate(const Array& params, bool fHelp) {
                     "previous transaction wasn't asset new");
 
         newAsset.nOp = XOP_ASSET_ACTIVATE;
-        newAsset.vchRand = vchAsset;
         newAsset.nQty = newAsset.nTotalQty;
         newAsset.nFee = nNetFee;
 
@@ -1369,7 +1373,7 @@ Value assetactivate(const Array& params, bool fHelp) {
 
         // check this hash against previous, ensure they match
         vector<unsigned char> vchToHash(vchRand);
-        vchToHash.insert(vchToHash.end(), vchAsset.begin(), vchAsset.end());
+        vchToHash.insert(vchToHash.end(), vchSymbol.begin(), vchSymbol.end());
         uint160 hash = Hash160(vchToHash);
         if (uint160(vchHash) != hash)
             throw runtime_error("previous tx has a different guid");
@@ -1382,7 +1386,7 @@ Value assetactivate(const Array& params, bool fHelp) {
         CScript scriptPubKeyOrig;
         scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
         CScript scriptPubKey;
-        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchRand << vchAmount << OP_2DROP << OP_2DROP;
+        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchSymbol << vchRand << vchAmount << OP_2DROP << OP_2DROP;
         scriptPubKey += scriptPubKeyOrig;
 
         // send the transaction
@@ -1390,11 +1394,11 @@ Value assetactivate(const Array& params, bool fHelp) {
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
         printf("SENT:ASSETACTIVATE: symbol=%s title=%s amount=%s description=%s rand=%s tx=%s data:\n%s\n",
-                stringFromVch(newAsset.vchSymbol).c_str(),
+                stringFromVch(vchSymbol).c_str(),
                 stringFromVch(newAsset.vchTitle).c_str(),
                 stringFromVch(vchAmount).c_str(),
                 stringFromVch(newAsset.vchDescription).c_str(),
-                stringFromVch(vchAsset).c_str(), 
+                stringFromVch(vcAssetHash).c_str(),
                 wtx.GetHash().GetHex().c_str(),
                 stringFromVch(vchbdata).c_str() );
     }
@@ -1404,9 +1408,9 @@ Value assetactivate(const Array& params, bool fHelp) {
 Value assetsend(const Array& params, bool fHelp) {
     if (fHelp || params.size() != 3)
         throw runtime_error(
-                "assetsend <guid> <address> <amount>\n"
+                "assetsend <symbol> <address> <amount>\n"
                         "Send shares of an asset you control to another address.\n"
-                        "<guid> asset guid.\n"
+                        "<symbol> asset symbol.\n"
                         "<address> destination syscoin address.\n"
                         "<amount> number of shares to send. minimum 1.\n"
                         + HelpRequiringPassphrase());
@@ -1529,7 +1533,7 @@ Value assetsend(const Array& params, bool fHelp) {
 
 Value assetinfo(const Array& params, bool fHelp) {
     if (fHelp || 1 != params.size())
-        throw runtime_error("assetinfo <rand>\n"
+        throw runtime_error("assetinfo <symbol>\n"
                 "Show stored values of an asset.\n");
 
     Object oLastAsset;
@@ -1583,7 +1587,7 @@ Value assetinfo(const Array& params, bool fHelp) {
 
 Value assetlist(const Array& params, bool fHelp) {
     if (fHelp || 1 < params.size())
-        throw runtime_error("assetlist [<asset>]\n"
+        throw runtime_error("assetlist [<symbol>]\n"
                 "list my own assets");
 
     vector<unsigned char> vchName;
@@ -1668,7 +1672,7 @@ Value assetlist(const Array& params, bool fHelp) {
 
 Value assethistory(const Array& params, bool fHelp) {
     if (fHelp || 1 != params.size())
-        throw runtime_error("assethistory <asset>\n"
+        throw runtime_error("assethistory <symbol>\n"
                 "List all stored values of an asset.\n");
 
     Array oRes;
