@@ -2161,12 +2161,14 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
             if (good && IsAssetOp(op)) {
                 string opName = assetFromOp(op);
 
-                CAsset theAsset;
+                CAsset theAsset, serializedAsset;
                 theAsset.UnserializeFromTx(tx);
+                uint64 xOp = theAsset.nOp;
                 if (theAsset.IsNull())
                     error("DisconnectBlock() : null asset object");
+                serializedAsset = theAsset;
 
-                if(theAsset.nOp != XOP_ASSET_NEW) {
+                if(xOp != XOP_ASSET_NEW) {
                     // make sure a DB record exists for this asset
                     vector<CAsset> vtxPos;
                     if (!passetdb->ReadAsset(vvchArgs[0], vtxPos))
@@ -2187,11 +2189,20 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                         // TODO validate that the first pos is the current tx pos
                     }
 
-                    if(theAsset.nOp == XOP_ASSET_ACTIVATE
+                    if(xOp == XOP_ASSET_ACTIVATE
                     	// TODO CB has to disable the following line because IsAssetMine crashes.
                     	// this will have the effect of never writing to the DB on disconnectblock
-                    	//|| (theAsset.nOp == XOP_ASSET_SEND && IsAssetMine(tx))
+                    	|| (xOp == XOP_ASSET_SEND && IsAssetMine(tx))
                     ) {
+                        if(xOp == XOP_ASSET_SEND) {
+                        	if(serializedAsset.isChange)
+                        		theAsset.nQty = serializedAsset.nQty;
+                        	else
+                        		theAsset.nQty += serializedAsset.nQty;
+                        }
+                        else
+                        	theAsset.nQty = IsAssetMine(tx) ? serializedAsset.nQty : 0;
+
                         // write new asset state to db
                         if(!passetdb->WriteAsset(vvchArgs[0], vtxPos))
                             return error("DisconnectBlock() : failed to write to asset DB");

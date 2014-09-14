@@ -802,7 +802,7 @@ bool CreateAssetTransactionWithInputTx(
 }
 
 // nTxOut is the output from wtxIn that we should grab
-string SendAssetMoneyWithInputTx(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxIn, CWalletTx& wtxNew, bool fAskFee, const string& txData) {
+string SendAssetWithInputTx(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxIn, CWalletTx& wtxNew, bool fAskFee, const string& txData) {
     
     int nTxOut = IndexOfAssetOutput(wtxIn);
     CReserveKey reservekey(pwalletMain);
@@ -1390,7 +1390,7 @@ Value assetactivate(const Array& params, bool fHelp) {
         scriptPubKey += scriptPubKeyOrig;
 
         // send the transaction
-        string strError = SendAssetMoneyWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee, wtxIn, wtx, false, bdata);
+        string strError = SendAssetWithInputTx(scriptPubKey, COIN * newAsset.nTotalQty, nNetFee, wtxIn, wtx, false, bdata);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
         printf("SENT:ASSETACTIVATE: symbol=%s title=%s amount=%s description=%s rand=%s tx=%s data:\n%s\n",
@@ -1493,7 +1493,7 @@ Value assetsend(const Array& params, bool fHelp) {
 
         // send the asset change to myself
         CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        string strError  = SendAssetMoneyWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee, wtxIn, wtx, false, bdata);
+        string strError  = SendAssetWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee, wtxIn, wtx, false, bdata);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
         // update asset quantities, re-serialize for receiver
