@@ -29,6 +29,7 @@ extern CAssetDB *passetdb;
 extern uint256 SignatureHash(CScript scriptCode, const CTransaction& txTo,
         unsigned int nIn, int nHashType);
 
+CScript RemoveAssetScriptPrefix(const CScript& scriptIn);
 bool DecodeAssetScript(const CScript& script, int& op,
         std::vector<std::vector<unsigned char> > &vvch,
         CScript::const_iterator& pc);
@@ -1330,10 +1331,10 @@ bool ExtractAssetAddress(const CScript& script, string& address) {
             op = XOP_ASSET_NEW;
             break;
         case 2:
-            op = XOP_ASSET_ACTIVATE;
+            op = XOP_ASSET_SEND;
             break;
         case 3:
-            op = XOP_ASSET_SEND;
+            op = XOP_ASSET_ACTIVATE;
             break;
     }
     string strOp = assetFromOp(op);
@@ -1445,6 +1446,7 @@ Value assetnew(const Array& params, bool fHelp) {
     newAsset.vchDescription = vchDescription;
     newAsset.nTotalQty = nTotalQty;
     newAsset.nQty = 0;
+    newAsset.nCoinsPerShare = COIN;
 
     // TODO CB potentially one could add a hash of the bdata to the txn
     string bdata = newAsset.SerializeToString();
@@ -1563,6 +1565,7 @@ Value assetactivate(const Array& params, bool fHelp) {
                     "previous transaction wasn't asset new");
 
         newAsset.nOp = XOP_ASSET_ACTIVATE;
+        newAsset.nCoinsPerShare = COIN;
         newAsset.nQty = newAsset.nTotalQty;
         newAsset.nFee = nNetFee;
 
@@ -1588,7 +1591,7 @@ Value assetactivate(const Array& params, bool fHelp) {
         scriptPubKey += scriptPubKeyOrig;
 
         // send the transaction
-        string strError = SendAssetWithInputTx(scriptPubKey, COIN * newAsset.nTotalQty, nNetFee, wtxIn, wtx, false, bdata);
+        string strError = SendAssetWithInputTxs(scriptPubKey, newAsset.nCoinsPerShare * newAsset.nTotalQty, nNetFee, wtxIn, wtx, false, bdata);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
         printf("SENT:ASSETACTIVATE: symbol=%s title=%s amount=%s description=%s rand=%s tx=%s data:\n%s\n",
@@ -1672,17 +1675,18 @@ Value assetsend(const Array& params, bool fHelp) {
         theAsset.nQty -= nQty;
         theAsset.nFee  = nNetFee;
         theAsset.isChange = true;
+        theAsset.changeTxHash = 0;
 
         // serialize asset object
         string bdata = theAsset.SerializeToString();
-
+ 
         // get a key from our wallet set dest as ourselves
         CScript scriptPubKeyOrig;
         CPubKey newDefaultKey;
         pwalletMain->GetKeyFromPool(newDefaultKey, false);
         scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
-
-        vector<unsigned char> vchAmount = CBigNum(theAsset.nQty).getvch();
+ 
+        vector<unsigned char> vchAmount = CBigNum(theAsset.nQty * theAsset.nCoinsPerShare).getvch();
 
         // create OP_ASSET txn keys
         CScript scriptPubKey;
@@ -1691,15 +1695,16 @@ Value assetsend(const Array& params, bool fHelp) {
 
         // send the asset change to myself
         CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        string strError  = SendAssetWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee, wtxIn, wtx, false, bdata);
+        string strError  = SendAssetWithInputTxs(scriptPubKey, theAsset.nQty * theAsset.nCoinsPerShare, nNetFee, wtxIn, wtx, false, bdata);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
         // update asset quantities, re-serialize for receiver
-        theAsset.nQty     = nQty;
-        theAsset.isChange = false;
-        bdata 			  = theAsset.SerializeToString();
+        theAsset.nQty         = nQty;
+        theAsset.isChange     = false;
+        theAsset.changeTxHash = wtx.GetHash();
+        bdata 			      = theAsset.SerializeToString();
 
-        vchAmount = CBigNum(theAsset.nQty).getvch();
+        vchAmount = CBigNum(theAsset.nQty * theAsset.nCoinsPerShare).getvch();
 
         // this asset txn goes to receiver
         CScript dscriptPubKeyOrig;
@@ -1709,7 +1714,7 @@ Value assetsend(const Array& params, bool fHelp) {
         dscriptPubKey += dscriptPubKeyOrig;
 
         // send the asset to receiver
-        strError = pwalletMain->SendMoney(dscriptPubKey, MIN_AMOUNT, wtxDest, false, bdata);
+        strError = pwalletMain->SendMoney(dscriptPubKey, theAsset.nQty * theAsset.nCoinsPerShare, wtxDest, false, bdata);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
         printf("SENT:ASSETSEND: symbol=%s title=%s amount=%s description=%s guid=%s tx=%s txchange=%s data:\n%s\n",
@@ -1722,11 +1727,9 @@ Value assetsend(const Array& params, bool fHelp) {
                 wtx.GetHash().GetHex().c_str(),
                 bdata.c_str());
     }
-    vector<Value> res;
-    res.push_back(wtx.GetHash().GetHex());
-    res.push_back(wtxDest.GetHash().GetHex());
 
-    return res;
+
+    return wtxDest.GetHash().GetHex();
 }
 
 Value assetinfo(const Array& params, bool fHelp) {

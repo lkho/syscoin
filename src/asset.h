@@ -60,7 +60,10 @@ public:
     std::vector<unsigned char> vchDescription;
     uint64 nTotalQty;
     uint64 nQty;
+    uint64 nCoinsPerShare;
+
     bool isChange;
+    uint256 changeTxHash;
 
     uint256 txHash;
     uint64 nHeight;
@@ -76,13 +79,15 @@ public:
 
     IMPLEMENT_SERIALIZE (
         READWRITE(vchRand);
-    	READWRITE(vchGuid);
+        READWRITE(vchGuid);
         READWRITE(vchSymbol);
         READWRITE(vchTitle);
         READWRITE(vchDescription);
         READWRITE(nTotalQty);
         READWRITE(isChange);
+        READWRITE(changeTxHash);
         READWRITE(nQty);
+        READWRITE(nCoinsPerShare);
         READWRITE(txHash);
         READWRITE(nHeight);
         READWRITE(nTime);
@@ -125,6 +130,8 @@ public:
         && a.vchDescription == b.vchDescription
         && a.nTotalQty == b.nTotalQty
         && a.nQty == b.nQty
+        && a.nCoinsPerShare == b.nCoinsPerShare
+        && a.changeTxHash == b.changeTxHash
         && a.isChange == b.isChange
         && a.nFee == b.nFee
         && a.n == b.n
@@ -143,8 +150,10 @@ public:
         vchSymbol = b.vchSymbol;
         vchDescription = b.vchDescription;
         nTotalQty = b.nTotalQty;
+        nCoinsPerShare = b.nCoinsPerShare;
         nQty = b.nQty;
         isChange = b.isChange;
+        changeTxHash = b.changeTxHash;
         nFee = b.nFee;
         n = b.n;
         hash = b.hash;
@@ -161,8 +170,8 @@ public:
 
     void SetNull() { 
         nHeight = n = nOp = 0; 
-        txHash = hash = 0; 
-        nTotalQty = nQty = 0;
+        txHash = changeTxHash = hash = 0; 
+        nTotalQty = nQty = nCoinsPerShare = 0;
         isChange = false;
         vchRand.clear(); 
         vchGuid.clear();
@@ -170,7 +179,7 @@ public:
         vchTitle.clear(); 
         vchDescription.clear(); 
     }
-    bool IsNull() const { return (n == 0 && txHash == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchRand.size() == 0 && vchGuid.size() == 0); }
+    bool IsNull() const { return (n == 0 && txHash == 0  && changeTxHash == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchRand.size() == 0 && vchGuid.size() == 0); }
 
     bool UnserializeFromTx(const CTransaction &tx);
     void SerializeToTx(CTransaction &tx);

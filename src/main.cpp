@@ -1369,7 +1369,7 @@ int64 static GetBlockValue(int nHeight, int64 nFees, uint256 prevHash) {
     if(nHeight == 0)
         nSubsidy = 1024 * COIN; // genesis amount
     else if(nHeight == 1)
-        nSubsidy = 364222858 * COIN; // pre-mine amount
+        nSubsidy = ( fCakeNet ? 10000000 : 364222858 ) * COIN; // pre-mine amount
     else if(nHeight > 259440 && nHeight <= 777840)
         nSubsidy = 96 * COIN;
     else if(nHeight > 777840 && nHeight <= 1814640)
@@ -1845,29 +1845,33 @@ bool CTransaction::CheckInputs(CBlockIndex *pindex, CValidationState &state, CCo
 		}
 
 		vector<vector<unsigned char> > vvchArgs;
+		bool fFound = false;
 		int op;
 		int nOut;
 
 		bool bGood = DecodeAliasTx(*this, op, nOut, vvchArgs, pindex->nHeight);
 		if(bGood && IsAliasOp(op)) {
+			fFound = true;
 			if (!CheckAliasInputs(pindex, *this, state, inputs, mapTestPool, fBlock, fMiner, bJustCheck))
 				return false;
 		}
 		
-		bGood = DecodeOfferTx(*this, op, nOut, vvchArgs, pindex->nHeight);
-		if (bGood && IsOfferOp(op)) {
+		if(!fFound) bGood = DecodeOfferTx(*this, op, nOut, vvchArgs, pindex->nHeight);
+		if (!fFound && bGood && IsOfferOp(op)) {
+			fFound = true;
 			if (!CheckOfferInputs(pindex, *this, state, inputs, mapTestPool, fBlock, fMiner, bJustCheck))
 				return false;
 		} 
 		
-		bGood = DecodeCertTx(*this, op, nOut, vvchArgs, pindex->nHeight);
-		if (bGood && IsCertOp(op)) {
+		if(!fFound) bGood = DecodeCertTx(*this, op, nOut, vvchArgs, pindex->nHeight);
+		if (!fFound && bGood && IsCertOp(op)) {
+			fFound = true;
 			if (!CheckCertInputs(pindex, *this, state, inputs, mapTestPool, fBlock, fMiner, bJustCheck))
 				return false;
 		}
 
-		bGood = DecodeAssetTx(*this, op, nOut, vvchArgs, pindex->nHeight);
-		if (bGood && IsAssetOp(op)) {
+		if(!fFound) bGood = DecodeAssetTx(*this, op, nOut, vvchArgs, pindex->nHeight);
+		if (!fFound && bGood && IsAssetOp(op)) {
 			if (!CheckAssetInputs(pindex, *this, state, inputs, mapTestPool, fBlock, fMiner, bJustCheck))
 				return false;
 		}
@@ -1983,6 +1987,7 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 		    vector<vector<unsigned char> > vvchArgs;
 		    int op, nOut;
 
+		    // TODO CB all of this doesn't really undo stuff properly. re-examine.
 		    // alias, data
             bool good = DecodeAliasTx(tx, op, nOut, vvchArgs, pindex->nHeight),
             	 fFound = false;
