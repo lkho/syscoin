@@ -1984,7 +1984,8 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 		    int op, nOut;
 
 		    // alias, data
-            bool good = DecodeAliasTx(tx, op, nOut, vvchArgs, pindex->nHeight);
+            bool good = DecodeAliasTx(tx, op, nOut, vvchArgs, pindex->nHeight),
+            	 fFound = false;
 		    if (good && IsAliasOp(op)) {
 		    	if(op != OP_ALIAS_NEW) {
 	                string opName = aliasFromOp(op);
@@ -2024,11 +2025,12 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                     aliasFromOp(op).c_str(),
 	                tx.GetHash().ToString().c_str(),
 	                pindex->nHeight);
+    			fFound = true;
             } 
 
             // offer
-            good = DecodeOfferTx(tx, op, nOut, vvchArgs, pindex->nHeight);
-            if (good && IsOfferOp(op)) {
+            if(!fFound) good = DecodeOfferTx(tx, op, nOut, vvchArgs, pindex->nHeight);
+            if (!fFound && good && IsOfferOp(op)) {
                 string opName = offerFromOp(op);
 				COffer theOffer;
 				theOffer.UnserializeFromTx(tx);
@@ -2087,12 +2089,13 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 	                stringFromVch(vvchArgs[0]).c_str(),
                     offerFromOp(op).c_str(),
 	                tx.GetHash().ToString().c_str(),
-	                pindex->nHeight);				
+	                pindex->nHeight);			
+	            fFound = true;	
 			}
 
 			// certificates
-			good = DecodeCertTx(tx, op, nOut, vvchArgs, pindex->nHeight);
-            if (good && IsCertOp(op)) {
+			if(!fFound) good = DecodeCertTx(tx, op, nOut, vvchArgs, pindex->nHeight);
+            if (good && !fFound && IsCertOp(op)) {
                 string opName = certissuerFromOp(op);
 
                 CCertIssuer theIssuer;
@@ -2154,11 +2157,12 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                     op == OP_CERTISSUER_NEW ? HexStr(vvchArgs[0]).c_str() : stringFromVch(vvchArgs[0]).c_str(),
 	                tx.GetHash().ToString().c_str(),
 	                pindex->nHeight);
+        		fFound = true;
             }
 
 			// assets
-			good = DecodeAssetTx(tx, op, nOut, vvchArgs, pindex->nHeight);
-            if (good && IsAssetOp(op)) {
+			if(!fFound) good = DecodeAssetTx(tx, op, nOut, vvchArgs, pindex->nHeight);
+            if (!fFound && good && IsAssetOp(op)) {
                 string opName = assetFromOp(op);
 
                 CAsset theAsset, serializedAsset;
@@ -2169,6 +2173,7 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                 serializedAsset = theAsset;
 
                 if(xOp != XOP_ASSET_NEW) {
+
                     // make sure a DB record exists for this asset
                     vector<CAsset> vtxPos;
                     if (!passetdb->ReadAsset(vvchArgs[0], vtxPos))
@@ -2189,10 +2194,17 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                         // TODO validate that the first pos is the current tx pos
                     }
 
+                    bool isMine = false;
+                    if(xOp == XOP_ASSET_SEND) {
+						const CTxOut& txout = tx.vout[nOut];
+						const CScript& scriptPubKey = RemoveAssetScriptPrefix(txout.scriptPubKey);
+	                	isMine = false; // IsMine(*pwalletMain, scriptPubKey);
+	                }
+
                     if(xOp == XOP_ASSET_ACTIVATE
                     	// TODO CB has to disable the following line because IsAssetMine crashes.
                     	// this will have the effect of never writing to the DB on disconnectblock
-                    	|| (xOp == XOP_ASSET_SEND && IsAssetMine(tx))
+                    	|| (xOp == XOP_ASSET_SEND && isMine)
                     ) {
                         if(xOp == XOP_ASSET_SEND) {
                         	if(serializedAsset.isChange)
@@ -2201,7 +2213,7 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                         		theAsset.nQty += serializedAsset.nQty;
                         }
                         else
-                        	theAsset.nQty = IsAssetMine(tx) ? serializedAsset.nQty : 0;
+                        	theAsset.nQty = isMine ? serializedAsset.nQty : 0;
 
                         // write new asset state to db
                         if(!passetdb->WriteAsset(vvchArgs[0], vtxPos))
@@ -2223,6 +2235,7 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                     op == OP_ASSET ? HexStr(vvchArgs[0]).c_str() : stringFromVch(vvchArgs[0]).c_str(),
 	                tx.GetHash().ToString().c_str(),
 	                pindex->nHeight);
+        		fFound = true;
             }
 	    }
 

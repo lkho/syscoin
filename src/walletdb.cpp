@@ -18,13 +18,13 @@ static uint64 nAccountingEntryNumber = 0;
 // CWalletDB
 //
 
-bool CWalletDB::WriteAlias(const string& strAddress, const string& strName)
+bool CWalletDB::WriteName(const string& strAddress, const string& strName)
 {
     nWalletDBUpdated++;
     return Write(make_pair(string("name"), strAddress), strName);
 }
 
-bool CWalletDB::EraseAlias(const string& strAddress)
+bool CWalletDB::EraseName(const string& strAddress)
 {
     // This should only be used for sending addresses, never for receiving addresses,
     // receiving addresses must always have an address book entry if they're not change return.
@@ -66,7 +66,14 @@ bool CWalletDB::WriteCertFirstUpdate(const std::vector<unsigned char>& vchName,
                                      const CWalletTx &wtx) {
     return true;
 }
-
+bool CWalletDB::WriteAssetFirstUpdate(const std::vector<unsigned char>& vchName,
+                                     const uint256& hex,
+                                     const uint64& rand,
+                                     const std::vector<unsigned char>& vchData,
+                                     const CWalletTx &wtx) {
+    return true;
+}
+// TODO CB Make sure these wallet methods are getting properly called. Take a look at namecoin again and fix the unfinished wallet stuff.
 bool CWalletDB::EraseAliasFirstUpdate(const std::vector<unsigned char>& vchName)
 {
     nWalletDBUpdated++;
@@ -76,6 +83,9 @@ bool CWalletDB::EraseOfferFirstUpdate(const std::vector<unsigned char>& vchName)
 {
 }
 bool CWalletDB::EraseCertFirstUpdate(const std::vector<unsigned char>& vchName)
+{
+}
+bool CWalletDB::EraseAssetFirstUpdate(const std::vector<unsigned char>& vchName)
 {
 }
 

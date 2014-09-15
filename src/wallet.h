@@ -173,16 +173,21 @@ public:
     TxItems OrderedTxItems(std::list<CAccountingEntry>& acentries, std::string strAccount = "");
 
     void MarkDirty();
+    
     bool AddToWallet(const CWalletTx& wtxIn);
     bool AddToWalletIfInvolvingMe(const uint256 &hash, const CTransaction& tx, const CBlock* pblock, bool fUpdate = false, bool fFindBlock = false);
     bool EraseFromWallet(uint256 hash);
+    
     void WalletUpdateSpent(const CTransaction& prevout);
+
     int ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate = false);
     void ReacceptWalletTransactions();
     void ResendWalletTransactions();
+    
     int64 GetBalance() const;
     int64 GetUnconfirmedBalance() const;
     int64 GetImmatureBalance() const;
+
     bool CreateTransaction(const std::vector<std::pair<CScript, int64> >& vecSend,
                            CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, std::string& strFailReason, 
 						   const CCoinControl *coinControl=NULL, const std::string &txData="");
@@ -190,6 +195,7 @@ public:
                            CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, std::string& strFailReason, 
 						   const CCoinControl *coinControl=NULL, const std::string &txData="");
     bool CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey);
+
     std::string SendMoney(CScript scriptPubKey, int64 nValue, CWalletTx& wtxNew, bool fAskFee=false, const std::string &txData="");
     std::string SendMoneyToDestination(const CTxDestination &address, int64 nValue, CWalletTx& wtxNew, bool fAskFee=false, const std::string &txData="");
     std::string SendData(CWalletTx& wtxNew, bool fAskFee, const std::string& txData);

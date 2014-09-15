@@ -1056,7 +1056,7 @@ void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDe
     string strSentAccount;
     list<pair<CTxDestination, int64> > listReceived;
     list<pair<CTxDestination, int64> > listSent;
-    bool fNameTx;
+    bool fNameTx, fFound = false;
     wtx.GetAmounts(listReceived, listSent, nFee, strSentAccount, fNameTx);
 
     bool fAllAccounts = (strAccount == string("*"));
@@ -1075,21 +1075,25 @@ void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDe
                 if(good && IsAliasOp(op)) {
                     nTxOut = IndexOfNameOutput(wtx);
                     ExtractAliasAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
+                    fFound = true;
                 } 
-                good = DecodeOfferTx(wtx, op, nOut, vvchArgs, -1);
-                if(good && IsOfferOp(op)) {
+                if(!fFound) good = DecodeOfferTx(wtx, op, nOut, vvchArgs, -1);
+                if(good && !fFound && IsOfferOp(op)) {
                     nTxOut = IndexOfOfferOutput(wtx);
                     ExtractOfferAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
+                    fFound = true;
                 } 
-                good = DecodeCertTx(wtx, op, nOut, vvchArgs, -1);
-                if(good && IsCertOp(op)) {
+                if(!fFound) good = DecodeCertTx(wtx, op, nOut, vvchArgs, -1);
+                if(good && !fFound && IsCertOp(op)) {
                     nTxOut = IndexOfCertIssuerOutput(wtx);
                     ExtractCertIssuerAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
+                    fFound = true;
                 } 
-                good = DecodeAssetTx(wtx, op, nOut, vvchArgs, -1);
-                if(good && IsAssetOp(op)) {
+                if(!fFound) good = DecodeAssetTx(wtx, op, nOut, vvchArgs, -1);
+                if(good && !fFound && IsAssetOp(op)) {
                     nTxOut = IndexOfAssetOutput(wtx);
                     ExtractAssetAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
+                    fFound = true;
                 } 
             }
             entry.push_back(Pair("address", strAddress));

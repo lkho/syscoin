@@ -29,7 +29,6 @@ extern CAssetDB *passetdb;
 extern uint256 SignatureHash(CScript scriptCode, const CTransaction& txTo,
         unsigned int nIn, int nHashType);
 
-CScript RemoveAssetScriptPrefix(const CScript& scriptIn);
 bool DecodeAssetScript(const CScript& script, int& op,
         std::vector<std::vector<unsigned char> > &vvch,
         CScript::const_iterator& pc);
@@ -801,9 +800,196 @@ bool CreateAssetTransactionWithInputTx(
     return true;
 }
 
+bool CreateAssetTransactionWithInputTxs(
+        const vector<pair<CScript, int64> >& vecSend, CWalletTx& wtxIn,
+        int nTxOut, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet,
+        const string& txData) {
+
+	// add up the value of all output scripts. this is our value out for the transaction
+    int64 nValue = 0;
+    BOOST_FOREACH(const PAIRTYPE(CScript, int64)& s, vecSend) {
+        if (nValue < 0)  return false;
+        nValue += s.second;
+    }
+    if (vecSend.empty() || nValue < 0)
+        return false;
+
+    wtxNew.BindWallet(pwalletMain);
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+
+        nFeeRet = nTransactionFee;
+        loop {
+            wtxNew.vin.clear();
+            wtxNew.vout.clear();
+            wtxNew.fFromMe = true;
+            wtxNew.data = vchFromString(txData);
+
+            int64 nTotalValue = nValue + nFeeRet;
+            printf("CreateAssetTransactionWithInputTx: total value = %d\n",
+                    (int) nTotalValue);
+            double dPriority = 0;
+
+            // vouts to the payees
+            BOOST_FOREACH(const PAIRTYPE(CScript, int64)& s, vecSend)
+                wtxNew.vout.push_back(CTxOut(s.second, s.first));
+
+            int64 nWtxinCredit = wtxIn.vout[nTxOut].nValue;
+
+            // Choose coins to use
+            set<pair<const CWalletTx*, unsigned int> > setCoins;
+            int64 nValueIn = 0;
+
+            printf( "CreateAssetTransactionWithInputTx: SelectCoins(%s), nTotalValue = %s, nWtxinCredit = %s\n",
+                    FormatMoney(nTotalValue - nWtxinCredit).c_str(),
+                    FormatMoney(nTotalValue).c_str(),
+                    FormatMoney(nWtxinCredit).c_str());
+
+            // if the transaction value is greater than the input txn value
+            // then select additional coins from our wallet
+            if (nTotalValue - nWtxinCredit > 0) {
+                if (!pwalletMain->SelectCoins(nTotalValue - nWtxinCredit, setCoins, nValueIn))
+                    return false;
+            }
+            printf( "CreateAssetTransactionWithInputTx: selected %d tx outs, nValueIn = %s\n",
+                    (int) setCoins.size(), FormatMoney(nValueIn).c_str());
+
+            // turn coins set to vector
+            vector<pair<const CWalletTx*,unsigned int> > vecCoins(setCoins.begin(), setCoins.end());
+
+            // iterate through coins to calculate priority
+            BOOST_FOREACH(PAIRTYPE(const CWalletTx*, unsigned int)& coin, vecCoins) {
+                int64 nCredit = coin.first->vout[coin.second].nValue;
+                dPriority += (double) nCredit  * coin.first->GetDepthInMainChain();
+            }
+
+            // Input tx always at first position
+            vecCoins.insert(vecCoins.begin(), make_pair(&wtxIn, nTxOut));
+
+            nValueIn += nWtxinCredit;
+            dPriority += (double) nWtxinCredit * wtxIn.GetDepthInMainChain();
+
+            // Fill a vout back to self with any change
+            int64 nChange = nValueIn - nTotalValue;
+            if (nChange >= CENT) {
+                // Note: We use a new key here to keep it from being obvious which side is the change.
+                //  The drawback is that by not reusing a previous key, the change may be lost if a
+                //  backup is restored, if the backup doesn't have the new private key for the change.
+                //  If we reused the old key, it would be possible to add code to look for and
+                //  rediscover unknown transactions that were written with keys of ours to recover
+                //  post-backup change.
+
+                // Reserve a new key pair from key pool
+                CPubKey pubkey;
+                assert(reservekey.GetReservedKey(pubkey));
+
+                // -------------- Fill a vout to ourself, using same address type as the payment
+                // Now sending always to hash160 (GetBitcoinAddressHash160 will return hash160, even if pubkey is used)
+                CScript scriptChange;
+                if (Hash160(vecSend[0].first) != 0)
+                    scriptChange.SetDestination(pubkey.GetID());
+                else
+                    scriptChange << pubkey << OP_CHECKSIG;
+
+                // Insert change txn at random position:
+                vector<CTxOut>::iterator position = wtxNew.vout.begin()
+                        + GetRandInt(wtxNew.vout.size());
+                wtxNew.vout.insert(position, CTxOut(nChange, scriptChange));
+            } else
+                reservekey.ReturnKey();
+
+            // Fill vin
+            BOOST_FOREACH(PAIRTYPE(const CWalletTx*, unsigned int)& coin, vecCoins)
+                wtxNew.vin.push_back(CTxIn(coin.first->GetHash(), coin.second));
+
+            // Sign
+            int nIn = 0;
+            BOOST_FOREACH(PAIRTYPE(const CWalletTx*, unsigned int)& coin, vecCoins) {
+                if (coin.first == &wtxIn
+                        && coin.second == (unsigned int) nTxOut) {
+                    if (!SignAssetSignature(*coin.first, wtxNew, nIn++))
+                        throw runtime_error("could not sign asset coin output");
+                } else {
+                    if (!SignSignature(*pwalletMain, *coin.first, wtxNew, nIn++))
+                        return false;
+                }
+            }
+
+            // Limit size
+            unsigned int nBytes = ::GetSerializeSize(*(CTransaction*) &wtxNew,
+                    SER_NETWORK, PROTOCOL_VERSION);
+            if (nBytes >= MAX_BLOCK_SIZE_GEN / 5)
+                return false;
+            dPriority /= nBytes;
+
+            // Check that enough fee is included
+            int64 nPayFee = nTransactionFee * (1 + (int64) nBytes / 1000);
+            bool fAllowFree = CTransaction::AllowFree(dPriority);
+            int64 nMinFee = wtxNew.GetMinFee(1, fAllowFree);
+            if (nFeeRet < max(nPayFee, nMinFee)) {
+                nFeeRet = max(nPayFee, nMinFee);
+                printf( "CreateAssetTransactionWithInputTx: re-iterating (nFreeRet = %s)\n",
+                        FormatMoney(nFeeRet).c_str());
+                continue;
+            }
+
+            // Fill vtxPrev by copying from previous transactions vtxPrev
+            wtxNew.AddSupportingTransactions();
+            wtxNew.fTimeReceivedIsTxTime = true;
+
+            break;
+        }
+    }
+
+    printf("CreateAssetTransactionWithInputTx succeeded:\n%s",
+            wtxNew.ToString().c_str());
+    return true;
+}
+
 // nTxOut is the output from wtxIn that we should grab
 string SendAssetWithInputTx(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxIn, CWalletTx& wtxNew, bool fAskFee, const string& txData) {
     
+    int nTxOut = IndexOfAssetOutput(wtxIn);
+    CReserveKey reservekey(pwalletMain);
+    int64 nFeeRequired;
+    vector<pair<CScript, int64> > vecSend;
+    vecSend.push_back(make_pair(scriptPubKey, nValue));
+
+    if (nNetFee) {
+        CScript scriptFee;
+        scriptFee << OP_RETURN;
+        vecSend.push_back(make_pair(scriptFee, nNetFee));
+    }
+
+    if (!CreateAssetTransactionWithInputTx(vecSend, wtxIn, nTxOut, wtxNew, reservekey, nFeeRequired, txData)) {
+        string strError;
+        if (nValue + nFeeRequired > pwalletMain->GetBalance())
+            strError = strprintf(_("Error: This transaction requires a transaction fee of at least %s because of its amount, complexity, or use of recently received funds "),
+                            FormatMoney(nFeeRequired).c_str());
+        else
+            strError = _("Error: Transaction creation failed  ");
+        printf("SendMoney() : %s", strError.c_str());
+        return strError;
+    }
+
+#ifdef GUI
+    if (fAskFee && !uiInterface.ThreadSafeAskFee(nFeeRequired))
+    return "ABORTED";
+#else
+    if (fAskFee && !true)
+        return "ABORTED";
+#endif
+
+    if (!pwalletMain->CommitTransaction(wtxNew, reservekey))
+        return _(
+                "Error: The transaction was rejected.  This might happen if some of the coins in your wallet were already spent, such as if you used a copy of wallet.dat and coins were spent in the copy but not marked as spent here.");
+
+    return "";
+}
+
+// nTxOut is the output from wtxIn that we should grab
+string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxIn, CWalletTx& wtxNew, bool fAskFee, const string& txData) {
+
     int nTxOut = IndexOfAssetOutput(wtxIn);
     CReserveKey reservekey(pwalletMain);
     int64 nFeeRequired;
@@ -1138,12 +1324,24 @@ bool ExtractAssetAddress(const CScript& script, string& address) {
     if (!DecodeAssetScript(script, op, vvch))
         return false;
 
+    switch(vvch.size()) {
+        case 0:
+        case 1:
+            op = XOP_ASSET_NEW;
+            break;
+        case 2:
+            op = XOP_ASSET_ACTIVATE;
+            break;
+        case 3:
+            op = XOP_ASSET_SEND;
+            break;
+    }
     string strOp = assetFromOp(op);
     string strAsset;
 
     // TODO CB Need to differentiate XOPs - which means we need to txn's data
     // or find some other way of doing it
-    if (op == OP_ASSET) { 
+    if (op == XOP_ASSET_NEW) { 
 #ifdef GUI
         LOCK(cs_main);
 
