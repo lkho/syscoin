@@ -64,6 +64,8 @@ public:
 
     bool isChange;
     uint256 changeTxHash;
+    uint256 prevTxHash;
+    uint64 prevTxQty;
 
     uint256 txHash;
     uint64 nHeight;
@@ -86,6 +88,8 @@ public:
         READWRITE(nTotalQty);
         READWRITE(isChange);
         READWRITE(changeTxHash);
+        READWRITE(prevTxHash);
+        READWRITE(prevTxQty);
         READWRITE(nQty);
         READWRITE(nCoinsPerShare);
         READWRITE(txHash);
@@ -133,6 +137,8 @@ public:
         && a.nCoinsPerShare == b.nCoinsPerShare
         && a.changeTxHash == b.changeTxHash
         && a.isChange == b.isChange
+        && a.prevTxHash == b.prevTxHash
+        && a.prevTxQty == b.prevTxQty
         && a.nFee == b.nFee
         && a.n == b.n
         && a.hash == b.hash
@@ -154,6 +160,8 @@ public:
         nQty = b.nQty;
         isChange = b.isChange;
         changeTxHash = b.changeTxHash;
+        prevTxHash = b.prevTxHash;
+        prevTxQty = b.prevTxQty;
         nFee = b.nFee;
         n = b.n;
         hash = b.hash;
@@ -170,8 +178,8 @@ public:
 
     void SetNull() { 
         nHeight = n = nOp = 0; 
-        txHash = changeTxHash = hash = 0; 
-        nTotalQty = nQty = nCoinsPerShare = 0;
+        txHash = changeTxHash = prevTxHash = hash = 0; 
+        nTotalQty = nQty = nCoinsPerShare = prevTxQty = 0;
         isChange = false;
         vchRand.clear(); 
         vchGuid.clear();
@@ -179,7 +187,7 @@ public:
         vchTitle.clear(); 
         vchDescription.clear(); 
     }
-    bool IsNull() const { return (n == 0 && txHash == 0  && changeTxHash == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchRand.size() == 0 && vchGuid.size() == 0); }
+    bool IsNull() const { return (n == 0 && txHash == 0  && changeTxHash == 0 && prevTxHash == 0 && prevTxQty == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchRand.size() == 0 && vchGuid.size() == 0); }
 
     bool UnserializeFromTx(const CTransaction &tx);
     void SerializeToTx(CTransaction &tx);

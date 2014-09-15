@@ -673,13 +673,21 @@ int64 CWallet::GetDebitInclName(const CTxIn &txin) const
         if (mi != mapWallet.end())
         {
             const CWalletTx& prev = (*mi).second;
-            if (txin.prevout.n < prev.vout.size())
-                if (IsMine(prev.vout[txin.prevout.n]) 
-                    || IsAliasMine(prev, prev.vout[txin.prevout.n]) 
-                    || IsOfferMine(prev, prev.vout[txin.prevout.n])
-                    || IsCertMine(prev, prev.vout[txin.prevout.n])
-                    || IsAssetMine(prev, prev.vout[txin.prevout.n]))
-                    return prev.vout[txin.prevout.n].nValue;
+            if (txin.prevout.n < prev.vout.size()) {
+                bool bMine = false;
+                if (IsMine(prev.vout[txin.prevout.n]))
+                    bMine = true;
+                else if (IsAliasMine(prev, prev.vout[txin.prevout.n]))
+                    bMine = true;
+                else if (IsOfferMine(prev, prev.vout[txin.prevout.n]))
+                    bMine = true;
+                else if (IsCertMine(prev, prev.vout[txin.prevout.n]))
+                    bMine = true;
+                else if (IsAssetMine(prev, prev.vout[txin.prevout.n]))
+                    bMine = true;   
+                if(bMine)                                    
+                    return prev.vout[txin.prevout.n].nValue; 
+            }                            
         }
     }
     return 0;

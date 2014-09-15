@@ -1200,6 +1200,8 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                         (long unsigned int) nNetFee);
 
             // TODO CB add logic back
+            // TODO CB check asset change / prev tx / etc to validate the send. if this is not change. require the change txn to be accepted
+            // first. make sure that the change txn's and the prevTxn values all make sense. Disallow txns with bad math
             if (fBlock && !fJustCheck) {
                 // Check hash
 //            	if(vvchPrevArgs.size()!=0) {
@@ -1289,6 +1291,11 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                     theAsset.nHeight = pindexBlock->nHeight;
                     theAsset.vchRand = vvchArgs[0];
                     theAsset.txHash = tx.GetHash();
+                    theAsset.prevTxHash = serializedAsset.prevTxHash;
+                    theAsset.prevTxQty = serializedAsset.prevTxQty;
+                    theAsset.isChange = serializedAsset.isChange;
+                    theAsset.changeTxHash = serializedAsset.changeTxHash;
+                    theAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
                     theAsset.nTime = pindexBlock->nTime;
                     theAsset.PutToAssetList(vtxPos);
 
@@ -1313,7 +1320,7 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
     }
     return true;
 }
-
+// TODO CB I still think CAsset's hash should go in the script
 bool ExtractAssetAddress(const CScript& script, string& address) {
     if (script.size() == 1 && script[0] == OP_RETURN) {
         address = string("network fee");
@@ -1670,12 +1677,19 @@ Value assetsend(const Array& params, bool fHelp) {
         // calculate network fees
         int64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
 
+        // TODO CB verify enough funds to send before performing the first txn send
+
+        // TODO CB if sending all assets, then there is NO change txn and the whole thing is sent to receiver
+
+        theAsset.isChange = true;
+        theAsset.changeTxHash = 0;
+        theAsset.prevTxHash = wtxInHash;
+        theAsset.prevTxQty = theAsset.nQty;
+
         // update asset values
         theAsset.nOp   = XOP_ASSET_SEND;
         theAsset.nQty -= nQty;
         theAsset.nFee  = nNetFee;
-        theAsset.isChange = true;
-        theAsset.changeTxHash = 0;
 
         // serialize asset object
         string bdata = theAsset.SerializeToString();
@@ -1766,6 +1780,11 @@ Value assetinfo(const Array& params, bool fHelp) {
         if (GetValueOfAssetTxHash(txHash, vchValue, assetHash, nHeight)) {
             oAsset.push_back(Pair("id", asset));
             oAsset.push_back(Pair("txid", tx.GetHash().GetHex()));
+            oAsset.push_back(Pair("prevtxid", theAsset.prevTxHash.GetHex()));
+            oAsset.push_back(Pair("prevtxqty", strprintf("%llu", theAsset.prevTxQty)));
+            oAsset.push_back(Pair("ischange", theAsset.isChange ));
+            oAsset.push_back(Pair("changetxid", theAsset.changeTxHash.GetHex()));
+
             string strAddress = "";
             GetAssetAddress(tx, strAddress);
             oAsset.push_back(Pair("address", strAddress));
@@ -1774,6 +1793,7 @@ Value assetinfo(const Array& params, bool fHelp) {
             oAsset.push_back(Pair("title", stringFromVch(theAsset.vchTitle)));
             oAsset.push_back(Pair("description", stringFromVch(theAsset.vchDescription)));
             oAsset.push_back(Pair("total_quantity", strprintf("%llu", theAsset.nTotalQty)));
+            oAsset.push_back(Pair("coins_per_asset", strprintf("%llu", theAsset.nCoinsPerShare)));
             if(IsAssetMine(tx))
                 oAsset.push_back(Pair("quantity", strprintf("%llu", theAsset.nQty)));
             else
