@@ -284,6 +284,7 @@ SOURCES += src/qt/bitcoin.cpp \
     src/offer.cpp \
     src/cert.cpp \
     src/walletdb.cpp \
+ 		src/asset.cpp \
     src/qt/clientmodel.cpp \
     src/qt/guiutil.cpp \
     src/qt/transactionrecord.cpp \
