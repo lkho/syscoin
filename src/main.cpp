@@ -1369,7 +1369,7 @@ int64 static GetBlockValue(int nHeight, int64 nFees, uint256 prevHash) {
     if(nHeight == 0)
         nSubsidy = 1024 * COIN; // genesis amount
     else if(nHeight == 1)
-        nSubsidy = ( fCakeNet ? 10000000 : 364222858 ) * COIN; // pre-mine amount
+        nSubsidy = ( fCakeNet ? 1100000 : 364222858 ) * COIN; // pre-mine amount
     else if(nHeight > 259440 && nHeight <= 777840)
         nSubsidy = 96 * COIN;
     else if(nHeight > 777840 && nHeight <= 1814640)
@@ -1401,6 +1401,11 @@ int64 static GetBlockValue(int nHeight, int64 nFees, uint256 prevHash) {
 
     if (fDebug)
 	printf ("GetBlockvalue of Block %d: subsidy=%"PRI64d", fees=%"PRI64d", aliasSubsidy=%"PRI64d", offerSubsidy=%"PRI64d", certSubidy=%"PRI64d", assetSubidy=%"PRI64d", sum=%"PRI64d". \n", nHeight, a, f, b, c, d, e, s);
+    
+    if(fCakeNet) {
+    	if(nHeight==1) return s;
+    	else return 0;
+    }
     return s;
 }
 

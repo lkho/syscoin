@@ -189,6 +189,7 @@ extern json_spirit::Value getinfo(const json_spirit::Array& params, bool fHelp);
 
 extern json_spirit::Value getrawtransaction(const json_spirit::Array& params, bool fHelp); // in rcprawtransaction.cpp
 extern json_spirit::Value listunspent(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value listabunch(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value lockunspent(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value listlockunspent(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value createrawtransaction(const json_spirit::Array& params, bool fHelp);
@@ -267,6 +268,7 @@ extern json_spirit::Value assethistory(const json_spirit::Array& params, bool fH
 extern json_spirit::Value assetfilter(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value assetscan(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value assetclean(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value listassettransactions(const json_spirit::Array& params, bool fHelp);
 
 extern json_spirit::Value phrpcfunc(const json_spirit::Array& params, bool fHelp);
 

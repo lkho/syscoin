@@ -261,6 +261,7 @@ static const CRPCCommand vRPCCommands[] =
     { "dumpprivkey",            &dumpprivkey,            true,      false,      true },
     { "importprivkey",          &importprivkey,          false,     false,      true },
     { "listunspent",            &listunspent,            false,     false,      true },
+    { "listabunch",            &listabunch,            false,     false,      true },
     { "getrawtransaction",      &getrawtransaction,      false,     false,      false },
     { "createrawtransaction",   &createrawtransaction,   false,     false,      false },
     { "decoderawtransaction",   &decoderawtransaction,   false,     false,      false },
@@ -286,6 +287,7 @@ static const CRPCCommand vRPCCommands[] =
     { "aliasfilter",       &aliasfilter,       false,      false,      true },
     { "aliasscan",         &aliasscan,         false,      false,      true },
     { "aliasclean",        &aliasclean,         false,      false,      true },
+    { "listassettransactions",       &listassettransactions,       false,     false,      true },
 
 	// use the blockchain to store provably-ownable data
     { "datanew",          &datanew,         false,      false,      true },
@@ -1266,6 +1268,9 @@ Array RPCConvertValues(const std::string &strMethod, const std::vector<std::stri
     if (strMethod == "listunspent"            && n > 1) ConvertTo<boost::int64_t>(params[1]);
     if (strMethod == "listunspent"            && n > 2) ConvertTo<Array>(params[2]);
     if (strMethod == "getblock"               && n > 1) ConvertTo<bool>(params[1]);
+    if (strMethod == "listabunch"             && n > 0) ConvertTo<boost::int64_t>(params[0]);
+    if (strMethod == "listabunch"             && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "listabunch"             && n > 2) ConvertTo<Array>(params[2]);    
     if (strMethod == "getrawtransaction"      && n > 1) ConvertTo<boost::int64_t>(params[1]);
     if (strMethod == "createrawtransaction"   && n > 0) ConvertTo<Array>(params[0]);
     if (strMethod == "createrawtransaction"   && n > 1) ConvertTo<Object>(params[1]);

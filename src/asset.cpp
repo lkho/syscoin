@@ -41,6 +41,8 @@ extern bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey,
         const CTransaction& txTo, unsigned int nIn, unsigned int flags,
         int nHashType);
 
+extern void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDepth, bool fLong, Array& ret);
+
 bool IsAssetOp(int op) {
     return op == OP_ASSET;
 }
@@ -1395,11 +1397,13 @@ Value assetnew(const Array& params, bool fHelp) {
      
     if (fHelp || params.size() != 4)
         throw runtime_error(
-                "assetnew <symbol> <title> <description> <totalshares>\n"
+                "assetnew <symbol> <title> <description> <totalshares> [<allowfractions>] [<allowsplit>]\n"
                         "<symbol> symbol, 255 bytes max."
                         "<title> title, 255 bytes max."
                         "<description> description, 16KB max."
                         "<totalshares> total number of shares, 1 min, 2^64 - 1 max."
+                        "[<allowfractions>] allow fractional asset quantities. Default is false." // TODO CB implement this and allowsplit functionality
+                        "[<allowsplit>] allow asset to be split in the future. Default is true."
                         + HelpRequiringPassphrase());
     // gather inputs
     vector<unsigned char> vchSymbol = vchFromValue(params[0]);
@@ -1586,7 +1590,7 @@ Value assetactivate(const Array& params, bool fHelp) {
         if (uint160(vchHash) != hash)
             throw runtime_error("previous tx has a different guid");
 
-        vector<unsigned char> vchAmount = CBigNum(newAsset.nQty).getvch();
+        vector<unsigned char> vchAmount = vchFromString( CBigNum(newAsset.nQty * newAsset.nCoinsPerShare).ToString() );
 
         //create assetactivate txn keys
         CPubKey newDefaultKey;
@@ -1677,6 +1681,9 @@ Value assetsend(const Array& params, bool fHelp) {
         // calculate network fees
         int64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
 
+        if(pwalletMain->GetBalance()<nNetFee)
+            throw runtime_error("insufficient balance to send asset.");
+
         // TODO CB verify enough funds to send before performing the first txn send
 
         // TODO CB if sending all assets, then there is NO change txn and the whole thing is sent to receiver
@@ -1700,7 +1707,8 @@ Value assetsend(const Array& params, bool fHelp) {
         pwalletMain->GetKeyFromPool(newDefaultKey, false);
         scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
  
-        vector<unsigned char> vchAmount = CBigNum(theAsset.nQty * theAsset.nCoinsPerShare).getvch();
+        vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.nQty * theAsset.nCoinsPerShare).ToString() );
+
 
         // create OP_ASSET txn keys
         CScript scriptPubKey;
@@ -1718,7 +1726,7 @@ Value assetsend(const Array& params, bool fHelp) {
         theAsset.changeTxHash = wtx.GetHash();
         bdata 			      = theAsset.SerializeToString();
 
-        vchAmount = CBigNum(theAsset.nQty * theAsset.nCoinsPerShare).getvch();
+        vchAmount = vchFromString( CBigNum(theAsset.nQty * theAsset.nCoinsPerShare).ToString() );
 
         // this asset txn goes to receiver
         CScript dscriptPubKeyOrig;
@@ -1780,11 +1788,11 @@ Value assetinfo(const Array& params, bool fHelp) {
         if (GetValueOfAssetTxHash(txHash, vchValue, assetHash, nHeight)) {
             oAsset.push_back(Pair("id", asset));
             oAsset.push_back(Pair("txid", tx.GetHash().GetHex()));
-            oAsset.push_back(Pair("prevtxid", theAsset.prevTxHash.GetHex()));
-            oAsset.push_back(Pair("prevtxqty", strprintf("%llu", theAsset.prevTxQty)));
-            oAsset.push_back(Pair("ischange", theAsset.isChange ));
-            oAsset.push_back(Pair("changetxid", theAsset.changeTxHash.GetHex()));
-
+            oAsset.push_back(Pair("prev_txid", theAsset.prevTxHash.GetHex()));
+            oAsset.push_back(Pair("prev_tx_qty", strprintf("%llu", theAsset.prevTxQty)));
+            oAsset.push_back(Pair("is_change", theAsset.isChange ));
+            oAsset.push_back(Pair("change_txid", theAsset.changeTxHash.GetHex()));
+            oAsset.push_back(Pair("service_fee", ValueFromAmount(theAsset.nFee) ));
             string strAddress = "";
             GetAssetAddress(tx, strAddress);
             oAsset.push_back(Pair("address", strAddress));
@@ -1876,6 +1884,96 @@ Value assetlist(const Array& params, bool fHelp) {
             GetAssetAddress(tx, strAddress);
             oName.push_back(Pair("address", strAddress));
 
+            // get last active name only
+            if(vNamesI.find(vchName) != vNamesI.end() && vNamesI[vchName] > nHeight)
+                continue;
+
+            vNamesI[vchName] = nHeight;
+            vNamesO[vchName] = oName;
+        }
+    }
+
+    BOOST_FOREACH(const PAIRTYPE(vector<unsigned char>, Object)& item, vNamesO)
+        oRes.push_back(item.second);
+
+    return oRes;
+}
+
+Value listassettransactions(const Array& params, bool fHelp) {
+    if (fHelp || 1 < params.size())
+        throw runtime_error("listassettransactions [<symbol>]\n"
+                "list my asset transactions");
+
+    vector<unsigned char> vchName;
+
+    if (params.size() == 1)
+        vchName = vchFromValue(params[0]);
+
+    vector<unsigned char> vchNameUniq;
+    if (params.size() == 1)
+        vchNameUniq = vchFromValue(params[0]);
+
+    Array oRes;
+    map< vector<unsigned char>, int > vNamesI;
+    map< vector<unsigned char>, Object > vNamesO;
+
+    {
+        LOCK(pwalletMain->cs_wallet);
+
+        uint256 blockHash;
+        uint256 hash;
+        CTransaction tx;
+
+        vector<unsigned char> vchValue;
+        int nHeight;
+
+        BOOST_FOREACH(PAIRTYPE(const uint256, CWalletTx)& item, pwalletMain->mapWallet)
+        {
+            // get txn hash, read txn index
+            hash = item.second.GetHash();
+
+            if (!GetTransaction(hash, tx, blockHash, true))
+                continue;
+
+            // skip non-syscoin txns
+            if (tx.nVersion != SYSCOIN_TX_VERSION)
+                continue;
+
+            // decode txn, skip non-asset txns
+            vector<vector<unsigned char> > vvch;
+            int op, nOut;
+            if (!DecodeAssetTx(tx, op, nOut, vvch, -1) || !IsAssetOp(op)) 
+                continue;
+
+            // get the txn height
+            nHeight = GetAssetTxHashHeight(hash);
+
+            // get the txn asset name
+            if(!GetNameOfAssetTx(tx, vchName))
+                continue;
+
+            // skip this asset if it doesn't match the given filter value
+            if(vchNameUniq.size() > 0 && vchNameUniq != vchName)
+                continue;
+
+            // get the value of the asset txn
+            if(!GetValueOfAssetTx(tx, vchValue))
+                continue;
+
+            // build the output object
+            Object oName;
+            oName.push_back(Pair("txid", tx.GetHash().GetHex()));
+            oName.push_back(Pair("name", stringFromVch(vchName)));
+            oName.push_back(Pair("value", stringFromVch(vchValue)));             
+            string strAddress = "";
+            GetAssetAddress(tx, strAddress);
+            oName.push_back(Pair("address", strAddress));
+
+            Array details;
+            const CWalletTx &wtx = item.second;
+            ListTransactions(wtx, "*", 0, false, details);
+            oName.push_back(Pair("details", details));
+    
             // get last active name only
             if(vNamesI.find(vchName) != vNamesI.end() && vNamesI[vchName] > nHeight)
                 continue;
