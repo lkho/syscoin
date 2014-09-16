@@ -816,10 +816,16 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
 	                // if (vvch[2].size() > MAX_ADDRESS_LENGTH)
 	                //     ret[iter] = error("asset tx with address too long");
 	                break;	      
-	            case XOP_ASSET_SPLIT:
+	            case XOP_ASSET_PEG:
 	            	break;
 	            case XOP_ASSET_UPDATE:
-	            	break;              
+	            	break;           
+	            case XOP_ASSET_GENERATE:
+	            	break;      
+	            case XOP_ASSET_DISSOLVE:
+	            	break;
+	            case XOP_ASSET_CONVERT:
+	            	break;      	            		            		            	   
 	            // TODO CB asset send
 	            default:
 	                ret[iter] = error("asset transaction has unknown op");
@@ -1053,40 +1059,42 @@ bool CTxMemPool::accept(CValidationState &state, CTransaction &tx,
 	    int op, nOut;
 
 	    // alias transaction
-	    bool good = DecodeAliasTx(tx, op, nOut, vvch, -1);
+	    bool good = DecodeAliasTx(tx, op, nOut, vvch, -1), fFound = false;
 	    if(good && IsAliasOp(op)) {
 	        LOCK(cs_main);
             mapAliasesPending[vvch[0]].insert(tx.GetHash());
 	        printf("AcceptToMemoryPool() : Added alias transaction '%s' to memory pool.\n",
                 stringFromVch(vvch[0]).c_str());
+	        fFound = true;
 	    }
 	    // offer transaction
-		good = DecodeOfferTx(tx, op, nOut, vvch, -1);
-	    if(good && IsOfferOp(op)) {
+		if(!fFound) good = DecodeOfferTx(tx, op, nOut, vvch, -1);
+	    if(!fFound && good && IsOfferOp(op)) {
 	        LOCK(cs_main);
             if(op == OP_OFFER_ACCEPT || op == OP_OFFER_PAY)
 				mapOfferAcceptPending[vvch[1]].insert(tx.GetHash());
 			else
                 mapOfferPending[op == OP_OFFER_NEW ? vchFromString(HexStr(vvch[0]))
                     : vvch[0]].insert(tx.GetHash());
-			printf("AcceptToMemoryPool() : Added offer transaction '%s' to memory pool.\n", 
-                stringFromVch(vvch[0]).c_str());
+			printf("AcceptToMemoryPool() : Added offer transaction '%s' to memory pool.\n",  stringFromVch(vvch[0]).c_str());
+			fFound = true;
 	    }
+	    // TODO change the key we use to store pending to be read from the object itself rather than the script param
 	    // certificate transaction
-	    good = DecodeCertTx(tx, op, nOut, vvch, -1);
-		if(good && IsCertOp(op)) {
+	    if(!fFound) good = DecodeCertTx(tx, op, nOut, vvch, -1);
+		if(!fFound && good && IsCertOp(op)) {
 	        LOCK(cs_main);
 			if(op == OP_CERT_TRANSFER)
 				mapCertItemPending[vvch[1]].insert(tx.GetHash());
 			else
                 mapCertIssuerPending[op == OP_CERTISSUER_NEW ? vchFromString(HexStr(vvch[0]))
                     : vvch[0]].insert(tx.GetHash());
-			printf("AcceptToMemoryPool() : Added cert transaction '%s' to memory pool.\n", 
-                stringFromVch(vvch[0]).c_str());
+			printf("AcceptToMemoryPool() : Added cert transaction '%s' to memory pool.\n", stringFromVch(vvch[0]).c_str());
+			fFound = true;
 	    }
 	    // asset transaction
-	    good = DecodeAssetTx(tx, op, nOut, vvch, -1);
-		if(good && IsAssetOp(op)) {
+	    if(!fFound) good = DecodeAssetTx(tx, op, nOut, vvch, -1);
+		if(!fFound && good && IsAssetOp(op)) {
 	        LOCK(cs_main);
 	        // unserialize asset object from txn, check for valid
         	CAsset theAsset;
@@ -1094,9 +1102,9 @@ bool CTxMemPool::accept(CValidationState &state, CTransaction &tx,
         	if (theAsset.IsNull()) {
             	error("asset transaction with null asset object");
         	} else {
-	            mapAssetPending[theAsset.nOp == XOP_ASSET_NEW ? vchFromString(HexStr(vvch[0])) : vvch[0]].insert(tx.GetHash());
+	            mapAssetPending[theAsset.vchSymbol].insert(tx.GetHash());
 				printf("AcceptToMemoryPool() : Added asset transaction '%s' to memory pool.\n", 
-	                stringFromVch(vvch[0]).c_str());
+	                stringFromVch(theAsset.vchSymbol).c_str());
         	}
 	    }
 	}
@@ -2219,8 +2227,11 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                     	// TODO CB has to disable the following line because IsAssetMine crashes.
                     	// this will have the effect of never writing to the DB on disconnectblock
                     	|| (xOp == XOP_ASSET_SEND && isMine)
-                    	|| xOp == XOP_ASSET_SPLIT
+                    	|| xOp == XOP_ASSET_PEG
                     	|| xOp == XOP_ASSET_UPDATE
+                    	|| xOp == XOP_ASSET_GENERATE
+                    	|| xOp == XOP_ASSET_DISSOLVE
+                    	|| xOp == XOP_ASSET_CONVERT
                     ) {
                         if(xOp == XOP_ASSET_ACTIVATE) {
                         	theAsset.nQty = isMine ? serializedAsset.nQty : 0;
@@ -2231,12 +2242,26 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                         	else
                         		theAsset.nQty += serializedAsset.nQty;
                         }
-                        else if(xOp == XOP_ASSET_SPLIT) {
+                        else if(xOp == XOP_ASSET_PEG) {
 							theAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
                         } 
                         else if(xOp == XOP_ASSET_UPDATE) {
 							theAsset.vchDescription = serializedAsset.vchDescription;
                         }
+                        else if(xOp == XOP_ASSET_GENERATE) {
+							theAsset.nTotalQty += serializedAsset.nQty;
+							if(isMine) theAsset.nQty += serializedAsset.nQty;
+                        }
+                        else if(xOp == XOP_ASSET_DISSOLVE) {
+							theAsset.nTotalQty -= serializedAsset.nQty;
+							if(isMine) theAsset.nQty -= serializedAsset.nQty;
+                        }
+                        else if(xOp == XOP_ASSET_CONVERT) {
+							theAsset.nTotalQty -= serializedAsset.nQty;
+							if(isMine) theAsset.nQty -= serializedAsset.nQty;
+                        }
+
+
                         // write new asset state to db
                         if(!passetdb->WriteAsset(vvchArgs[0], vtxPos))
                             return error("DisconnectBlock() : failed to write to asset DB");

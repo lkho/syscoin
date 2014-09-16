@@ -1469,7 +1469,7 @@ Value offernew(const Array& params, bool fHelp) {
 	vector<unsigned char> vchTitle = vchFromValue(params[nParamIdx++]);
 	vector<unsigned char> vchDesc;
 
-	nQty = atoi(params[nParamIdx++].get_str().c_str());
+	nQty = atoi64(params[nParamIdx++].get_str().c_str());
 	nPrice = atoi64(params[nParamIdx++].get_str().c_str());
 
 	if(nParamIdx < params.size()) vchDesc = vchFromValue(params[nParamIdx++]);
@@ -1671,6 +1671,7 @@ Value offerupdate(const Array& params, bool fHelp) {
 	uint64 price;
 	if (params.size() == 6) vchDesc = vchFromValue(params[5]);
 	try {
+		// TODO CB convert to uint64
 		qty = atoi(params[3].get_str().c_str());
 		price = atoi64(params[4].get_str().c_str());
 	} catch (std::exception &e) {

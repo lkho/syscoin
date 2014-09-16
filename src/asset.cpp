@@ -100,10 +100,16 @@ string assetFromOp(int op) {
         return "assetactivate";
     case XOP_ASSET_SEND:
         return "assetsend";
-    case XOP_ASSET_SPLIT:
-        return "assetsplit";
+    case XOP_ASSET_PEG:
+        return "assetpeg";
     case XOP_ASSET_UPDATE:
         return "assetupdate";                
+    case XOP_ASSET_GENERATE:
+        return "assetgenerate";                
+    case XOP_ASSET_DISSOLVE:
+        return "assetdissolve";                
+    case XOP_ASSET_CONVERT:
+        return "assetconvert";                
     default:
         return "<unknown asset op>";
     }
@@ -231,14 +237,21 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
             int64 nTheFee = GetAssetNetFee(tx);
             InsertAssetFee(pindex, tx.GetHash(), txAsset.nOp, nTheFee);
 
+            std::map<std::vector<unsigned char>, std::set<uint256> >::iterator
+                    mi = mapAssetPending.find(vchSymbol);
+            if (mi != mapAssetPending.end())  mi->second.erase(tx.GetHash());
+
             bool bMyAsset =  IsAssetMine(tx);
             // asset only visible after NEW?
             if(xop != XOP_ASSET_NEW) {
                 // txn-specific values to asset object
                 if(xop == XOP_ASSET_ACTIVATE 
                 || (xop == XOP_ASSET_SEND && bMyAsset)
-                || xop == XOP_ASSET_SPLIT
-                || xop == XOP_ASSET_UPDATE ) {
+                || xop == XOP_ASSET_PEG
+                || xop == XOP_ASSET_UPDATE
+                || xop == XOP_ASSET_GENERATE
+                || xop == XOP_ASSET_DISSOLVE
+                || xop == XOP_ASSET_CONVERT ) {
 
                     if(serializedAsset.nOp == XOP_ASSET_ACTIVATE) {
                         txAsset.nQty = bMyAsset  ? serializedAsset.nQty : 0;
@@ -249,12 +262,25 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
                         else
                             txAsset.nQty += serializedAsset.nQty;
                     }
-                    else if(serializedAsset.nOp == XOP_ASSET_SPLIT) {
+                    else if(serializedAsset.nOp == XOP_ASSET_PEG) {
                         txAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
                     }
                     else if(serializedAsset.nOp == XOP_ASSET_UPDATE) {
                         txAsset.vchDescription = serializedAsset.vchDescription;
                     }
+                    else if(serializedAsset.nOp == XOP_ASSET_GENERATE) {
+                        txAsset.nTotalQty += serializedAsset.nQty;
+                        if(bMyAsset) txAsset.nQty += serializedAsset.nQty;
+                    }
+                    else if(serializedAsset.nOp == XOP_ASSET_DISSOLVE) {
+                        txAsset.nTotalQty -= serializedAsset.nQty;
+                        if(bMyAsset) txAsset.nQty -= serializedAsset.nQty;
+                    }
+                    else if(serializedAsset.nOp == XOP_ASSET_CONVERT) {
+                        txAsset.nTotalQty -= serializedAsset.nQty;
+                        if(bMyAsset) txAsset.nQty -= serializedAsset.nQty;
+                        txAsset.vchConvertTargetSymbol = serializedAsset.vchConvertTargetSymbol;
+                    }                    
 
                     txAsset.txHash = tx.GetHash();
                     txAsset.nHeight = nHeight;
@@ -473,8 +499,11 @@ bool GetValueOfAssetTx(const CTransaction& tx, vector<unsigned char>& value) {
 
         case XOP_ASSET_ACTIVATE:
         case XOP_ASSET_SEND:
-        case XOP_ASSET_SPLIT:
+        case XOP_ASSET_PEG:
         case XOP_ASSET_UPDATE:
+        case XOP_ASSET_GENERATE:
+        case XOP_ASSET_DISSOLVE:
+        case XOP_ASSET_CONVERT:
             value = vvch[vvch.size()-1];
             return true;
         
@@ -1247,9 +1276,15 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
 
             break;
         
-        case XOP_ASSET_SPLIT:
+        case XOP_ASSET_PEG:
             break;
         case XOP_ASSET_UPDATE:
+            break;
+        case XOP_ASSET_GENERATE:
+            break;
+        case XOP_ASSET_DISSOLVE:
+            break;
+        case XOP_ASSET_CONVERT:
             break;
         default:
             return error( "CheckAssetInputs() : asset transaction has unknown op");
@@ -1261,8 +1296,8 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
         // if not an assetnew, load the asset data from the DB.
         vector<CAsset> vtxPos;
         if(theAsset.nOp != XOP_ASSET_NEW) {
-            if (passetdb->ExistsAsset(vvchArgs[0])) {
-                if (!passetdb->ReadAsset(vvchArgs[0], vtxPos))
+            if (passetdb->ExistsAsset(theAsset.vchSymbol)) {
+                if (!passetdb->ReadAsset(theAsset.vchSymbol, vtxPos))
                     return error(
                             "CheckAssetInputs() : failed to read from asset DB");
             }
@@ -1272,14 +1307,12 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
         if (fBlock || (!fBlock && !fMiner && !fJustCheck) ) {
 
             // remove asset from pendings
-            vector<unsigned char> vchAsset = theAsset.nOp == XOP_ASSET_NEW
-            		? vchFromString(HexStr(vvchArgs[0])) : vvchArgs[0];
+            vector<unsigned char> vchAsset = theAsset.vchSymbol;
 
             // TODO CB this lock needed?
             LOCK(cs_main);
 
-            std::map<std::vector<unsigned char>, std::set<uint256> >::iterator
-                    mi = mapAssetPending.find(vchAsset);
+            std::map<std::vector<unsigned char>, std::set<uint256> >::iterator mi = mapAssetPending.find(vchAsset);
             if (mi != mapAssetPending.end())  mi->second.erase(tx.GetHash());
 
             // get the fee for this asset txn
@@ -1293,14 +1326,18 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                 vector<CAssetFee> vAssetFees(lstAssetFees.begin(), lstAssetFees.end());
                 if (!passetdb->WriteAssetFees(vAssetFees))
                     return error( "CheckAssetInputs() : failed to write fees to asset DB");
+
         	}
 
         	// only record asset info to the database if it's activate (so everyone can see it)
         	// or if it's a send and we are the recipient
             if(theAsset.nOp == XOP_ASSET_ACTIVATE
             	|| (theAsset.nOp == XOP_ASSET_SEND && IsAssetMine(tx) ) 
-                || theAsset.nOp == XOP_ASSET_SPLIT
-                || theAsset.nOp == XOP_ASSET_UPDATE ) {
+                || theAsset.nOp == XOP_ASSET_PEG
+                || theAsset.nOp == XOP_ASSET_UPDATE
+                || theAsset.nOp == XOP_ASSET_GENERATE
+                || theAsset.nOp == XOP_ASSET_DISSOLVE
+                || theAsset.nOp == XOP_ASSET_CONVERT ) {
                 if (!fMiner && !fJustCheck && pindexBlock->nHeight != pindexBest->nHeight) {
                     int nHeight = pindexBlock->nHeight;
 
@@ -1318,14 +1355,24 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                     	else
                     		theAsset.nQty += serializedAsset.nQty;
                     }
-                    else if(serializedAsset.nOp == XOP_ASSET_SPLIT) {
+                    else if(serializedAsset.nOp == XOP_ASSET_PEG) {
                         theAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
-                        theAsset.nTotalQty = serializedAsset.nTotalQty;
                     }
                     else if(serializedAsset.nOp == XOP_ASSET_UPDATE) {
                         theAsset.vchDescription = serializedAsset.vchDescription;
                     }
-                    	
+                    else if(serializedAsset.nOp == XOP_ASSET_GENERATE ) {
+                        theAsset.nTotalQty += serializedAsset.nQty;
+                        if(IsAssetMine(tx)) theAsset.nQty += serializedAsset.nQty;
+                    }
+                    else if(serializedAsset.nOp == XOP_ASSET_DISSOLVE ) {
+                        theAsset.nTotalQty -= serializedAsset.nQty;
+                        if(IsAssetMine(tx)) theAsset.nQty -= serializedAsset.nQty;
+                    }                   	
+                    else if(serializedAsset.nOp == XOP_ASSET_CONVERT ) {
+                        theAsset.nTotalQty -= serializedAsset.nQty;
+                        if(IsAssetMine(tx)) theAsset.nQty -= serializedAsset.nQty;
+                    }
 
                     // set the asset's txn-dependent values
                     theAsset.nHeight = pindexBlock->nHeight;
@@ -1435,19 +1482,22 @@ Value assetnew(const Array& params, bool fHelp) {
      
     if (fHelp || params.size() != 4)
         throw runtime_error(
-                "assetnew <symbol> <title> <description> <totalshares> [<allowfractions>] [<allowsplit>]\n"
+                "assetnew <symbol> <title> <description> <totalshares> [<allowfractions>] [<allowpeg>] [<allowgenerate>] [<allowdissolve>] [<allowconversion>]\n"
                         "<symbol> symbol, 255 bytes max."
                         "<title> title, 255 bytes max."
                         "<description> description, 16KB max."
                         "<totalshares> total number of shares, 1 min, 2^64 - 1 max."
-                        "[<allowfractions>] allow fractional asset quantities. Default is false." // TODO CB implement this and allowsplit functionality
-                        "[<allowsplit>] allow asset to be split in the future. Default is true."
+                        "[<allowfractions>] allow fractional asset quantities. Default is true." // TODO CB implement this and allowsplit functionality
+                        "[<allowpeg>] allow asset coins per share to be re-pegged in the future. Default is true."
+                        "[<allowgenerate>] allow generation of additional shares of this asset. Default is true."
+                        "[<allowdissolve>] allow dissolving shares of this asset. Default is true."
+                        "[<allowconversion>] allow shares of this asset to be converted into another asset. Default is true."
                         + HelpRequiringPassphrase());
     // gather inputs
     vector<unsigned char> vchSymbol = vchFromValue(params[0]);
     vector<unsigned char> vchTitle = vchFromValue(params[1]);
     vector<unsigned char> vchDescription = vchFromValue(params[2]);
-    uint64 nTotalQty = atoi(params[3].get_str().c_str()); // TODO CB better translation for total quantity
+    uint64 nTotalQty = atoi64(params[3].get_str().c_str()); // TODO CB better translation for total quantityof
 
     if(vchSymbol.size() < 1)
         throw runtime_error("asset symbol < 1 bytes!\n");
@@ -1493,7 +1543,7 @@ Value assetnew(const Array& params, bool fHelp) {
     newAsset.vchSymbol = vchSymbol;
     newAsset.vchTitle = vchTitle;
     newAsset.vchDescription = vchDescription;
-    newAsset.nTotalQty = nTotalQty;
+    newAsset.nTotalQty = nTotalQty * COIN;
     newAsset.nQty = 0;
     newAsset.nCoinsPerShare = COIN;
 
@@ -1614,8 +1664,7 @@ Value assetactivate(const Array& params, bool fHelp) {
                     "previous transaction wasn't asset new");
 
         newAsset.nOp = XOP_ASSET_ACTIVATE;
-        newAsset.nCoinsPerShare = COIN;
-        newAsset.nQty = newAsset.nTotalQty * newAsset.nCoinsPerShare;
+        newAsset.nQty = newAsset.nTotalQty;
         newAsset.nFee = nNetFee;
 
         string bdata = newAsset.SerializeToString();
@@ -1670,7 +1719,7 @@ Value assetsend(const Array& params, bool fHelp) {
     vector<unsigned char> vchAddress = vchFromValue(params[1]);
 
     // TODO CB better translation for total quantity
-    uint64 nQty = atoi(params[2].get_str().c_str());
+    uint64 nQty = atoi64(params[2].get_str().c_str());
     if(nQty < 1) throw runtime_error("Invalid asset quantity.");
 
     // validate destination address
@@ -1686,9 +1735,13 @@ Value assetsend(const Array& params, bool fHelp) {
 
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
-
-        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size())
+        
+        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
+            error( "assetactivate() : there are %d pending operations on that asset, including %s",
+                   (int) mapAssetPending[vchAsset].size(),
+                   mapAssetPending[vchAsset].begin()->GetHex().c_str());
             throw runtime_error("there are pending operations on that asset");
+        }
 
         EnsureWalletIsUnlocked();
 
@@ -1802,27 +1855,34 @@ Value assetsend(const Array& params, bool fHelp) {
     return wtxDest.GetHash().GetHex();
 }
 
-Value assetsplit(const Array& params, bool fHelp) {
-    if (fHelp || params.size() != 1)
+Value assetpeg(const Array& params, bool fHelp) {
+    if (fHelp || params.size() != 2)
         throw runtime_error(
-                "assetsplit <symbol>\n"
-                "Split the asset. This doubles the total number of available shares.\n"
+                "assetpeg <symbol>\n"
+                "Peg the asset's SYS-per-share value to the given amount.\n"
                         "<symbol> asset symbol.\n"
+                        "<amount> asset share value, in Satoshi.\n"
                         + HelpRequiringPassphrase());
 
     // gather & validate inputs
     vector<unsigned char> vchAsset = vchFromValue(params[0]);
+    // TODO CB better translation for total quantity
+    uint64 nCoinsPerShare = atoi64(params[1].get_str().c_str());
+    if(nCoinsPerShare < 1) throw runtime_error("Invalid asset share value.");
 
     // this is a syscoin txn
-    CWalletTx wtx, wtxDest;
+    CWalletTx wtx;
     wtx.nVersion = SYSCOIN_TX_VERSION;
-    wtxDest.nVersion = SYSCOIN_TX_VERSION;
 
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
 
-        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size())
+        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
+            error( "assetactivate() : there are %d pending operations on that asset, including %s",
+                   (int) mapAssetPending[vchAsset].size(),
+                   mapAssetPending[vchAsset].begin()->GetHex().c_str());
             throw runtime_error("there are pending operations on that asset");
+        }
 
         EnsureWalletIsUnlocked();
 
@@ -1852,7 +1912,7 @@ Value assetsplit(const Array& params, bool fHelp) {
 
         // make sure there's enough funds to send this txn before trying 
         if(pwalletMain->GetBalance()<nNetFee)
-            throw runtime_error("insufficient balance to pay assetsplit fees.");
+            throw runtime_error("insufficient balance to pay assetpeg fees.");
 
         // asset transaction
         theAsset.isChange     = false;
@@ -1861,10 +1921,9 @@ Value assetsplit(const Array& params, bool fHelp) {
         theAsset.prevTxQty    = theAsset.nQty;
 
         // update asset values
-        theAsset.nOp             = XOP_ASSET_SPLIT;
-        theAsset.nCoinsPerShare /= 2;
-        theAsset.nTotalQty      *= 2;
-        theAsset.nFee            = nNetFee;
+        theAsset.nOp            = XOP_ASSET_PEG;
+        theAsset.nCoinsPerShare = nCoinsPerShare;
+        theAsset.nFee           = nNetFee;
 
         // TODO CB make it incrementally more and more expensive to split an asset. this is to prevent someone from creating an asset with a low number of shares and then splitting it to save on fees.
         // serialize asset object
@@ -1888,17 +1947,453 @@ Value assetsplit(const Array& params, bool fHelp) {
 
         // send the asset change to myself
         CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        string strError  = SendAssetWithInputTxs(scriptPubKey, MIN_AMOUNT, nNetFee, wtxIn, wtx, false, bdata);
+        string strError  = SendAssetWithInputTxs(scriptPubKey, theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
-        printf("SENT:ASSETSPLIT: symbol=%s guid=%s tx=%s data:\n%s\n",
+        printf("SENT:assetpeg: symbol=%s guid=%s tx=%s cps:%s data:\n%s\n",
+                stringFromVch(theAsset.vchSymbol).c_str(),
+                stringFromVch(vchAsset).c_str(),
+                wtx.GetHash().GetHex().c_str(),
+                stringFromVch(vchAmount).c_str(),
+                bdata.c_str());
+    }
+
+    return wtx.GetHash().GetHex();
+}
+
+Value assetupdate(const Array& params, bool fHelp) {
+    if (fHelp || params.size() != 2)
+        throw runtime_error(
+                "assetupdate <symbol> <description>\n"
+                "Update the asset description.\n"
+                        "<symbol> asset symbol.\n"
+                        "<description> asset description.\n"
+                        + HelpRequiringPassphrase());
+
+    // gather & validate inputs
+    vector<unsigned char> vchAsset = vchFromValue(params[0]);
+    vector<unsigned char> vchDesc = vchFromValue(params[1]);
+
+    if (vchAsset.size() > 10)
+        throw runtime_error("asset symbol > 10 bytes!\n");
+
+    if (vchDescription.size() > 16 * 1024)
+        throw runtime_error("asset description > 16384 bytes!\n");
+
+    // this is a syscoin txn
+    CWalletTx wtx;
+    wtx.nVersion = SYSCOIN_TX_VERSION;
+
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+
+        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
+            error( "assetactivate() : there are %d pending operations on that asset, including %s",
+                   (int) mapAssetPending[vchAsset].size(),
+                   mapAssetPending[vchAsset].begin()->GetHex().c_str());
+            throw runtime_error("there are pending operations on that asset");
+        }
+
+        EnsureWalletIsUnlocked();
+
+        // look for a transaction with this key
+        CTransaction tx;
+        if (!GetTxOfAsset(*passetdb, vchAsset, tx))
+            throw runtime_error("could not find an asset with this key");
+
+        // make sure asset is in wallet
+        uint256 wtxInHash = tx.GetHash();
+        if (!pwalletMain->mapWallet.count(wtxInHash))
+            throw runtime_error("this asset is not in your wallet");
+
+        // unserialize asset object from txn
+        CAsset theAsset;
+        if(!theAsset.UnserializeFromTx(tx))
+            throw runtime_error("cannot unserialize asset from txn");
+
+        // get the asset from DB
+        vector<CAsset> vtxPos;
+        if (!passetdb->ReadAsset(vchAsset, vtxPos))
+            throw runtime_error("could not read asset from DB");
+        theAsset = vtxPos.back();
+
+        // get syscoin service fees
+        int64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
+
+        // make sure there's enough funds to send this txn before trying 
+        if(pwalletMain->GetBalance()<nNetFee)
+            throw runtime_error("insufficient balance to pay assetupdate fees.");
+
+        // asset transaction
+        theAsset.isChange     = false;
+        theAsset.changeTxHash = 0;
+        theAsset.prevTxHash   = wtxInHash;
+        theAsset.prevTxQty    = theAsset.nQty;
+
+        // update asset values
+        theAsset.nOp            = XOP_ASSET_UPDATE;
+        theAsset.vchDescription = vchDesc;
+        theAsset.nFee           = nNetFee;
+
+        // TODO CB make it incrementally more and more expensive to split an asset. this is to prevent someone from creating an asset with a low number of shares and then splitting it to save on fees.
+        // serialize asset object
+        string bdata = theAsset.SerializeToString();
+        
+        // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to the txn for the destination or the original asset creator will be unable to update it
+        // TODO Currently anyone holding this asset can split it. Fix that.
+
+        // get a key from our wallet set dest as ourselves
+        CScript scriptPubKeyOrig;
+        CPubKey newDefaultKey;
+        pwalletMain->GetKeyFromPool(newDefaultKey, false);
+        scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
+
+        vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.nQty).ToString() );
+
+        // create OP_ASSET txn keys
+        CScript scriptPubKey;
+        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAmount << OP_2DROP << OP_DROP;
+        scriptPubKey += scriptPubKeyOrig;
+
+        // TODO CB Make sure to correctly set isFromMe in tx
+
+        // send the asset change to myself
+        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
+        string strError  = SendAssetWithInputTxs(scriptPubKey, theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
+        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
+
+        printf("SENT:ASSETUPDATE: symbol=%s guid=%s tx=%s data:\n%s\n",
                 stringFromVch(theAsset.vchSymbol).c_str(),
                 stringFromVch(vchAsset).c_str(),
                 wtx.GetHash().GetHex().c_str(),
                 bdata.c_str());
     }
 
-    return wtxDest.GetHash().GetHex();
+    return wtx.GetHash().GetHex();
+}
+
+Value assetgenerate(const Array& params, bool fHelp) {
+    if (fHelp || params.size() != 2)
+        throw runtime_error(
+                "assetgenerate <symbol> <description>\n"
+                "Generate new asset shares.\n"
+                        "<symbol> asset symbol.\n"
+                        "<amount> amount of asset shares to generate.\n"
+                        + HelpRequiringPassphrase());
+
+    // gather & validate inputs
+    vector<unsigned char> vchAsset = vchFromValue(params[0]);
+    uint64 nGenQty = atoi64(params[1].get_str().c_str());
+    if(nGenQty < 1) throw runtime_error("Invalid generate quantity.");
+
+    if (vchAsset.size() > 10)
+        throw runtime_error("asset symbol > 10 bytes!\n");
+
+    // this is a syscoin txn
+    CWalletTx wtx;
+    wtx.nVersion = SYSCOIN_TX_VERSION;
+
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+
+        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
+            error( "assetactivate() : there are %d pending operations on that asset, including %s",
+                   (int) mapAssetPending[vchAsset].size(),
+                   mapAssetPending[vchAsset].begin()->GetHex().c_str());
+            throw runtime_error("there are pending operations on that asset");
+        }
+
+        EnsureWalletIsUnlocked();
+
+        // look for a transaction with this key
+        CTransaction tx;
+        if (!GetTxOfAsset(*passetdb, vchAsset, tx))
+            throw runtime_error("could not find an asset with this key");
+
+        // make sure asset is in wallet
+        uint256 wtxInHash = tx.GetHash();
+        if (!pwalletMain->mapWallet.count(wtxInHash))
+            throw runtime_error("this asset is not in your wallet");
+
+        // unserialize asset object from txn
+        CAsset theAsset;
+        if(!theAsset.UnserializeFromTx(tx))
+            throw runtime_error("cannot unserialize asset from txn");
+
+        // get the asset from DB
+        vector<CAsset> vtxPos;
+        if (!passetdb->ReadAsset(vchAsset, vtxPos))
+            throw runtime_error("could not read asset from DB");
+        theAsset = vtxPos.back();
+
+        // get syscoin service fees
+        int64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
+
+        // make sure there's enough funds to send this txn before trying 
+        if(pwalletMain->GetBalance() < (int64) ( nNetFee + (nGenQty * theAsset.nCoinsPerShare) ) ) 
+            throw runtime_error( "insufficient balance to generate asset shares." );
+
+        // asset transaction
+        theAsset.isChange     = false;
+        theAsset.changeTxHash = 0;
+        theAsset.prevTxHash   = wtxInHash;
+        theAsset.prevTxQty    = theAsset.nQty;
+
+        // update asset values
+        theAsset.nOp          = XOP_ASSET_GENERATE;
+        theAsset.nFee         = nNetFee;
+        theAsset.nQty         = nGenQty * theAsset.nCoinsPerShare;
+
+        // TODO CB make it incrementally more and more expensive to split an asset. this is to prevent someone from creating an asset with a low number of shares and then splitting it to save on fees.
+        // serialize asset object
+        string bdata = theAsset.SerializeToString();
+        
+        // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to the txn for the destination or the original asset creator will be unable to update it
+        // TODO Currently anyone holding this asset can split it. Fix that.
+
+        // get a key from our wallet set dest as ourselves
+        CScript scriptPubKeyOrig;
+        CPubKey newDefaultKey;
+        pwalletMain->GetKeyFromPool(newDefaultKey, false);
+        scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
+
+        vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.prevTxQty + theAsset.nQty).ToString() );
+
+        // create OP_ASSET txn keys
+        CScript scriptPubKey;
+        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAmount << OP_2DROP << OP_DROP;
+        scriptPubKey += scriptPubKeyOrig;
+
+        // send the asset change to myself
+        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
+        string strError  = SendAssetWithInputTxs(scriptPubKey, theAsset.prevTxQty + theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
+        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
+
+        printf("SENT:ASSETGENERATE: symbol=%s guid=%s tx=%s data:\n%s\n",
+                stringFromVch(theAsset.vchSymbol).c_str(),
+                stringFromVch(vchAsset).c_str(),
+                wtx.GetHash().GetHex().c_str(),
+                bdata.c_str());
+    }
+
+    return wtx.GetHash().GetHex();
+}
+
+Value assetdissolve(const Array& params, bool fHelp) {
+    if (fHelp || params.size() != 2)
+        throw runtime_error(
+                "assetdissolve <symbol> <amount>\n"
+                "Generate new asset shares.\n"
+                        "<symbol> asset symbol.\n"
+                        "<amount> amount of asset shares to dissolve.\n"
+                        + HelpRequiringPassphrase());
+
+    // gather & validate inputs
+    vector<unsigned char> vchAsset = vchFromValue(params[0]);
+    uint64 nGenQty = atoi64(params[1].get_str().c_str());
+    if(nGenQty < 1) throw runtime_error("Invalid dissolve quantity.");
+
+    if (vchAsset.size() > 10)
+        throw runtime_error("asset symbol > 10 bytes!\n");
+
+    // this is a syscoin txn
+    CWalletTx wtx;
+    wtx.nVersion = SYSCOIN_TX_VERSION;
+
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+
+        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
+            error( "assetactivate() : there are %d pending operations on that asset, including %s",
+                   (int) mapAssetPending[vchAsset].size(),
+                   mapAssetPending[vchAsset].begin()->GetHex().c_str());
+            throw runtime_error("there are pending operations on that asset");
+        }
+
+        EnsureWalletIsUnlocked();
+
+        // look for a transaction with this key
+        CTransaction tx;
+        if (!GetTxOfAsset(*passetdb, vchAsset, tx))
+            throw runtime_error("could not find an asset with this key");
+
+        // make sure asset is in wallet
+        uint256 wtxInHash = tx.GetHash();
+        if (!pwalletMain->mapWallet.count(wtxInHash))
+            throw runtime_error("this asset is not in your wallet");
+
+        // unserialize asset object from txn
+        CAsset theAsset;
+        if(!theAsset.UnserializeFromTx(tx))
+            throw runtime_error("cannot unserialize asset from txn");
+
+        // get the asset from DB
+        vector<CAsset> vtxPos;
+        if (!passetdb->ReadAsset(vchAsset, vtxPos))
+            throw runtime_error("could not read asset from DB");
+        theAsset = vtxPos.back();
+
+        // get syscoin service fees
+        int64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
+
+        // make sure there's enough funds to send this txn before trying 
+        if(pwalletMain->GetBalance() < nNetFee)
+            throw runtime_error("insufficient balance to pay assetdisolve fees.");
+
+        // asset transaction
+        theAsset.isChange     = false;
+        theAsset.changeTxHash = 0;
+        theAsset.prevTxHash   = wtxInHash;
+        theAsset.prevTxQty    = theAsset.nQty;
+
+        // update asset values
+        theAsset.nOp            = XOP_ASSET_DISSOLVE;
+        theAsset.nFee           = nNetFee;
+        theAsset.nQty           = nGenQty * theAsset.nCoinsPerShare;
+
+        // TODO CB make it incrementally more and more expensive to split an asset. this is to prevent someone from creating an asset with a low number of shares and then splitting it to save on fees.
+        // serialize asset object
+        string bdata = theAsset.SerializeToString();
+        
+        // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to the txn for the destination or the original asset creator will be unable to update it
+        // TODO Currently anyone holding this asset can split it. Fix that.
+
+        // get a key from our wallet set dest as ourselves
+        CScript scriptPubKeyOrig;
+        CPubKey newDefaultKey;
+        pwalletMain->GetKeyFromPool(newDefaultKey, false);
+        scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
+
+        vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.prevTxQty - theAsset.nQty).ToString() );
+
+        // create OP_ASSET txn keys
+        CScript scriptPubKey;
+        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAmount << OP_2DROP << OP_DROP;
+        scriptPubKey += scriptPubKeyOrig;
+
+        // send the asset change to myself
+        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
+        string strError  = SendAssetWithInputTxs(scriptPubKey, theAsset.prevTxQty - theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
+        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
+
+        printf("SENT:ASSETDISSOLVE: symbol=%s guid=%s tx=%s data:\n%s\n",
+                stringFromVch(theAsset.vchSymbol).c_str(),
+                stringFromVch(vchAsset).c_str(),
+                wtx.GetHash().GetHex().c_str(),
+                bdata.c_str());
+    }
+
+    return wtx.GetHash().GetHex();
+}
+
+Value assetconvert(const Array& params, bool fHelp) {
+    if (fHelp || params.size() != 2)
+        throw runtime_error(
+                "assetconvert <fromsymbol> <tosymbol> <description>\n"
+                "Convert from one asset type to another.\n"
+                        "<fromsymbol> asset symbol of source asset.\n"
+                        "<tosymbol> asset symbol of destination asset.\n"
+                        "<amount> amount of asset shares to convert.\n"
+                        + HelpRequiringPassphrase());
+
+    // gather & validate inputs
+    vector<unsigned char> vchAsset = vchFromValue(params[0]);
+    vector<unsigned char> vchDesc = vchFromValue(params[1]);
+    
+    if (vchAsset.size() > 10)
+        throw runtime_error("asset symbol > 10 bytes!\n");
+
+    uint64 nConvQty = atoi64(params[2].get_str().c_str());
+    if(nConvQty < 1) throw runtime_error("Invalid conversion quantity.");
+
+    // this is a syscoin txn
+    CWalletTx wtx;
+    wtx.nVersion = SYSCOIN_TX_VERSION;
+
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+
+        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
+            error( "assetconvert() : there are %d pending operations on that asset, including %s",
+                   (int) mapAssetPending[vchAsset].size(),
+                   mapAssetPending[vchAsset].begin()->GetHex().c_str());
+            throw runtime_error("there are pending operations on that asset");
+        }
+
+        EnsureWalletIsUnlocked();
+
+        // look for a transaction with this key
+        CTransaction tx;
+        if (!GetTxOfAsset(*passetdb, vchAsset, tx))
+            throw runtime_error("could not find an asset with this key");
+
+        // make sure asset is in wallet
+        uint256 wtxInHash = tx.GetHash();
+        if (!pwalletMain->mapWallet.count(wtxInHash))
+            throw runtime_error("this asset is not in your wallet");
+
+        // unserialize asset object from txn
+        CAsset theAsset;
+        if(!theAsset.UnserializeFromTx(tx))
+            throw runtime_error("cannot unserialize asset from txn");
+
+        // get the asset from DB
+        vector<CAsset> vtxPos;
+        if (!passetdb->ReadAsset(vchAsset, vtxPos))
+            throw runtime_error("could not read asset from DB");
+        theAsset = vtxPos.back();
+
+        // get syscoin service fees
+        int64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
+
+        // make sure there's enough funds to send this txn before trying 
+        if(pwalletMain->GetBalance()<nNetFee)
+            throw runtime_error("insufficient balance to pay assetconvert fees.");
+
+        // asset transaction
+        theAsset.isChange     = false;
+        theAsset.changeTxHash = 0;
+        theAsset.prevTxHash   = wtxInHash;
+        theAsset.prevTxQty    = theAsset.nQty;
+
+        // update asset values
+        theAsset.nOp            = XOP_ASSET_CONVERT;
+        theAsset.nFee           = nNetFee;
+        theAsset.nQty           = nConvQty * theAsset.nCoinsPerShare;
+
+        // TODO CB make it incrementally more and more expensive to split an asset. this is to prevent someone from creating an asset with a low number of shares and then splitting it to save on fees.
+        // serialize asset object
+        string bdata = theAsset.SerializeToString();
+        
+        // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to the txn for the destination or the original asset creator will be unable to update it
+        // TODO Currently anyone holding this asset can split it. Fix that.
+
+        // get a key from our wallet set dest as ourselves
+        CScript scriptPubKeyOrig;
+        CPubKey newDefaultKey;
+        pwalletMain->GetKeyFromPool(newDefaultKey, false);
+        scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
+
+        vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.prevTxQty - theAsset.nQty).ToString() );
+
+        // create OP_ASSET txn keys
+        CScript scriptPubKey;
+        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAmount << OP_2DROP << OP_DROP;
+        scriptPubKey += scriptPubKeyOrig;
+
+        // send the asset change to myself
+        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
+        string strError  = SendAssetWithInputTxs(scriptPubKey, theAsset.prevTxQty - theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
+        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
+
+        printf("SENT:ASSETCONVERT: symbol=%s guid=%s tx=%s data:\n%s\n",
+                stringFromVch(theAsset.vchSymbol).c_str(),
+                stringFromVch(vchAsset).c_str(),
+                wtx.GetHash().GetHex().c_str(),
+                bdata.c_str());
+    }
+
+    return wtx.GetHash().GetHex();
 }
 
 Value assetinfo(const Array& params, bool fHelp) {
@@ -1947,10 +2442,10 @@ Value assetinfo(const Array& params, bool fHelp) {
             oAsset.push_back(Pair("symbol", stringFromVch(theAsset.vchSymbol)));
             oAsset.push_back(Pair("title", stringFromVch(theAsset.vchTitle)));
             oAsset.push_back(Pair("description", stringFromVch(theAsset.vchDescription)));
-            oAsset.push_back(Pair("total_quantity", strprintf("%llu", theAsset.nTotalQty)));
-            oAsset.push_back(Pair("coins_per_asset", strprintf("%llu", theAsset.nCoinsPerShare)));
+            oAsset.push_back(Pair("total_quantity", (double) theAsset.nTotalQty / (double)theAsset.nCoinsPerShare ));
+            oAsset.push_back(Pair("coins_per_share", ValueFromAmount(theAsset.nCoinsPerShare) ));
             if(IsAssetMine(tx))
-                oAsset.push_back(Pair("quantity", (double)theAsset.nQty/(double)theAsset.nCoinsPerShare));
+                oAsset.push_back(Pair("quantity", (double)theAsset.nQty / (double)theAsset.nCoinsPerShare));
             else
                 oAsset.push_back(Pair("quantity", "0"));
 

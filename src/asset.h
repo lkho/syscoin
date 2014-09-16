@@ -56,6 +56,7 @@ public:
     std::vector<unsigned char> vchRand;
     std::vector<unsigned char> vchGuid;
     std::vector<unsigned char> vchSymbol;
+    std::vector<unsigned char> vchConvertTargetSymbol;
     std::vector<unsigned char> vchTitle;
     std::vector<unsigned char> vchDescription;
     uint64 nTotalQty;
@@ -83,6 +84,7 @@ public:
         READWRITE(vchRand);
         READWRITE(vchGuid);
         READWRITE(vchSymbol);
+        READWRITE(vchConvertTargetSymbol);
         READWRITE(vchTitle);
         READWRITE(vchDescription);
         READWRITE(nTotalQty);
@@ -131,6 +133,7 @@ public:
         && a.vchGuid == b.vchGuid
         && a.vchTitle == b.vchTitle
         && a.vchSymbol == b.vchSymbol
+        && a.vchConvertTargetSymbol == b.vchConvertTargetSymbol        
         && a.vchDescription == b.vchDescription
         && a.nTotalQty == b.nTotalQty
         && a.nQty == b.nQty
@@ -154,6 +157,7 @@ public:
         vchGuid = b.vchGuid;
         vchTitle = b.vchTitle;
         vchSymbol = b.vchSymbol;
+        vchConvertTargetSymbol = b.vchConvertTargetSymbol;
         vchDescription = b.vchDescription;
         nTotalQty = b.nTotalQty;
         nCoinsPerShare = b.nCoinsPerShare;
@@ -184,10 +188,11 @@ public:
         vchRand.clear(); 
         vchGuid.clear();
         vchSymbol.clear(); 
+        vchConvertTargetSymbol.clear();
         vchTitle.clear(); 
         vchDescription.clear(); 
     }
-    bool IsNull() const { return (n == 0 && txHash == 0  && changeTxHash == 0 && prevTxHash == 0 && prevTxQty == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchRand.size() == 0 && vchGuid.size() == 0); }
+    bool IsNull() const { return (n == 0 && txHash == 0  && changeTxHash == 0 && prevTxHash == 0 && prevTxQty == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchRand.size() == 0 && vchGuid.size() == 0 && vchSymbol.size() == 0 && vchConvertTargetSymbol.size() == 0); }
 
     bool UnserializeFromTx(const CTransaction &tx);
     void SerializeToTx(CTransaction &tx);
