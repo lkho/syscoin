@@ -287,7 +287,7 @@ static const CRPCCommand vRPCCommands[] =
     { "aliasfilter",       &aliasfilter,       false,      false,      true },
     { "aliasscan",         &aliasscan,         false,      false,      true },
     { "aliasclean",        &aliasclean,         false,      false,      true },
-    { "listassettransactions",       &listassettransactions,       false,     false,      true },
+
 
 	// use the blockchain to store provably-ownable data
     { "datanew",          &datanew,         false,      false,      true },
@@ -329,13 +329,14 @@ static const CRPCCommand vRPCCommands[] =
   { "assetnew",      &assetnew,      false,      false,      true },
   { "assetactivate", &assetactivate, false,      false,      true },
   { "assetsend",     &assetsend,     false,      false,      true },
+  { "assetsplit",    &assetsplit,     false,      false,      true },
   { "assetlist",     &assetlist,     false,      false,      true },
   { "assetinfo",     &assetinfo,     false,      false,      true },
   { "assethistory",  &assethistory,  false,      false,      true },
   { "assetscan",     &assetscan,     false,      false,      true },
   { "assetclean",    &assetclean,    false,      false,      true },
   { "assetfilter",   &assetfilter,   false,      false,      true },
-
+  { "listassettransactions",  &listassettransactions,       false,     false,      true },
 
   // use the blockchain as a platform for escrow transactions
   { "escrownew",       &phrpcfunc, false,      false,      true },

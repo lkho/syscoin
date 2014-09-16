@@ -38,7 +38,7 @@ bool GetValueOfAssetTxHash(const uint256 &txHash, std::vector<unsigned char>& vc
 int GetAssetTxHashHeight(const uint256 txHash);
 int GetAssetTxPosHeight(const CDiskTxPos& txPos);
 int GetAssetTxPosHeight2(const CDiskTxPos& txPos, int nHeight);
-int GetAssetDisplayExpirationDepth(int nHeight);
+int GetAssetDisplayExpirationDepth(int nHeight); // TODO CB remove references to 'expiration' - assets do not expire
 int64 GetAssetNetworkFee(int seed, int nHeight);
 int64 GetAssetNetFee(const CTransaction& tx);
 bool InsertAssetFee(CBlockIndex *pindex, uint256 hash, int nOp, uint64 nValue);

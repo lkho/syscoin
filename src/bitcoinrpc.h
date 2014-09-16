@@ -262,6 +262,7 @@ extern json_spirit::Value certissuerclean(const json_spirit::Array& params, bool
 extern json_spirit::Value assetnew(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value assetactivate(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value assetsend(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetsplit(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value assetinfo(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value assetlist(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value assethistory(const json_spirit::Array& params, bool fHelp);

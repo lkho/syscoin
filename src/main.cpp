@@ -815,7 +815,11 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
 	                //     ret[iter] = error("asset tx with rand too big");
 	                // if (vvch[2].size() > MAX_ADDRESS_LENGTH)
 	                //     ret[iter] = error("asset tx with address too long");
-	                break;	                
+	                break;	      
+	            case XOP_ASSET_SPLIT:
+	            	break;
+	            case XOP_ASSET_UPDATE:
+	            	break;              
 	            // TODO CB asset send
 	            default:
 	                ret[iter] = error("asset transaction has unknown op");
@@ -2215,16 +2219,24 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                     	// TODO CB has to disable the following line because IsAssetMine crashes.
                     	// this will have the effect of never writing to the DB on disconnectblock
                     	|| (xOp == XOP_ASSET_SEND && isMine)
+                    	|| xOp == XOP_ASSET_SPLIT
+                    	|| xOp == XOP_ASSET_UPDATE
                     ) {
-                        if(xOp == XOP_ASSET_SEND) {
+                        if(xOp == XOP_ASSET_ACTIVATE) {
+                        	theAsset.nQty = isMine ? serializedAsset.nQty : 0;
+                        }
+                        else if(xOp == XOP_ASSET_SEND) {
                         	if(serializedAsset.isChange)
                         		theAsset.nQty = serializedAsset.nQty;
                         	else
                         		theAsset.nQty += serializedAsset.nQty;
                         }
-                        else
-                        	theAsset.nQty = isMine ? serializedAsset.nQty : 0;
-
+                        else if(xOp == XOP_ASSET_SPLIT) {
+							theAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
+                        } 
+                        else if(xOp == XOP_ASSET_UPDATE) {
+							theAsset.vchDescription = serializedAsset.vchDescription;
+                        }
                         // write new asset state to db
                         if(!passetdb->WriteAsset(vvchArgs[0], vtxPos))
                             return error("DisconnectBlock() : failed to write to asset DB");

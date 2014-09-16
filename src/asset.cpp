@@ -100,6 +100,10 @@ string assetFromOp(int op) {
         return "assetactivate";
     case XOP_ASSET_SEND:
         return "assetsend";
+    case XOP_ASSET_SPLIT:
+        return "assetsplit";
+    case XOP_ASSET_UPDATE:
+        return "assetupdate";                
     default:
         return "<unknown asset op>";
     }
@@ -227,21 +231,38 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
             int64 nTheFee = GetAssetNetFee(tx);
             InsertAssetFee(pindex, tx.GetHash(), txAsset.nOp, nTheFee);
 
+            bool bMyAsset =  IsAssetMine(tx);
             // asset only visible after NEW?
             if(xop != XOP_ASSET_NEW) {
                 // txn-specific values to asset object
-                if(xop == XOP_ASSET_ACTIVATE || (xop == XOP_ASSET_SEND && IsAssetMine(tx))) {
+                if(xop == XOP_ASSET_ACTIVATE 
+                || (xop == XOP_ASSET_SEND && bMyAsset)
+                || xop == XOP_ASSET_SPLIT
+                || xop == XOP_ASSET_UPDATE ) {
 
-                    if(xop == XOP_ASSET_SEND) {
-                    	if(serializedAsset.isChange) txAsset.nQty = serializedAsset.nQty;
-                    	else txAsset.nQty += serializedAsset.nQty;
+                    if(serializedAsset.nOp == XOP_ASSET_ACTIVATE) {
+                        txAsset.nQty = bMyAsset  ? serializedAsset.nQty : 0;
                     }
-                    else
-                    	txAsset.nQty = serializedAsset.nQty;
+                    else if(serializedAsset.nOp == XOP_ASSET_SEND) {
+                        if(serializedAsset.isChange)
+                            txAsset.nQty = serializedAsset.nQty;
+                        else
+                            txAsset.nQty += serializedAsset.nQty;
+                    }
+                    else if(serializedAsset.nOp == XOP_ASSET_SPLIT) {
+                        txAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
+                    }
+                    else if(serializedAsset.nOp == XOP_ASSET_UPDATE) {
+                        txAsset.vchDescription = serializedAsset.vchDescription;
+                    }
 
                     txAsset.txHash = tx.GetHash();
                     txAsset.nHeight = nHeight;
                     txAsset.nTime = pindex->nTime;
+                    txAsset.prevTxHash = serializedAsset.prevTxHash;
+                    txAsset.prevTxQty = serializedAsset.prevTxQty;
+                    txAsset.isChange = serializedAsset.isChange;
+                    txAsset.changeTxHash = serializedAsset.changeTxHash;
 
                     txAsset.PutToAssetList(vtxPos);
 
@@ -452,6 +473,8 @@ bool GetValueOfAssetTx(const CTransaction& tx, vector<unsigned char>& value) {
 
         case XOP_ASSET_ACTIVATE:
         case XOP_ASSET_SEND:
+        case XOP_ASSET_SPLIT:
+        case XOP_ASSET_UPDATE:
             value = vvch[vvch.size()-1];
             return true;
         
@@ -1223,7 +1246,11 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
 
 
             break;
-
+        
+        case XOP_ASSET_SPLIT:
+            break;
+        case XOP_ASSET_UPDATE:
+            break;
         default:
             return error( "CheckAssetInputs() : asset transaction has unknown op");
         }
@@ -1271,7 +1298,9 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
         	// only record asset info to the database if it's activate (so everyone can see it)
         	// or if it's a send and we are the recipient
             if(theAsset.nOp == XOP_ASSET_ACTIVATE
-            	|| (theAsset.nOp == XOP_ASSET_SEND && IsAssetMine(tx) ) ) {
+            	|| (theAsset.nOp == XOP_ASSET_SEND && IsAssetMine(tx) ) 
+                || theAsset.nOp == XOP_ASSET_SPLIT
+                || theAsset.nOp == XOP_ASSET_UPDATE ) {
                 if (!fMiner && !fJustCheck && pindexBlock->nHeight != pindexBest->nHeight) {
                     int nHeight = pindexBlock->nHeight;
 
@@ -1280,14 +1309,23 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
 
                     // set the new local asset quantity. if a prev txn exists
                     // then we increment the asset count. otherwise set it to qty
-                    if(serializedAsset.nOp == XOP_ASSET_SEND) {
+                    if(serializedAsset.nOp == XOP_ASSET_ACTIVATE) {
+                        theAsset.nQty = IsAssetMine(tx) ? serializedAsset.nQty : 0;
+                    }
+                    else if(serializedAsset.nOp == XOP_ASSET_SEND) {
                     	if(serializedAsset.isChange)
                     		theAsset.nQty = serializedAsset.nQty;
                     	else
                     		theAsset.nQty += serializedAsset.nQty;
                     }
-                    else
-                    	theAsset.nQty = IsAssetMine(tx) ? serializedAsset.nQty : 0;
+                    else if(serializedAsset.nOp == XOP_ASSET_SPLIT) {
+                        theAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
+                        theAsset.nTotalQty = serializedAsset.nTotalQty;
+                    }
+                    else if(serializedAsset.nOp == XOP_ASSET_UPDATE) {
+                        theAsset.vchDescription = serializedAsset.vchDescription;
+                    }
+                    	
 
                     // set the asset's txn-dependent values
                     theAsset.nHeight = pindexBlock->nHeight;
@@ -1297,7 +1335,6 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                     theAsset.prevTxQty = serializedAsset.prevTxQty;
                     theAsset.isChange = serializedAsset.isChange;
                     theAsset.changeTxHash = serializedAsset.changeTxHash;
-                    theAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
                     theAsset.nTime = pindexBlock->nTime;
                     theAsset.PutToAssetList(vtxPos);
 
@@ -1334,6 +1371,7 @@ bool ExtractAssetAddress(const CScript& script, string& address) {
     if (!DecodeAssetScript(script, op, vvch))
         return false;
 
+    // TODO CB this is now broken because we cannot rely on script params cnt to identify the op
     switch(vvch.size()) {
         case 0:
         case 1:
@@ -1577,7 +1615,7 @@ Value assetactivate(const Array& params, bool fHelp) {
 
         newAsset.nOp = XOP_ASSET_ACTIVATE;
         newAsset.nCoinsPerShare = COIN;
-        newAsset.nQty = newAsset.nTotalQty;
+        newAsset.nQty = newAsset.nTotalQty * newAsset.nCoinsPerShare;
         newAsset.nFee = nNetFee;
 
         string bdata = newAsset.SerializeToString();
@@ -1590,7 +1628,7 @@ Value assetactivate(const Array& params, bool fHelp) {
         if (uint160(vchHash) != hash)
             throw runtime_error("previous tx has a different guid");
 
-        vector<unsigned char> vchAmount = vchFromString( CBigNum(newAsset.nQty * newAsset.nCoinsPerShare).ToString() );
+        vector<unsigned char> vchAmount = vchFromString( CBigNum(newAsset.nQty).ToString() );
 
         //create assetactivate txn keys
         CPubKey newDefaultKey;
@@ -1602,7 +1640,7 @@ Value assetactivate(const Array& params, bool fHelp) {
         scriptPubKey += scriptPubKeyOrig;
 
         // send the transaction
-        string strError = SendAssetWithInputTxs(scriptPubKey, newAsset.nCoinsPerShare * newAsset.nTotalQty, nNetFee, wtxIn, wtx, false, bdata);
+        string strError = SendAssetWithInputTxs(scriptPubKey, newAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
         printf("SENT:ASSETACTIVATE: symbol=%s title=%s amount=%s description=%s rand=%s tx=%s data:\n%s\n",
@@ -1681,52 +1719,53 @@ Value assetsend(const Array& params, bool fHelp) {
         // calculate network fees
         int64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
 
+        // make sure there's enough funds to send this txn before trying 
         if(pwalletMain->GetBalance()<nNetFee)
             throw runtime_error("insufficient balance to send asset.");
 
-        // TODO CB verify enough funds to send before performing the first txn send
-
-        // TODO CB if sending all assets, then there is NO change txn and the whole thing is sent to receiver
-
-        theAsset.isChange = true;
+        theAsset.isChange     = true;
         theAsset.changeTxHash = 0;
-        theAsset.prevTxHash = wtxInHash;
-        theAsset.prevTxQty = theAsset.nQty;
+        theAsset.prevTxHash   = wtxInHash;
+        theAsset.prevTxQty    = theAsset.nQty;
 
         // update asset values
         theAsset.nOp   = XOP_ASSET_SEND;
-        theAsset.nQty -= nQty;
+        theAsset.nQty -= nQty * theAsset.nCoinsPerShare;
         theAsset.nFee  = nNetFee;
 
         // serialize asset object
         string bdata = theAsset.SerializeToString();
- 
-        // get a key from our wallet set dest as ourselves
-        CScript scriptPubKeyOrig;
-        CPubKey newDefaultKey;
-        pwalletMain->GetKeyFromPool(newDefaultKey, false);
-        scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
- 
-        vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.nQty * theAsset.nCoinsPerShare).ToString() );
+        
+        // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to the txn for the destination or the original asset creator will be unable to update it
 
+        // if change qty is not zero, send a change txn to myself
+        if(theAsset.nQty != 0) {
+            // get a key from our wallet set dest as ourselves
+            CScript scriptPubKeyOrig;
+            CPubKey newDefaultKey;
+            pwalletMain->GetKeyFromPool(newDefaultKey, false);
+            scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
 
-        // create OP_ASSET txn keys
-        CScript scriptPubKey;
-        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAmount << OP_2DROP << OP_DROP;
-        scriptPubKey += scriptPubKeyOrig;
+            // create OP_ASSET txn keys
+            CScript scriptPubKey;
+            scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchFromString( CBigNum(theAsset.nQty).ToString() ) << OP_2DROP << OP_DROP;
+            scriptPubKey += scriptPubKeyOrig;
 
-        // send the asset change to myself
-        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        string strError  = SendAssetWithInputTxs(scriptPubKey, theAsset.nQty * theAsset.nCoinsPerShare, nNetFee, wtxIn, wtx, false, bdata);
-        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
+            // send the asset change to myself
+            CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
+            string strError  = SendAssetWithInputTxs(scriptPubKey, theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
+            if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
+
+            // save the change txn hash
+            theAsset.changeTxHash = wtx.GetHash();
+        }
 
         // update asset quantities, re-serialize for receiver
-        theAsset.nQty         = nQty;
-        theAsset.isChange     = false;
-        theAsset.changeTxHash = wtx.GetHash();
-        bdata 			      = theAsset.SerializeToString();
+        theAsset.nQty     = nQty * theAsset.nCoinsPerShare;
+        theAsset.isChange = false;
+        bdata 			  = theAsset.SerializeToString();
 
-        vchAmount = vchFromString( CBigNum(theAsset.nQty * theAsset.nCoinsPerShare).ToString() );
+        vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.nQty).ToString() );
 
         // this asset txn goes to receiver
         CScript dscriptPubKeyOrig;
@@ -1735,8 +1774,17 @@ Value assetsend(const Array& params, bool fHelp) {
         dscriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAmount << OP_2DROP << OP_DROP;
         dscriptPubKey += dscriptPubKeyOrig;
 
-        // send the asset to receiver
-        strError = pwalletMain->SendMoney(dscriptPubKey, theAsset.nQty * theAsset.nCoinsPerShare, wtxDest, false, bdata);
+        string strError;
+        // do a regular sendmoney if we've send a change txn to ourselves
+        if(theAsset.changeTxHash != 0) {
+            // TODO CB service fee is not applied here. Fix this
+            strError = pwalletMain->SendMoney(dscriptPubKey, theAsset.nQty, wtxDest, false, bdata);
+        } else {
+            // TODO CB change this 
+            CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
+            strError = SendAssetWithInputTxs(dscriptPubKey, theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
+        }
+        
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
         printf("SENT:ASSETSEND: symbol=%s title=%s amount=%s description=%s guid=%s tx=%s txchange=%s data:\n%s\n",
@@ -1750,6 +1798,105 @@ Value assetsend(const Array& params, bool fHelp) {
                 bdata.c_str());
     }
 
+
+    return wtxDest.GetHash().GetHex();
+}
+
+Value assetsplit(const Array& params, bool fHelp) {
+    if (fHelp || params.size() != 1)
+        throw runtime_error(
+                "assetsplit <symbol>\n"
+                "Split the asset. This doubles the total number of available shares.\n"
+                        "<symbol> asset symbol.\n"
+                        + HelpRequiringPassphrase());
+
+    // gather & validate inputs
+    vector<unsigned char> vchAsset = vchFromValue(params[0]);
+
+    // this is a syscoin txn
+    CWalletTx wtx, wtxDest;
+    wtx.nVersion = SYSCOIN_TX_VERSION;
+    wtxDest.nVersion = SYSCOIN_TX_VERSION;
+
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+
+        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size())
+            throw runtime_error("there are pending operations on that asset");
+
+        EnsureWalletIsUnlocked();
+
+        // look for a transaction with this key
+        CTransaction tx;
+        if (!GetTxOfAsset(*passetdb, vchAsset, tx))
+            throw runtime_error("could not find an asset with this key");
+
+        // make sure asset is in wallet
+        uint256 wtxInHash = tx.GetHash();
+        if (!pwalletMain->mapWallet.count(wtxInHash))
+            throw runtime_error("this asset is not in your wallet");
+
+        // unserialize asset object from txn
+        CAsset theAsset;
+        if(!theAsset.UnserializeFromTx(tx))
+            throw runtime_error("cannot unserialize asset from txn");
+
+        // get the asset from DB
+        vector<CAsset> vtxPos;
+        if (!passetdb->ReadAsset(vchAsset, vtxPos))
+            throw runtime_error("could not read asset from DB");
+        theAsset = vtxPos.back();
+
+        // get syscoin service fees
+        int64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
+
+        // make sure there's enough funds to send this txn before trying 
+        if(pwalletMain->GetBalance()<nNetFee)
+            throw runtime_error("insufficient balance to pay assetsplit fees.");
+
+        // asset transaction
+        theAsset.isChange     = false;
+        theAsset.changeTxHash = 0;
+        theAsset.prevTxHash   = wtxInHash;
+        theAsset.prevTxQty    = theAsset.nQty;
+
+        // update asset values
+        theAsset.nOp             = XOP_ASSET_SPLIT;
+        theAsset.nCoinsPerShare /= 2;
+        theAsset.nTotalQty      *= 2;
+        theAsset.nFee            = nNetFee;
+
+        // TODO CB make it incrementally more and more expensive to split an asset. this is to prevent someone from creating an asset with a low number of shares and then splitting it to save on fees.
+        // serialize asset object
+        string bdata = theAsset.SerializeToString();
+        
+        // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to the txn for the destination or the original asset creator will be unable to update it
+        // TODO Currently anyone holding this asset can split it. Fix that.
+
+        // get a key from our wallet set dest as ourselves
+        CScript scriptPubKeyOrig;
+        CPubKey newDefaultKey;
+        pwalletMain->GetKeyFromPool(newDefaultKey, false);
+        scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
+
+        vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.nCoinsPerShare).ToString() );
+
+        // create OP_ASSET txn keys
+        CScript scriptPubKey;
+        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAmount << OP_2DROP << OP_DROP;
+        scriptPubKey += scriptPubKeyOrig;
+
+        // send the asset change to myself
+        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
+        string strError  = SendAssetWithInputTxs(scriptPubKey, MIN_AMOUNT, nNetFee, wtxIn, wtx, false, bdata);
+        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
+
+        printf("SENT:ASSETSPLIT: symbol=%s guid=%s tx=%s data:\n%s\n",
+                stringFromVch(theAsset.vchSymbol).c_str(),
+                stringFromVch(vchAsset).c_str(),
+                wtx.GetHash().GetHex().c_str(),
+                bdata.c_str());
+    }
 
     return wtxDest.GetHash().GetHex();
 }
@@ -1803,7 +1950,7 @@ Value assetinfo(const Array& params, bool fHelp) {
             oAsset.push_back(Pair("total_quantity", strprintf("%llu", theAsset.nTotalQty)));
             oAsset.push_back(Pair("coins_per_asset", strprintf("%llu", theAsset.nCoinsPerShare)));
             if(IsAssetMine(tx))
-                oAsset.push_back(Pair("quantity", strprintf("%llu", theAsset.nQty)));
+                oAsset.push_back(Pair("quantity", (double)theAsset.nQty/(double)theAsset.nCoinsPerShare));
             else
                 oAsset.push_back(Pair("quantity", "0"));
 
