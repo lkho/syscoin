@@ -2257,8 +2257,14 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 							if(isMine) theAsset.nQty -= serializedAsset.nQty;
                         }
                         else if(xOp == XOP_ASSET_CONVERT) {
-							theAsset.nTotalQty -= serializedAsset.nQty;
-							if(isMine) theAsset.nQty -= serializedAsset.nQty;
+                        if(serializedAsset.changeTxHash == 0) {
+                            theAsset.nTotalQty += serializedAsset.nQty;
+                            if(isMine) theAsset.nQty += serializedAsset.nQty;
+                        } else {
+                            theAsset.nTotalQty -= serializedAsset.nQty;
+                            if(isMine) theAsset.nQty -= serializedAsset.nQty;
+                            theAsset.vchConvertTargetSymbol = serializedAsset.vchConvertTargetSymbol;                            
+                        }
                         }
 
 
