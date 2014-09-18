@@ -39,7 +39,8 @@ static const CHTTPContentType vHTTPContentTypes[] = {
     {"txt",  "text/plain"},
     {"log",  "text/plain"},
     {"png",  "image/png"},
-    {"jpg",  "image/jpg"},
+    {"jpg",  "image/jpeg"},
+    {"gif",  "image/gif"},
     {"js",   "text/javascript"}
 };
 static const CHTTPContentType defaultContentType = vHTTPContentTypes[0];
@@ -149,6 +150,21 @@ static string HTTPReplyWithContentType(int nStatus, const string& strMsg, bool k
             "</HTML>\r\n", 500, "Internal Server Error");
     else cStatus = "";
 
+    if(strContentType == "image/png" || strContentType == "image/jpeg" || strContentType == "image/gif") {
+        return strprintf(
+                "HTTP/1.1 %d %s\r\n"
+                "Date: %s\r\n"
+                "Connection: %s\r\n"
+                "Server: syscoin-http/%s\r\n"
+                "\r\n"
+                "%s",
+            nStatus,
+            cStatus,
+            rfc1123Time().c_str(),
+            keepalive ? "keep-alive" : "close",
+            FormatFullVersion().c_str(),
+            strMsg.c_str());        
+    }
     return strprintf(
             "HTTP/1.1 %d %s\r\n"
             "Date: %s\r\n"
@@ -379,35 +395,6 @@ static void HTTPAcceptHandler(boost::shared_ptr< basic_socket_acceptor<Protocol,
 
 void StartHTTPThreads()
 {
-    strHTTPUserColonPass = mapArgs["-httpuser"] + ":" + mapArgs["-httppassword"];
-    if ((mapArgs["-httppassword"] == "") || (mapArgs["-httpuser"] == mapArgs["-httppassword"]))
-    {
-        unsigned char rand_pwd[32];
-        RAND_bytes(rand_pwd, 32);
-        string strWhatAmI = "To use syscoind";
-        if (mapArgs.count("-server"))
-            strWhatAmI = strprintf(_("To use the %s option"), "\"-server\"");
-        else if (mapArgs.count("-daemon"))
-            strWhatAmI = strprintf(_("To use the %s option"), "\"-daemon\"");
-        uiInterface.ThreadSafeMessageBox(strprintf(
-            _("%s, you must set a httppassword in the configuration file:\n"
-              "%s\n"
-              "It is recommended you use the following random password:\n"
-              "httpuser=syscoinhttp\n"
-              "httppassword=%s\n"
-              "(you do not need to remember this password)\n"
-              "The username and password MUST NOT be the same.\n"
-              "If the file does not exist, create it with owner-readable-only file permissions.\n"
-              "It is also recommended to set alertnotify so you are notified of problems;\n"
-              "for example: alertnotify=echo %%s | mail -s \"Syscoin Alert\" admin@foo.com\n"),
-                strWhatAmI.c_str(),
-                GetConfigFile().string().c_str(),
-                EncodeBase58(&rand_pwd[0],&rand_pwd[0]+32).c_str()),
-                "", CClientUIInterface::MSG_ERROR);
-        StartShutdown();
-        return;
-    }
-
     assert(http_io_service == NULL);
     http_io_service = new asio::io_service();
     http_ssl_context = new ssl::context(*http_io_service, ssl::context::sslv23);
@@ -521,65 +508,41 @@ string readFile(const string &fileName)
 
 void ServiceHTTPConnection(AcceptedConnection *conn)
 {
-    bool fRun = true;
-    while (fRun)
+    int nProto = 0;
+    map<string, string> mapHeaders;
+    string strRequest, strMethod, strURI;
+
+    // Read HTTP request line
+    if (!ReadHTTPRequestLine(conn->stream(), nProto, strMethod, strURI))
+        return;
+
+    // Read HTTP message headers and body
+    ReadHTTPMessage(conn->stream(), mapHeaders, strRequest, nProto);
+
+    boost::filesystem::path pathFile = GetDataDir() / "walletui" / strURI;
+
+    if(boost::filesystem::is_directory(pathFile.string())) {
+        pathFile = GetDataDir() / "walletui" / strURI / "index.html";
+    }
+
+    if(!boost::filesystem::exists(pathFile.string())) {
+        conn->stream() << HTTPReplyWithContentType(HTTP_NOT_FOUND, "", false) << std::flush;
+        return;
+    }
+
+    string fileOut = readFile(pathFile.string());
+    try
     {
-        int nProto = 0;
-        map<string, string> mapHeaders;
-        string strRequest, strMethod, strURI;
-
-        // Read HTTP request line
-        if (!ReadHTTPRequestLine(conn->stream(), nProto, strMethod, strURI))
-            break;
-
-        // Read HTTP message headers and body
-        ReadHTTPMessage(conn->stream(), mapHeaders, strRequest, nProto);
-
-        // Check authorization
-        if (mapHeaders.count("authorization") == 0)
-        {
-            conn->stream() << HTTPReplyWithContentType(HTTP_UNAUTHORIZED, "", false) << std::flush;
-            break;
-        }
-        if (!HTTPAuthorized(mapHeaders))
-        {
-            printf("ThreadHTTPServer incorrect password attempt from %s\n", conn->peer_address_to_string().c_str());
-            /* Deter brute-forcing short passwords. If this results in a DOS the user really shouldn't have their HTTP port exposed.*/
-            if (mapArgs["-httppassword"].size() < 20)
-                MilliSleep(250);
-
-            conn->stream() << HTTPReplyWithContentType(HTTP_UNAUTHORIZED, "", false) << std::flush;
-            break;
-        }
-        if (mapHeaders["connection"] == "close")
-            fRun = false;
-
-        boost::filesystem::path pathFile = GetDataDir() / strURI;
-
-        if(boost::filesystem::is_directory(pathFile.string())) {
-            pathFile = GetDataDir() / strURI / "index.html";
-        }
-
-        if(!boost::filesystem::exists(pathFile.string())) {
-            conn->stream() << HTTPReplyWithContentType(HTTP_NOT_FOUND, "", false) << std::flush;
-            return;
-        }
-    
-        string fileOut = readFile(pathFile.string());
-        try
-        {
-            conn->stream() << HTTPReplyWithContentType(HTTP_OK, fileOut, fRun, GetContentType(pathFile.string())) << std::flush;
-        }
-        catch (Object& objError)
-        {
-            HTTPErrorReply(conn->stream(), objError, Value::null);
-            break;
-        }
-        catch (std::exception& e)
-        {
-            HTTPErrorReply(conn->stream(), HTTPError(-500, e.what()), Value::null);
-            break;
-        }
+        conn->stream() << HTTPReplyWithContentType(HTTP_OK, fileOut, false, GetContentType(pathFile.string())) << std::flush;
+        printf("HTTPServer 200 %s %s\n", strMethod.c_str(), strURI.c_str());
+    }
+    catch (Object& objError)
+    {
+        HTTPErrorReply(conn->stream(), objError, Value::null);
+    }
+    catch (std::exception& e)
+    {
+        HTTPErrorReply(conn->stream(), HTTPError(-500, e.what()), Value::null);
     }
 }
 
