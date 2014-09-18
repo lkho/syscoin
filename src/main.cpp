@@ -2039,8 +2039,6 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 	                vector<CAliasFee> vAliasFees(lstAliasFees.begin(), lstAliasFees.end());
 	                if (!paliasdb->WriteAliasTxFees(vAliasFees))
 	                    return error( "DisconnectBlock() : failed to write fees to alias DB");
-		    	} else {
-                	//paliasdb->EraseAlias(vvchArgs[0]);		    		
 		    	}
     			printf("DISCONNECTED ALIAS TXN: alias=%s op=%s hash=%s  height=%d\n",
 	                stringFromVch(vvchArgs[0]).c_str(),
@@ -2104,9 +2102,6 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 					if (!pofferdb->WriteOfferTxFees(vOfferFees))
 						return error( "DisconnectBlock() : failed to write fees to offer DB");
 				} 
-                else {
-					//pofferdb->EraseOffer(theOffer.vchRand);
-				}
 	        	printf("DISCONNECTED OFFER TXN: offer=%s op=%s hash=%s height=%d\n",
 	                stringFromVch(vvchArgs[0]).c_str(),
                     offerFromOp(op).c_str(),
@@ -2172,9 +2167,6 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                     if (!pcertdb->WriteCertFees(vCertIssuerFees))
                         return error( "DisconnectBlock() : failed to write fees to certissuer DB");
                 }
-                else {
-                    //pcertdb->EraseCertIssuer(theIssuer.vchRand);
-                }
         		printf("DISCONNECTED CERT TXN: title=%s hash=%s height=%d\n",
                     op == OP_CERTISSUER_NEW ? HexStr(vvchArgs[0]).c_str() : stringFromVch(vvchArgs[0]).c_str(),
 	                tx.GetHash().ToString().c_str(),
@@ -2192,7 +2184,6 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                 uint64 xOp = theAsset.nOp;
                 if (theAsset.IsNull())
                     error("DisconnectBlock() : null asset object");
-                serializedAsset = theAsset;
 
                 if(xOp != XOP_ASSET_NEW) {
 
@@ -2214,64 +2205,11 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
                             vtxPos.pop_back();
 
                         // TODO validate that the first pos is the current tx pos
-                    }
+                    }             	
 
-                    bool isMine = false;
-                    if(xOp == XOP_ASSET_SEND) {
-						const CTxOut& txout = tx.vout[nOut];
-						const CScript& scriptPubKey = RemoveAssetScriptPrefix(txout.scriptPubKey);
-	                	isMine = false; // IsMine(*pwalletMain, scriptPubKey);
-	                }
-
-                    if(xOp == XOP_ASSET_ACTIVATE
-                    	// TODO CB has to disable the following line because IsAssetMine crashes.
-                    	// this will have the effect of never writing to the DB on disconnectblock
-                    	|| (xOp == XOP_ASSET_SEND && isMine)
-                    	|| xOp == XOP_ASSET_PEG
-                    	|| xOp == XOP_ASSET_UPDATE
-                    	|| xOp == XOP_ASSET_GENERATE
-                    	|| xOp == XOP_ASSET_DISSOLVE
-                    	|| xOp == XOP_ASSET_CONVERT
-                    ) {
-                        if(xOp == XOP_ASSET_ACTIVATE) {
-                        	theAsset.nQty = isMine ? serializedAsset.nQty : 0;
-                        }
-                        else if(xOp == XOP_ASSET_SEND) {
-                        	if(serializedAsset.isChange)
-                        		theAsset.nQty = serializedAsset.nQty;
-                        	else
-                        		theAsset.nQty += serializedAsset.nQty;
-                        }
-                        else if(xOp == XOP_ASSET_PEG) {
-							theAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
-                        } 
-                        else if(xOp == XOP_ASSET_UPDATE) {
-							theAsset.vchDescription = serializedAsset.vchDescription;
-                        }
-                        else if(xOp == XOP_ASSET_GENERATE) {
-							theAsset.nTotalQty += serializedAsset.nQty;
-							if(isMine) theAsset.nQty += serializedAsset.nQty;
-                        }
-                        else if(xOp == XOP_ASSET_DISSOLVE) {
-							theAsset.nTotalQty -= serializedAsset.nQty;
-							if(isMine) theAsset.nQty -= serializedAsset.nQty;
-                        }
-                        else if(xOp == XOP_ASSET_CONVERT) {
-                        if(serializedAsset.changeTxHash == 0) {
-                            theAsset.nTotalQty += serializedAsset.nQty;
-                            if(isMine) theAsset.nQty += serializedAsset.nQty;
-                        } else {
-                            theAsset.nTotalQty -= serializedAsset.nQty;
-                            if(isMine) theAsset.nQty -= serializedAsset.nQty;
-                            theAsset.vchConvertTargetSymbol = serializedAsset.vchConvertTargetSymbol;                            
-                        }
-                        }
-
-
-                        // write new asset state to db
-                        if(!passetdb->WriteAsset(vvchArgs[0], vtxPos))
-                            return error("DisconnectBlock() : failed to write to asset DB");
-                    }
+                    // write new asset state to db
+                    if(!passetdb->WriteAsset(vvchArgs[0], vtxPos))
+                        return error("DisconnectBlock() : failed to write to asset DB");
 
                     // compute verify and write fee data to DB
                     int64 nTheFee = GetAssetNetFee(tx);

@@ -56,7 +56,7 @@ public:
     std::vector<unsigned char> vchRand;
     std::vector<unsigned char> vchGuid;
     std::vector<unsigned char> vchSymbol;
-    std::vector<unsigned char> vchFundingAddress;
+    std::vector<unsigned char> vchAdminAddress;
     std::vector<unsigned char> vchConvertTargetSymbol;
     std::vector<unsigned char> vchTitle;
     std::vector<unsigned char> vchDescription;
@@ -85,7 +85,7 @@ public:
         READWRITE(vchRand);
         READWRITE(vchGuid);
         READWRITE(vchSymbol);
-        READWRITE(vchFundingAddress);
+        READWRITE(vchAdminAddress);
         READWRITE(vchConvertTargetSymbol);
         READWRITE(vchTitle);
         READWRITE(vchDescription);
@@ -137,7 +137,7 @@ public:
         && a.vchSymbol == b.vchSymbol
         && a.vchConvertTargetSymbol == b.vchConvertTargetSymbol        
         && a.vchDescription == b.vchDescription
-        && a.vchFundingAddress == b.vchFundingAddress
+        && a.vchAdminAddress == b.vchAdminAddress
         && a.nTotalQty == b.nTotalQty
         && a.nQty == b.nQty
         && a.nCoinsPerShare == b.nCoinsPerShare
@@ -161,7 +161,7 @@ public:
         vchTitle = b.vchTitle;
         vchSymbol = b.vchSymbol;
         vchSymbol = b.vchSymbol;
-        vchFundingAddress = b.vchFundingAddress;
+        vchAdminAddress = b.vchAdminAddress;
         vchDescription = b.vchDescription;
         nTotalQty = b.nTotalQty;
         nCoinsPerShare = b.nCoinsPerShare;
@@ -195,7 +195,7 @@ public:
         vchConvertTargetSymbol.clear();
         vchTitle.clear(); 
         vchDescription.clear(); 
-        vchFundingAddress.clear(); 
+        vchAdminAddress.clear(); 
     }
     bool IsNull() const { return (n == 0 && txHash == 0  && changeTxHash == 0 && prevTxHash == 0 && prevTxQty == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchRand.size() == 0 && vchGuid.size() == 0 && vchSymbol.size() == 0 && vchConvertTargetSymbol.size() == 0); }
 

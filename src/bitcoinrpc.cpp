@@ -415,7 +415,7 @@ string rfc1123Time()
     return string(buffer);
 }
 
-static string HTTPReply(int nStatus, const string& strMsg, bool keepalive)
+string HTTPReply(int nStatus, const string& strMsg, bool keepalive)
 {
     if (nStatus == HTTP_UNAUTHORIZED)
         return strprintf("HTTP/1.0 401 Authorization Required\r\n"

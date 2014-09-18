@@ -1569,7 +1569,6 @@ Value assetnew(const Array& params, bool fHelp) {
     newAsset.vchRand = vchAsset;
     newAsset.vchSymbol = vchSymbol;
     newAsset.vchTitle = vchTitle;
-    newAsset.vchFundingAddress = vchFromString( CBitcoinAddress(scriptPubKey.GetID()).ToString() );
     newAsset.vchDescription = vchDescription;
     newAsset.nTotalQty = nTotalQty * COIN;
     newAsset.nQty = 0;
@@ -1621,8 +1620,9 @@ Value assetactivate(const Array& params, bool fHelp) {
         throw runtime_error("asset symbol > 10 bytes!\n");
 
     // this is a syscoin transaction
-    CWalletTx wtx;
+    CWalletTx wtx, wtxDest;
     wtx.nVersion = SYSCOIN_TX_VERSION;
+    wtxDest.nVersion = SYSCOIN_TX_VERSION;
 
     // check for existing pending assets
     {
@@ -1686,13 +1686,6 @@ Value assetactivate(const Array& params, bool fHelp) {
             throw runtime_error(
                     "previous transaction wasn't asset new");
 
-        newAsset.nOp = XOP_ASSET_ACTIVATE;
-        newAsset.nQty = newAsset.nTotalQty;
-        newAsset.nFee = nNetFee;
-
-        string bdata = newAsset.SerializeToString();
-        vector<unsigned char> vchbdata = vchFromString(bdata);
-
         // check this hash against previous, ensure they match
         vector<unsigned char> vchToHash(vchRand);
         vchToHash.insert(vchToHash.end(), vchSymbol.begin(), vchSymbol.end());
@@ -1700,7 +1693,6 @@ Value assetactivate(const Array& params, bool fHelp) {
         if (uint160(vchHash) != hash)
             throw runtime_error("previous tx has a different guid");
 
-        vector<unsigned char> vchAmount = vchFromString( CBigNum(newAsset.nQty).ToString() );
 
         //create assetactivate txn keys
         CPubKey newDefaultKey;
@@ -1708,21 +1700,45 @@ Value assetactivate(const Array& params, bool fHelp) {
         CScript scriptPubKeyOrig;
         scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
         CScript scriptPubKey;
-        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchSymbol << vchRand << vchAmount << OP_2DROP << OP_2DROP;
+        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchSymbol << vchRand << vchFromString( CBigNum(newAsset.nQty).ToString() ) << OP_2DROP << OP_2DROP;
         scriptPubKey += scriptPubKeyOrig;
 
-        // send the transaction
-        string strError = SendAssetWithInputTxs(scriptPubKey, newAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
+        newAsset.prevTxHash   = wtxInHash;
+        newAsset.prevTxQty    = 0;
+        newAsset.isChange     = false;
+        newAsset.changeTxHash = 0;
+        newAsset.nOp          = XOP_ASSET_ACTIVATE;
+        newAsset.nQty         = 0;
+        newAsset.nFee         = nNetFee;
+        newAsset.vchAdminAddress = vchFromString( CBitcoinAddress(scriptPubKey.GetID()).ToString() );
+
+        string strError = SendAssetWithInputTxs(scriptPubKey, MIN_AMOUNT, nNetFee, wtxIn, wtx, false, newAsset.SerializeToString() );
+        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError); 
+
+        newAsset.prevTxQty    = 0;
+        newAsset.prevTxHash   = wtx.GetHash();
+        newAsset.nOp          = XOP_ASSET_SEND;
+        newAsset.nQty         = newAsset.nTotalQty;
+        newAsset.nFee         = nNetFee;
+
+        // do an assetsend for the created asset
+        pwalletMain->GetKeyFromPool(newDefaultKey, false);
+        CScript sscriptPubKeyOrig;
+        sscriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
+        CScript sscriptPubKey;
+        sscriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchSymbol << vchFromString( CBigNum(newAsset.nQty).ToString() ) << OP_2DROP << OP_2DROP;
+        sscriptPubKey += sscriptPubKeyOrig;
+        strError = pwalletMain->SendMoney(sscriptPubKey, newAsset.nQty, wtxDest, false, newAsset.SerializeToString() );
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
-        printf("SENT:ASSETACTIVATE: symbol=%s title=%s amount=%s description=%s rand=%s tx=%s data:\n%s\n",
+
+        printf("SENT:ASSETACTIVATE: symbol=%s title=%s amount=%s description=%s rand=%s tx=%s\n",
                 stringFromVch(vchSymbol).c_str(),
                 stringFromVch(newAsset.vchTitle).c_str(),
-                stringFromVch(vchAmount).c_str(),
+                CBigNum(newAsset.nQty).ToString().c_str(),
                 stringFromVch(newAsset.vchDescription).c_str(),
                 stringFromVch(vcAssetHash).c_str(),
-                wtx.GetHash().GetHex().c_str(),
-                stringFromVch(vchbdata).c_str() );
+                wtxDest.GetHash().GetHex().c_str()  );
     }
     return wtx.GetHash().GetHex();
 }
@@ -2471,7 +2487,7 @@ Value assetinfo(const Array& params, bool fHelp) {
             string strAddress = "";
             GetAssetAddress(tx, strAddress);
             oAsset.push_back(Pair("address", strAddress));
-            oAsset.push_back(Pair("funding_address", stringFromVch(theAsset.vchFundingAddress)));
+            oAsset.push_back(Pair("admin_address", stringFromVch(theAsset.vchAdminAddress)));
             oAsset.push_back(Pair("value", stringFromVch(vchValue)));
             oAsset.push_back(Pair("symbol", stringFromVch(theAsset.vchSymbol)));
             oAsset.push_back(Pair("title", stringFromVch(theAsset.vchTitle)));
