@@ -20,14 +20,15 @@ bool IsAssetMine(const CTransaction& tx);
 bool IsAssetMine(const CTransaction& tx, const CTxOut& txout, bool ignore_assetnew = false);
 bool IsMyAsset(const CTransaction& tx, const CTxOut& txout);
 CScript RemoveAssetScriptPrefix(const CScript& scriptIn);
-std::string SendAssetWithInputTx(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxIn,
-                                     CWalletTx& wtxNew, bool fAskFee, const std::string& txData = "");
-std::string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxIn,
-                                      CWalletTx& wtxNew, bool fAskFee, const std::string& txData = "");
-bool CreateAssetTransactionWithInputTx(const std::vector<std::pair<CScript, int64> >& vecSend, CWalletTx& wtxIn,
-                                      int nTxOut, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, const std::string& txData);
-bool CreateAssetTransactionWithInputTxs(const std::vector<std::pair<CScript, int64> >& vecSend, CWalletTx& wtxIn,
-                                      int nTxOut, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, const std::string& txData);
+
+std::string SendAssetWithInputTx(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxIn, CWalletTx& wtxNew, bool fAskFee, const std::string& txData = "");
+bool CreateAssetTransactionWithInputTx(const std::vector<std::pair<CScript, int64> >& vecSend, CWalletTx& wtxIn, int nTxOut, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, const std::string& txData);
+
+std::string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, const std::vector<CWalletTx*>& vecWtxIns, CWalletTx& wtxNew, bool fAskFee, const std::string& txData = "");
+bool CreateAssetTransactionWithInputTxs(const std::vector<std::pair<CScript, int64> >& vecSend, const std::vector<CWalletTx*>& vecWtxIns, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, const std::string& txData);
+
+
+
 bool DecodeAssetTx(const CTransaction& tx, int& op, int& nOut, std::vector<std::vector<unsigned char> >& vvch, int nHeight);
 bool DecodeAssetTx(const CCoins& tx, int& op, int& nOut, std::vector<std::vector<unsigned char> >& vvch, int nHeight);
 bool DecodeAssetScript(const CScript& script, int& op, std::vector<std::vector<unsigned char> > &vvch);
