@@ -899,7 +899,7 @@ bool CreateAssetTransactionWithInputTxs(
                 int nTxOut = IndexOfAssetOutput(*inputTx);
                 vecCoins.push_back(make_pair(inputTx, nTxOut));
                 nWtxinCredit += inputTx->vout[nTxOut].nValue;            
-                printf( "CreateAssetTransactionWithInputTx: input txn (%s), pos = %d, val=%s\n",
+                printf( "CreateAssetTransactionWithInputTxs: input txn (%s), pos = %d, val=%s\n",
                     inputTx->GetHash().GetHex().c_str(), nTxOut, FormatMoney(inputTx->vout[nTxOut].nValue).c_str());   
             }
 
@@ -974,8 +974,7 @@ bool CreateAssetTransactionWithInputTxs(
             }
 
             // Limit size
-            unsigned int nBytes = ::GetSerializeSize(*(CTransaction*) &wtxNew,
-                    SER_NETWORK, PROTOCOL_VERSION);
+            unsigned int nBytes = ::GetSerializeSize(*(CTransaction*) &wtxNew, SER_NETWORK, PROTOCOL_VERSION);
             if (nBytes >= MAX_BLOCK_SIZE_GEN / 5)
                 return false;
             dPriority /= nBytes;
@@ -986,7 +985,7 @@ bool CreateAssetTransactionWithInputTxs(
             int64 nMinFee = wtxNew.GetMinFee(1, fAllowFree);
             if (nFeeRet < max(nPayFee, nMinFee)) {
                 nFeeRet = max(nPayFee, nMinFee);
-                printf( "CreateAssetTransactionWithInputTx: re-iterating (nFreeRet = %s)\n",
+                printf( "CreateAssetTransactionWithInputTxs: re-iterating (nFreeRet = %s)\n",
                         FormatMoney(nFeeRet).c_str());
                 continue;
             }
@@ -1796,10 +1795,6 @@ Value assetsend(const Array& params, bool fHelp) {
         if (!pwalletMain->mapWallet.count(wtxInHash))
             throw runtime_error("this asset is not in your wallet");
 
-        // first transaction is the latest
-        vector<CWalletTx*> vWtxIns;
-        vWtxIns.insert(vWtxIns.begin(), &pwalletMain->mapWallet[wtxInHash]);
-
         // unserialize asset object from txn
         CAsset theAsset;
         if(!theAsset.UnserializeFromTx(tx))
@@ -1814,7 +1809,6 @@ Value assetsend(const Array& params, bool fHelp) {
         if(theAsset.nQty < nQty) {
             throw runtime_error("insufficient asset quantity");
         }
-
         // calculate network fees
         int64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
 
@@ -1837,15 +1831,6 @@ Value assetsend(const Array& params, bool fHelp) {
         
         // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to the txn for the destination or the original asset creator will be unable to update it
 
-        // collect all previous unspent and spendable asset transactions to use as inputs for this transaction
-        BOOST_REVERSE_FOREACH(CAsset myAsset, vtxPos) {
-            // ignore if: key not in my wallet, op is ACTIVATE (we keep that key), or asset is already in target vector
-            if (!pwalletMain->mapWallet.count(myAsset.txHash) || myAsset.nOp == XOP_ASSET_ACTIVATE || myAsset.txHash == wtxInHash)
-                continue;
-            // add the transaction to the inputs list
-            vWtxIns.insert(vWtxIns.end(), &pwalletMain->mapWallet[myAsset.txHash]);
-        }
-
         // if change qty is not zero, send a change txn to myself
         if(theAsset.nQty != 0) {
             // get a key from our wallet set dest as ourselves
@@ -1860,7 +1845,8 @@ Value assetsend(const Array& params, bool fHelp) {
             scriptPubKey += scriptPubKeyOrig;
 
             // send the asset change to myself
-            string strError  = SendAssetWithInputTxs(scriptPubKey, theAsset.nQty, nNetFee, vWtxIns, wtx, false, bdata);
+            CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
+            string strError  = SendAssetWithInputTx(scriptPubKey, theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
             if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
             // save the change txn hash
@@ -1870,7 +1856,7 @@ Value assetsend(const Array& params, bool fHelp) {
         // update asset quantities, re-serialize for receiver
         theAsset.nQty     = nQty * theAsset.nCoinsPerShare;
         theAsset.isChange = false;
-        bdata 			  = theAsset.SerializeToString();
+        bdata             = theAsset.SerializeToString();
 
         vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.nQty).ToString() );
 
@@ -1881,13 +1867,24 @@ Value assetsend(const Array& params, bool fHelp) {
         dscriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAmount << OP_2DROP << OP_DROP;
         dscriptPubKey += dscriptPubKeyOrig;
 
+        // collect all previous unspent and spendable asset transactions to use as inputs for this transaction
+        // BOOST_REVERSE_FOREACH(CAsset myAsset, vtxPos) {
+        //     // ignore if: key not in my wallet, op is ACTIVATE (we keep that key), or asset is already in target vector
+        //     if (!pwalletMain->mapWallet.count(myAsset.txHash) || myAsset.nOp == XOP_ASSET_ACTIVATE || myAsset.txHash == wtxInHash)
+        //         continue;
+        //     // add the transaction to the inputs list
+        //     vWtxIns.insert(vWtxIns.end(), &pwalletMain->mapWallet[myAsset.txHash]);
+        // }
+
         string strError;
         // do a regular sendmoney if we've send a change txn to ourselves
         if(theAsset.changeTxHash != 0) {
             // TODO CB service fee is not applied here. Fix this
             strError = pwalletMain->SendMoney(dscriptPubKey, theAsset.nQty, wtxDest, false, bdata);
         } else {
-            strError = SendAssetWithInputTxs(dscriptPubKey, theAsset.nQty, nNetFee, vWtxIns, wtx, false, bdata);
+            // TODO CB change this 
+            CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
+            strError = SendAssetWithInputTx(dscriptPubKey, theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
         }
         
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
