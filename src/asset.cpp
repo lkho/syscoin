@@ -311,7 +311,7 @@ int CheckAssetTransactionAtRelativeDepth(CBlockIndex* pindexBlock,
 int GetAssetTxHashHeight(const uint256 txHash) {
     CDiskTxPos postx;
     pblocktree->ReadTxIndex(txHash, postx);
-    return postx.nPos;
+	return GetNameTxPosHeight(postx);
 }
 
 uint64 GetAssetFeeSubsidy(unsigned int nHeight) {
