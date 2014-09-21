@@ -781,13 +781,34 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
 	        }
         }        
 
-        // asset
+        // TODO CB refactor this stuff into assets.cpp as a function call made from here
         good = DecodeAssetTx(*this, op, nOut, vvch, iter == 0 ? 0 : -1);
         if(good && IsAssetOp(op)) {
-	        if (vvch[0].size() > MAX_NAME_LENGTH) {
-	            ret[iter] = error("asset transaction with asset title too long");
+
+        	// make sure asset script has the correct number of parameters
+	        if (vvch.size() != 3) {
+	            ret[iter] = error("incorrect number of asset script params");
 	            continue;
 	        }
+
+	        // asset name size sanity check
+	        if (vvch[0].size() > MAX_NAME_LENGTH) {
+	            ret[iter] = error("asset transaction with asset symbol too long");
+	            continue;
+	        }
+
+        	// asset hash size sanity check
+            if (vvch[1].size() > 20) {
+                ret[iter] = error("asset tx with rand too big");
+                continue;
+            }
+
+            // asset value size sanity
+            if (vvch[2].size() > MAX_VALUE_LENGTH) {
+                ret[iter] = error("asset tx with value too long");
+                continue;
+            }
+
 	        // unserialize asset object from txn, check for valid
         	CAsset theAsset;
         	theAsset.UnserializeFromTx(*this);
@@ -795,41 +816,15 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
             	ret[iter] = error("asset transaction with null asset object");
             	continue;
         	}
-        	// examine the asset extended op
-	        switch (theAsset.nOp) {
-	        	// asset new
-	            case XOP_ASSET_NEW:
-	                if (vvch[0].size() != 20)
-	                    ret[iter] = error("asset tx with incorrect hash length");
-	                break;
-	            // asset activate
-	            case XOP_ASSET_ACTIVATE:
-	                if (vvch[1].size() > 20)
-	                    ret[iter] = error("asset tx with rand too big");
-	                if (vvch[2].size() > MAX_VALUE_LENGTH)
-	                    ret[iter] = error("asset tx with value too long");
-	                break;
-	            case XOP_ASSET_SEND:
-	            // TODO CB fix these checks
-	                // if (vvch[1].size() > 20)
-	                //     ret[iter] = error("asset tx with rand too big");
-	                // if (vvch[2].size() > MAX_ADDRESS_LENGTH)
-	                //     ret[iter] = error("asset tx with address too long");
-	                break;	      
-	            case XOP_ASSET_PEG:
-	            	break;
-	            case XOP_ASSET_UPDATE:
-	            	break;           
-	            case XOP_ASSET_GENERATE:
-	            	break;      
-	            case XOP_ASSET_DISSOLVE:
-	            	break;
-	            case XOP_ASSET_CONVERT:
-	            	break;      	            		            		            	   
-	            // TODO CB asset send
-	            default:
-	                ret[iter] = error("asset transaction has unknown op");
-	        }
+        	string serAsset = theAsset.SerializeToString();
+        	uint160 theHash  = Hash160(vchFromString(serAsset));
+
+        	uint160 scriptAssetHash = uint160(vvch[1]);
+        	if(theHash !=scriptAssetHash) {
+            	ret[iter] = error("asset transaction invalid asset hash");
+            	continue;
+        	}
+
         }
     }
     return ret[0] || ret[1];

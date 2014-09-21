@@ -96,8 +96,6 @@ string assetFromOp(int op) {
         return "asset";
     case XOP_ASSET_NEW:
         return "assetnew";
-    case XOP_ASSET_ACTIVATE:
-        return "assetactivate";
     case XOP_ASSET_SEND:
         return "assetsend";
     case XOP_ASSET_PEG:
@@ -107,9 +105,7 @@ string assetFromOp(int op) {
     case XOP_ASSET_GENERATE:
         return "assetgenerate";                
     case XOP_ASSET_DISSOLVE:
-        return "assetdissolve";                
-    case XOP_ASSET_CONVERT:
-        return "assetconvert";                
+        return "assetdissolve";                              
     default:
         return "<unknown asset op>";
     }
@@ -137,7 +133,7 @@ string CAsset::SerializeToString() {
     return EncodeBase64(vchData.data(), vchData.size());
 }
 
-//TODO implement
+//TODO this is all completely broken in terms of given rsults
 bool CAssetDB::ScanAssets(const std::vector<unsigned char>& vchAsset, unsigned int nMax,
         std::vector<std::pair<std::vector<unsigned char>, CAsset> >& assetScan) {
 
@@ -216,11 +212,10 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
             if(!txAsset.UnserializeFromTx(tx))
                 return error("ReconstructAssetIndex() : failed to unserialize asset from tx");
             serializedAsset = txAsset;
+
             uint64 xop = serializedAsset.nOp;
 
             vector<unsigned char> vchSymbol = txAsset.vchSymbol;
-
-            if (xop == XOP_ASSET_NEW) continue;
 
             // read asset from DB if it exists
             vector<CAsset> vtxPos;
@@ -242,69 +237,52 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
             if (mi != mapAssetPending.end())  mi->second.erase(tx.GetHash());
 
             bool bMyAsset =  IsAssetMine(tx);
-            // asset only visible after NEW?
-            if(xop != XOP_ASSET_NEW) {
-                // txn-specific values to asset object
-                if(xop == XOP_ASSET_ACTIVATE 
-                || (xop == XOP_ASSET_SEND && bMyAsset)
-                || xop == XOP_ASSET_PEG
-                || xop == XOP_ASSET_UPDATE
-                || xop == XOP_ASSET_GENERATE
-                || xop == XOP_ASSET_DISSOLVE
-                || xop == XOP_ASSET_CONVERT ) {
 
-                    if(serializedAsset.nOp == XOP_ASSET_ACTIVATE) {
-                        txAsset.nQty = bMyAsset  ? serializedAsset.nQty : 0;
+            switch(xop) {
+                case XOP_ASSET_NEW:
+                    txAsset.nTotalQty = serializedAsset.nTotalQty;
+                    break;
+                case XOP_ASSET_SEND:
+                    if(bMyAsset) {
+                        txAsset.nQty = serializedAsset.isChange 
+                            ? serializedAsset.nQty
+                            : txAsset.nQty + serializedAsset.nQty;
                     }
-                    else if(serializedAsset.nOp == XOP_ASSET_SEND) {
-                        if(serializedAsset.isChange)
-                            txAsset.nQty = serializedAsset.nQty;
-                        else
-                            txAsset.nQty += serializedAsset.nQty;
-                    }
-                    else if(serializedAsset.nOp == XOP_ASSET_PEG) {
-                        txAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
-                    }
-                    else if(serializedAsset.nOp == XOP_ASSET_UPDATE) {
-                        txAsset.vchDescription = serializedAsset.vchDescription;
-                    }
-                    else if(serializedAsset.nOp == XOP_ASSET_GENERATE) {
-                        txAsset.nTotalQty += serializedAsset.nQty;
-                        if(bMyAsset) txAsset.nQty += serializedAsset.nQty;
-                    }
-                    else if(serializedAsset.nOp == XOP_ASSET_DISSOLVE) {
-                        txAsset.nTotalQty -= serializedAsset.nQty;
-                        if(bMyAsset) txAsset.nQty -= serializedAsset.nQty;
-                    }
-                    else if(serializedAsset.nOp == XOP_ASSET_CONVERT) {
-                        if(serializedAsset.changeTxHash == 0) {
-                            txAsset.nTotalQty += serializedAsset.nQty;
-                            if(bMyAsset) txAsset.nQty += serializedAsset.nQty;
-                        } else {
-                            txAsset.nTotalQty -= serializedAsset.nQty;
-                            if(bMyAsset) txAsset.nQty -= serializedAsset.nQty;
-                             txAsset.vchConvertTargetSymbol = serializedAsset.vchConvertTargetSymbol;                            
-                        }
-                    }                    
+                    break;
+                case XOP_ASSET_PEG:
+                    txAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
+                    break;
+                case XOP_ASSET_UPDATE:
+                    txAsset.vchDescription = serializedAsset.vchDescription;
+                    break;
+                case XOP_ASSET_GENERATE:
+                    txAsset.nTotalQty += serializedAsset.nQty;
+                    if(bMyAsset) txAsset.nQty += serializedAsset.nQty;
+                    break;
+                case XOP_ASSET_DISSOLVE:
+                    txAsset.nTotalQty -= serializedAsset.nQty;
+                    if(bMyAsset) txAsset.nQty -= serializedAsset.nQty;
+                    break;
+                default:
+                    return error("ReconstructAssetIndex() : unknown asset op");
+            }      
 
-                    txAsset.txHash = tx.GetHash();
-                    txAsset.nHeight = nHeight;
-                    txAsset.nTime = pindex->nTime;
-                    txAsset.prevTxHash = serializedAsset.prevTxHash;
-                    txAsset.prevTxQty = serializedAsset.prevTxQty;
-                    txAsset.isChange = serializedAsset.isChange;
-                    txAsset.changeTxHash = serializedAsset.changeTxHash;
+            txAsset.nOp = serializedAsset.nOp;
+            txAsset.txHash = tx.GetHash();
+            txAsset.nHeight = nHeight;
+            txAsset.nTime = pindex->nTime;
+            txAsset.prevTxHash = serializedAsset.prevTxHash;
+            txAsset.prevTxQty = serializedAsset.prevTxQty;
+            txAsset.isChange = serializedAsset.isChange;
+            txAsset.changeTxHash = serializedAsset.changeTxHash;
 
-                    txAsset.PutToAssetList(vtxPos);
+            txAsset.PutToAssetList(vtxPos);
 
-                    if (!WriteAsset(vchSymbol, vtxPos))
-                        return error("ReconstructAssetIndex() : failed to write to asset DB");
-                }
-            }
+            if (!WriteAsset(vchSymbol, vtxPos))
+                return error("ReconstructAssetIndex() : failed to write to asset DB");
 
-            printf( "RECONSTRUCT ASSET: op=%s asset=%s symbol=%s title=%s hash=%s height=%d fees=%llu\n",
+            printf( "RECONSTRUCT ASSET: op=%s symbol=%s title=%s hash=%s height=%d fees=%llu\n",
                     assetFromOp(txAsset.nOp).c_str(),
-                    stringFromVch(txAsset.vchRand).c_str(),
                     stringFromVch(txAsset.vchSymbol).c_str(),
                     stringFromVch(txAsset.vchTitle).c_str(),
                     tx.GetHash().ToString().c_str(),
@@ -414,8 +392,7 @@ int64 GetAssetNetFee(const CTransaction& tx) {
     return nFee;
 }
 
-// TODO CB I think we need to change this to a uint64
-int GetAssetHeight(vector<unsigned char> vchAsset) {
+int64 GetAssetHeight(vector<unsigned char> vchAsset) {
     vector<CAsset> vtxPos;
     if (passetdb->ExistsAsset(vchAsset)) {
         if (!passetdb->ReadAsset(vchAsset, vtxPos))
@@ -438,8 +415,10 @@ bool CheckAssetTxPos(const vector<CAsset> &vtxPos, const int txPos) {
 int IndexOfAssetOutput(const CTransaction& tx) {
     vector<vector<unsigned char> > vvch;
     int op, nOut;
+
     if (!DecodeAssetTx(tx, op, nOut, vvch, -1))
         throw runtime_error("IndexOfAssetOutput() : asset output not found");
+
     return nOut;
 }
 
@@ -449,42 +428,25 @@ bool GetNameOfAssetTx(const CTransaction& tx, vector<unsigned char>& asset) {
 
     vector<vector<unsigned char> > vvchArgs;
     int op, nOut;
+    
     if (!DecodeAssetTx(tx, op, nOut, vvchArgs, -1))
         return error("GetNameOfAssetTx() : could not decode asset tx");
-
+    
     CAsset theAsset;
     if(!theAsset.UnserializeFromTx(tx))
         return error("cannot unserialize asset from txn");
+    
+    if(vvchArgs.size()==0)
+        return error("GetNameOfAssetTx() : no script values");
 
-    if(theAsset.nOp != XOP_ASSET_NEW) {
-    	asset = vvchArgs[0];
-    	return true;
-    }
+	asset = vvchArgs[0];
 	return true;
 }
 
-//TODO come back here check to see how / where this is used
-bool IsConflictedAssetTx(CBlockTreeDB& txdb, const CTransaction& tx, vector<unsigned char>& asset) {
+bool GetValueOfAssetTx(const CTransaction& tx, vector<unsigned char>& value) {
     if (tx.nVersion != SYSCOIN_TX_VERSION)
         return false;
-    vector<vector<unsigned char> > vvchArgs;
-    int op, nOut, nPrevHeight;
-    if (!DecodeAssetTx(tx, op, nOut, vvchArgs, pindexBest->nHeight))
-        return error("IsConflictedAssetTx() : could not decode asset tx");
 
-    switch (op) {
-    case OP_ASSET:
-        nPrevHeight = GetAssetHeight(vvchArgs[0]);
-        asset = vvchArgs[0];
-        if (nPrevHeight >= 0
-                && pindexBest->nHeight - nPrevHeight
-                        < GetAssetExpirationDepth(pindexBest->nHeight))
-            return true;
-    }
-    return false;
-}
-
-bool GetValueOfAssetTx(const CTransaction& tx, vector<unsigned char>& value) {
     vector<vector<unsigned char> > vvch;
     int op, nOut;
 
@@ -498,23 +460,11 @@ bool GetValueOfAssetTx(const CTransaction& tx, vector<unsigned char>& value) {
     if(!txAsset.UnserializeFromTx(tx))
         return error("GetValueOfAssetTx() : failed to unserialize asset from tx");
 
-    switch (txAsset.nOp) {
-        case XOP_ASSET_NEW:
-            return false;
+    if(vvch.size()==0)
+        return error("GetValueOfAssetTx() : no script values");
 
-        case XOP_ASSET_ACTIVATE:
-        case XOP_ASSET_SEND:
-        case XOP_ASSET_PEG:
-        case XOP_ASSET_UPDATE:
-        case XOP_ASSET_GENERATE:
-        case XOP_ASSET_DISSOLVE:
-        case XOP_ASSET_CONVERT:
-            value = vvch[vvch.size()-1];
-            return true;
-        
-        default:
-            return false;
-    }
+    value = vvch[vvch.size()-1];
+    return true;
 }
 
 bool IsAssetMine(const CTransaction& tx) {
@@ -559,9 +509,6 @@ bool IsAssetMine(const CTransaction& tx, const CTxOut& txout, bool ignore_assetn
     if(!txAsset.UnserializeFromTx(tx))
         return error("GetValueOfAssetTx() : failed to unserialize asset from tx");
 
-    if (ignore_assetnew && txAsset.nOp == XOP_ASSET_NEW)
-        return false;
-
     if (IsMyAsset(tx, txout)) {
         printf("IsAssetMine() : found my transaction %s value %d\n",
                 tx.GetHash().GetHex().c_str(), (int) txout.nValue);
@@ -570,14 +517,40 @@ bool IsAssetMine(const CTransaction& tx, const CTxOut& txout, bool ignore_assetn
     return false;
 }
 
+bool IsConflictedAssetTx(CBlockTreeDB& txdb, const CTransaction& tx, vector<unsigned char>& name) {
+    if (tx.nVersion != SYSCOIN_TX_VERSION)
+        return false;
+    vector<vector<unsigned char> > vvchArgs;
+    int op;
+    int nOut;
+
+    bool good = DecodeAssetTx(tx, op, nOut, vvchArgs, pindexBest->nHeight);
+    if (!good)
+        return error("IsConflictedAliasTx() : could not decode a syscoin tx");
+    //int nPrevHeight;
+
+    // TODO CB fix orkill this method
+    // switch (op) {
+    //     case OP_ALIAS_ACTIVATE:
+    //         nPrevHeight = GetAssetHeight(vvchArgs[0]);
+    //         name = vvchArgs[0];
+    //         if (nPrevHeight >= 0 && pindexBest->nHeight - nPrevHeight < GetAliasExpirationDepth(pindexBest->nHeight))
+    //             return true;
+    // }
+    return false;
+}
+
 bool GetValueOfAssetTxHash(const uint256 &txHash, vector<unsigned char>& vchValue, uint256& hash, int& nHeight) {
     nHeight = GetAssetTxHashHeight(txHash);
     CTransaction tx;
     uint256 blockHash;
+
     if (!GetTransaction(txHash, tx, blockHash, true))
         return error("GetValueOfAssetTxHash() : could not read tx from disk");
+    
     if (!GetValueOfAssetTx(tx, vchValue))
         return error("GetValueOfAssetTxHash() : could not decode value from tx");
+    
     hash = tx.GetHash();
     return true;
 }
@@ -586,9 +559,10 @@ bool GetValueOfAsset(CAssetDB& dbAsset, const vector<unsigned char> &vchAsset, v
     vector<CAsset> vtxPos;
     if (!passetdb->ReadAsset(vchAsset, vtxPos) || vtxPos.empty())
         return false;
+
     CAsset& txPos = vtxPos.back();
     nHeight = txPos.nHeight;
-    vchValue = vchFromString(strprintf("%llu", txPos.nQty));
+    vchValue = vchFromString(ValueFromAmount(txPos.nQty).get_str());
     return true;
 }
 
@@ -596,12 +570,47 @@ bool GetTxOfAsset(CAssetDB& dbAsset, const vector<unsigned char> &vchAsset, CTra
     vector<CAsset> vtxPos;
     if (!passetdb->ReadAsset(vchAsset, vtxPos) || vtxPos.empty())
         return false;
+
     CAsset& txPos = vtxPos.back();
-    //int nHeight = txPos.nHeight;
     uint256 hashBlock;
     if (!GetTransaction(txPos.txHash, tx, hashBlock, true))
         return error("GetTxOfAsset() : could not read tx from disk");
     return true;
+}
+
+bool GetTxOfAssetSend(CAssetDB& dbAsset, const vector<unsigned char> &vchAsset, CTransaction& tx) {
+    vector<CAsset> vtxPos;
+    if (!passetdb->ReadAsset(vchAsset, vtxPos) || vtxPos.empty())
+        return false;
+
+    BOOST_REVERSE_FOREACH(CAsset &txPos, vtxPos) {
+        if( txPos.nOp == XOP_ASSET_SEND
+         || txPos.nOp == XOP_ASSET_GENERATE
+         || txPos.nOp == XOP_ASSET_DISSOLVE ) {
+
+			uint256 hashBlock;
+			if (GetTransaction(txPos.txHash, tx, hashBlock, true))
+				return true;
+        }
+    }
+    return error("GetTxOfAssetSend() : could not read tx from disk");
+}
+
+bool GetTxOfAssetControl(CAssetDB& dbAsset, const vector<unsigned char> &vchAsset, CTransaction& tx) {
+    vector<CAsset> vtxPos;
+    if (!passetdb->ReadAsset(vchAsset, vtxPos) || vtxPos.empty())
+        return false;
+
+    BOOST_REVERSE_FOREACH(CAsset &txPos, vtxPos) {
+        if( txPos.nOp == XOP_ASSET_PEG
+         || txPos.nOp != XOP_ASSET_UPDATE ) {
+
+			uint256 hashBlock;
+			if (GetTransaction(txPos.txHash, tx, hashBlock, true))
+				return true;
+        }
+    }
+    return error("GetTxOfAssetControl() : could not read tx from disk");
 }
 
 bool DecodeAssetTx(const CTransaction& tx, int& op, int& nOut, vector<vector<unsigned char> >& vvch, int nHeight) {
@@ -620,32 +629,8 @@ bool DecodeAssetTx(const CTransaction& tx, int& op, int& nOut, vector<vector<uns
     return found && IsAssetOp(op);
 }
 
-bool GetValueOfAssetTx(const CCoins& tx, vector<unsigned char>& value) {
-    vector<vector<unsigned char> > vvch;
-
-    int op, nOut;
-
-    if (!DecodeAssetTx(tx, op, nOut, vvch, -1))
-        return false;
-
-    if(!IsAssetOp(op)) return false;
-
-    // value of transaction is always last param
-    // transactions with 2 or 3 params have values
-    if(vvch.size() != 1) {
-        value = vvch[vvch.size()-1];
-        return true;
-    } 
-    else 
-        return false;
-}
-
 bool DecodeAssetTx(const CCoins& tx, int& op, int& nOut, vector<vector<unsigned char> >& vvch, int nHeight) {
     bool found = false;
-//
-//    if (nHeight < 0)
-//        nHeight = pindexBest->nHeight;
-
     for (unsigned int i = 0; i < tx.vout.size(); i++) {
         const CTxOut& out = tx.vout[i];
         vector<vector<unsigned char> > vvchRead;
@@ -715,147 +700,94 @@ bool SignAssetSignature(const CTransaction& txFrom, CTransaction& txTo, unsigned
     return true;
 }
 
-bool CreateAssetTransactionWithInputTx(
-        const vector<pair<CScript, int64> >& vecSend, CWalletTx& wtxIn,
-        int nTxOut, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet,
-        const string& txData) {
+bool GetValueOfAssetTx(const CCoins& tx, vector<unsigned char>& value) {
+    vector<vector<unsigned char> > vvch;
 
-    int64 nValue = 0;
-    BOOST_FOREACH(const PAIRTYPE(CScript, int64)& s, vecSend) {
-        if (nValue < 0)  return false;
-        nValue += s.second;
-    }
-    if (vecSend.empty() || nValue < 0)
+    int op, nOut;
+
+    if (!DecodeAssetTx(tx, op, nOut, vvch, -1))
         return false;
 
-    wtxNew.BindWallet(pwalletMain);
-    {
-        LOCK2(cs_main, pwalletMain->cs_wallet);
+    if(!IsAssetOp(op) || vvch.size()<2) 
+        return false;
 
-        nFeeRet = nTransactionFee;
-        loop {
-            wtxNew.vin.clear();
-            wtxNew.vout.clear();
-            wtxNew.fFromMe = true;
-            wtxNew.data = vchFromString(txData);
+    value = vvch[vvch.size()-1];
+    return true;
+}
 
-            int64 nTotalValue = nValue + nFeeRet;
-            printf("CreateAssetTransactionWithInputTx: total value = %d\n",
-                    (int) nTotalValue);
-            double dPriority = 0;
+bool GetAssetAddress(const CTransaction& tx, std::string& strAddress) {
+    int op, nOut = 0;
+    vector<vector<unsigned char> > vvch;
 
-            // vouts to the payees
-            BOOST_FOREACH(const PAIRTYPE(CScript, int64)& s, vecSend)
-                wtxNew.vout.push_back(CTxOut(s.second, s.first));
+    if (!DecodeAssetTx(tx, op, nOut, vvch, -1))
+        return error("GetAssetAddress() : could not decode asset tx.");
 
-            int64 nWtxinCredit = wtxIn.vout[nTxOut].nValue;
+    const CTxOut& txout = tx.vout[nOut];
 
-            // Choose coins to use
-            set<pair<const CWalletTx*, unsigned int> > setCoins;
-            int64 nValueIn = 0;
+    const CScript& scriptPubKey = RemoveAssetScriptPrefix(txout.scriptPubKey);
+    strAddress = CBitcoinAddress(scriptPubKey.GetID()).ToString();
+    return true;
+}
 
-            printf( "CreateAssetTransactionWithInputTx: SelectCoins(%s), nTotalValue = %s, nWtxinCredit = %s\n",
-                    FormatMoney(nTotalValue - nWtxinCredit).c_str(),
-                    FormatMoney(nTotalValue).c_str(),
-                    FormatMoney(nWtxinCredit).c_str());
+bool GetAssetAddress(const CDiskTxPos& txPos, std::string& strAddress) {
+    CTransaction tx;
+    if (!tx.ReadFromDisk(txPos))
+        return error("GetAssetAddress() : could not read tx from disk");
+    return GetAssetAddress(tx, strAddress);
+}
 
-            // if the transaction value is greater than the input txn value
-            // then select additional coins from our wallet
-            if (nTotalValue - nWtxinCredit > 0) {
-                if (!pwalletMain->SelectCoins(nTotalValue - nWtxinCredit, setCoins, nValueIn))
-                    return false;
-            }
-            printf( "CreateAssetTransactionWithInputTx: selected %d tx outs, nValueIn = %s\n",
-                    (int) setCoins.size(), FormatMoney(nValueIn).c_str());
+CScript RemoveAssetScriptPrefix(const CScript& scriptIn) {
+    int op;
+    vector<vector<unsigned char> > vvch;
+    CScript::const_iterator pc = scriptIn.begin();
 
-            // turn coins set to vector
-            vector<pair<const CWalletTx*,unsigned int> > vecCoins(setCoins.begin(), setCoins.end());
+    if (!DecodeAssetScript(scriptIn, op, vvch, pc))
+	   printf (
+        "RemoveAssetScriptPrefix() : Could not decode asset script (softfail). "
+        "This is is known to happen for some OPs annd prevents those from getting displayed or accounted for.");
+    
+    return CScript(pc, scriptIn.end());
+}
 
-            // iterate through coins to calculate priority
-            BOOST_FOREACH(PAIRTYPE(const CWalletTx*, unsigned int)& coin, vecCoins) {
-                int64 nCredit = coin.first->vout[coin.second].nValue;
-                dPriority += (double) nCredit  * coin.first->GetDepthInMainChain();
-            }
+// nTxOut is the output from wtxIn that we should grab
+string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, const vector<CWalletTx*>& vecWtxIns, CWalletTx& wtxNew, bool fAskFee, const string& txData) {
 
-            // Input tx always at first position
-            vecCoins.insert(vecCoins.begin(), make_pair(&wtxIn, nTxOut));
+    CReserveKey reservekey(pwalletMain);
+    int64 nFeeRequired;
 
-            nValueIn += nWtxinCredit;
-            dPriority += (double) nWtxinCredit * wtxIn.GetDepthInMainChain();
+    vector<pair<CScript, int64> > vecSend;
+    vecSend.push_back(make_pair(scriptPubKey, nValue));
 
-            // Fill a vout back to self with any change
-            int64 nChange = nValueIn - nTotalValue;
-            if (nChange >= CENT) {
-                // Note: We use a new key here to keep it from being obvious which side is the change.
-                //  The drawback is that by not reusing a previous key, the change may be lost if a
-                //  backup is restored, if the backup doesn't have the new private key for the change.
-                //  If we reused the old key, it would be possible to add code to look for and
-                //  rediscover unknown transactions that were written with keys of ours to recover
-                //  post-backup change.
-
-                // Reserve a new key pair from key pool
-                CPubKey pubkey;
-                assert(reservekey.GetReservedKey(pubkey));
-
-                // -------------- Fill a vout to ourself, using same address type as the payment
-                // Now sending always to hash160 (GetBitcoinAddressHash160 will return hash160, even if pubkey is used)
-                CScript scriptChange;
-                if (Hash160(vecSend[0].first) != 0)
-                    scriptChange.SetDestination(pubkey.GetID());
-                else
-                    scriptChange << pubkey << OP_CHECKSIG;
-
-                // Insert change txn at random position:
-                vector<CTxOut>::iterator position = wtxNew.vout.begin()  + GetRandInt(wtxNew.vout.size());
-                wtxNew.vout.insert(position, CTxOut(nChange, scriptChange));
-            } else
-                reservekey.ReturnKey();
-
-            // Fill vin
-            BOOST_FOREACH(PAIRTYPE(const CWalletTx*, unsigned int)& coin, vecCoins)
-                wtxNew.vin.push_back(CTxIn(coin.first->GetHash(), coin.second));
-
-            // Sign
-            int nIn = 0;
-            BOOST_FOREACH(PAIRTYPE(const CWalletTx*, unsigned int)& coin, vecCoins) {
-                if (coin.first == &wtxIn && coin.second == (unsigned int) nTxOut) {
-                    if (!SignAssetSignature(*coin.first, wtxNew, nIn++))
-                        throw runtime_error("could not sign asset coin output");
-                } else {
-                    if (!SignSignature(*pwalletMain, *coin.first, wtxNew, nIn++))
-                        return false;
-                }
-            }
-
-            // Limit size
-            unsigned int nBytes = ::GetSerializeSize(*(CTransaction*) &wtxNew, SER_NETWORK, PROTOCOL_VERSION);
-            if (nBytes >= MAX_BLOCK_SIZE_GEN / 5)
-                return false;
-
-            dPriority /= nBytes;
-
-            // Check that enough fee is included
-            int64 nPayFee = nTransactionFee * (1 + (int64) nBytes / 1000);
-            bool fAllowFree = CTransaction::AllowFree(dPriority);
-            int64 nMinFee = wtxNew.GetMinFee(1, fAllowFree);
-            if (nFeeRet < max(nPayFee, nMinFee)) {
-                nFeeRet = max(nPayFee, nMinFee);
-                printf( "CreateAssetTransactionWithInputTx: re-iterating (nFreeRet = %s)\n",
-                        FormatMoney(nFeeRet).c_str());
-                continue;
-            }
-
-            // Fill vtxPrev by copying from previous transactions vtxPrev
-            wtxNew.AddSupportingTransactions();
-            wtxNew.fTimeReceivedIsTxTime = true;
-
-            break;
-        }
+    if (nNetFee) {
+        CScript scriptFee;
+        scriptFee << OP_RETURN;
+        vecSend.push_back(make_pair(scriptFee, nNetFee));
     }
 
-    printf("CreateAssetTransactionWithInputTx succeeded:\n%s",
-            wtxNew.ToString().c_str());
-    return true;
+    if (!CreateAssetTransactionWithInputTxs(vecSend, vecWtxIns, wtxNew, reservekey, nFeeRequired, txData)) {
+        string strError;
+        if (nValue + nFeeRequired > pwalletMain->GetBalance())
+            strError = strprintf(_("Error: This transaction requires a transaction fee of at least %s because of its amount, complexity, or use of recently received funds "),
+                            FormatMoney(nFeeRequired).c_str());
+        else
+            strError = _("Error: Transaction creation failed  ");
+        printf("SendMoney() : %s", strError.c_str());
+        return strError;
+    }
+
+#ifdef GUI
+    if (fAskFee && !uiInterface.ThreadSafeAskFee(nFeeRequired))
+    return "ABORTED";
+#else
+    if (fAskFee && !true)
+        return "ABORTED";
+#endif
+
+    if (!pwalletMain->CommitTransaction(wtxNew, reservekey))
+        return _(
+                "Error: The transaction was rejected.  This might happen if some of the coins in your wallet were already spent, such as if you used a copy of wallet.dat and coins were spent in the copy but not marked as spent here.");
+
+    return "";
 }
 
 bool CreateAssetTransactionWithInputTxs(
@@ -883,7 +815,7 @@ bool CreateAssetTransactionWithInputTxs(
             wtxNew.data = vchFromString(txData);
 
             int64 nTotalValue = nValue + nFeeRet;
-            printf("CreateAssetTransactionWithInputTx: total value = %s\n", FormatMoney(nTotalValue).c_str());
+            printf("CreateAssetTransactionWithInputTxs: total value = %s\n", FormatMoney(nTotalValue).c_str());
             double dPriority = 0;
 
             // vouts to the payees
@@ -903,7 +835,7 @@ bool CreateAssetTransactionWithInputTxs(
                     inputTx->GetHash().GetHex().c_str(), nTxOut, FormatMoney(inputTx->vout[nTxOut].nValue).c_str());   
             }
 
-            printf( "CreateAssetTransactionWithInputTx: SelectCoins(%s), nTotalValue = %s, nWtxinCnt = %lu, nWtxinCredit = %s\n",
+            printf( "CreateAssetTransactionWithInputTxs: SelectCoins(%s), nTotalValue = %s, nWtxinCnt = %lu, nWtxinCredit = %s\n",
                     FormatMoney(nTotalValue - nWtxinCredit).c_str(),
                     FormatMoney(nTotalValue).c_str(),
                     vecWtxIns.size(),
@@ -920,9 +852,9 @@ bool CreateAssetTransactionWithInputTxs(
                     return false;
                 // additional coins set into input vector
                 vecCoins.insert(vecCoins.end(), setCoins.begin(), setCoins.end());
-                printf( "CreateAssetTransactionWithInputTx: selected %d tx outs, nValueIn = %s\n",  (int) setCoins.size(), FormatMoney(nValueIn).c_str());
+                printf( "CreateAssetTransactionWithInputTxs: selected %d tx outs, nValueIn = %s\n",  (int) setCoins.size(), FormatMoney(nValueIn).c_str());
             } else {
-                printf( "CreateAssetTransactionWithInputTx: no additional coins selected\n");
+                printf( "CreateAssetTransactionWithInputTxs: no additional coins selected\n");
             }
 
             // iterate through coins to calculate priority
@@ -957,7 +889,7 @@ bool CreateAssetTransactionWithInputTxs(
             // Fill vin
             BOOST_FOREACH(PAIRTYPE(const CWalletTx*, unsigned int)& coin, vecCoins) {
                 wtxNew.vin.push_back(CTxIn(coin.first->GetHash(), coin.second));
-                printf( "CreateAssetTransactionWithInputTx: filling vin (%s), pos = %d\n",
+                printf( "CreateAssetTransactionWithInputTxs: filling vin (%s), pos = %d\n",
                     coin.first->GetHash().GetHex().c_str(), coin.second);
             }
 
@@ -998,428 +930,275 @@ bool CreateAssetTransactionWithInputTxs(
         }
     }
 
-    printf("CreateAssetTransactionWithInputTx succeeded:\n%s",
+    printf("CreateAssetTransactionWithInputTxs succeeded:\n%s",
             wtxNew.ToString().c_str());
     return true;
 }
 
-// nTxOut is the output from wtxIn that we should grab
-string SendAssetWithInputTx(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxIn, CWalletTx& wtxNew, bool fAskFee, const string& txData) {
-    
-    int nTxOut = IndexOfAssetOutput(wtxIn);
-    CReserveKey reservekey(pwalletMain);
-    int64 nFeeRequired;
-    vector<pair<CScript, int64> > vecSend;
-    vecSend.push_back(make_pair(scriptPubKey, nValue));
-
-    if (nNetFee) {
-        CScript scriptFee;
-        scriptFee << OP_RETURN;
-        vecSend.push_back(make_pair(scriptFee, nNetFee));
-    }
-
-    if (!CreateAssetTransactionWithInputTx(vecSend, wtxIn, nTxOut, wtxNew, reservekey, nFeeRequired, txData)) {
-        string strError;
-        if (nValue + nFeeRequired > pwalletMain->GetBalance())
-            strError = strprintf(_("Error: This transaction requires a transaction fee of at least %s because of its amount, complexity, or use of recently received funds "),
-                            FormatMoney(nFeeRequired).c_str());
-        else
-            strError = _("Error: Transaction creation failed  ");
-        printf("SendMoney() : %s", strError.c_str());
-        return strError;
-    }
-
-#ifdef GUI
-    if (fAskFee && !uiInterface.ThreadSafeAskFee(nFeeRequired))
-    return "ABORTED";
-#else
-    if (fAskFee && !true)
-        return "ABORTED";
-#endif
-
-    if (!pwalletMain->CommitTransaction(wtxNew, reservekey))
-        return _(
-                "Error: The transaction was rejected.  This might happen if some of the coins in your wallet were already spent, such as if you used a copy of wallet.dat and coins were spent in the copy but not marked as spent here.");
-
-    return "";
-}
-
-// nTxOut is the output from wtxIn that we should grab
-string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, const vector<CWalletTx*>& vecWtxIns, CWalletTx& wtxNew, bool fAskFee, const string& txData) {
-
-    CReserveKey reservekey(pwalletMain);
-    int64 nFeeRequired;
-
-    vector<pair<CScript, int64> > vecSend;
-    vecSend.push_back(make_pair(scriptPubKey, nValue));
-
-    if (nNetFee) {
-        CScript scriptFee;
-        scriptFee << OP_RETURN;
-        vecSend.push_back(make_pair(scriptFee, nNetFee));
-    }
-
-    //if (!CreateAssetTransactionWithInputTxs(vecSend, vecWtxIns, wtxNew, reservekey, nFeeRequired, txData)) {
-    if (!CreateAssetTransactionWithInputTxs(vecSend, vecWtxIns, wtxNew, reservekey, nFeeRequired, txData)) {
-        string strError;
-        if (nValue + nFeeRequired > pwalletMain->GetBalance())
-            strError = strprintf(_("Error: This transaction requires a transaction fee of at least %s because of its amount, complexity, or use of recently received funds "),
-                            FormatMoney(nFeeRequired).c_str());
-        else
-            strError = _("Error: Transaction creation failed  ");
-        printf("SendMoney() : %s", strError.c_str());
-        return strError;
-    }
-
-#ifdef GUI
-    if (fAskFee && !uiInterface.ThreadSafeAskFee(nFeeRequired))
-    return "ABORTED";
-#else
-    if (fAskFee && !true)
-        return "ABORTED";
-#endif
-
-    if (!pwalletMain->CommitTransaction(wtxNew, reservekey))
-        return _(
-                "Error: The transaction was rejected.  This might happen if some of the coins in your wallet were already spent, such as if you used a copy of wallet.dat and coins were spent in the copy but not marked as spent here.");
-
-    return "";
-}
-
-bool GetAssetAddress(const CTransaction& tx, std::string& strAddress) {
-    int op, nOut = 0;
-    vector<vector<unsigned char> > vvch;
-
-    if (!DecodeAssetTx(tx, op, nOut, vvch, -1))
-        return error("GetAssetAddress() : could not decode asset tx.");
-
-    const CTxOut& txout = tx.vout[nOut];
-
-    const CScript& scriptPubKey = RemoveAssetScriptPrefix(txout.scriptPubKey);
-    strAddress = CBitcoinAddress(scriptPubKey.GetID()).ToString();
-    return true;
-}
-
-bool GetAssetAddress(const CDiskTxPos& txPos, std::string& strAddress) {
-    CTransaction tx;
-    if (!tx.ReadFromDisk(txPos))
-        return error("GetAssetAddress() : could not read tx from disk");
-    return GetAssetAddress(tx, strAddress);
-}
-
-CScript RemoveAssetScriptPrefix(const CScript& scriptIn) {
-    int op;
-    vector<vector<unsigned char> > vvch;
-    CScript::const_iterator pc = scriptIn.begin();
-
-    if (!DecodeAssetScript(scriptIn, op, vvch, pc))
-	   printf ("RemoveAssetScriptPrefix() : Could not decode asset script (softfail). This is is known to happen for some OPs annd prevents those from getting displayed or accounted for.");
-    
-    return CScript(pc, scriptIn.end());
-}
-
 bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidationState &state, CCoinsViewCache &inputs, map<vector<unsigned char>, uint256> &mapTestPool, bool fBlock, bool fMiner, bool fJustCheck) {
 
-    if (!tx.IsCoinBase()) {
-        printf("*** %d %d %s %s %s %s\n", pindexBlock->nHeight,
-                pindexBest->nHeight, tx.GetHash().ToString().c_str(),
-                fBlock ? "BLOCK" : "", fMiner ? "MINER" : "",
-                fJustCheck ? "JUSTCHECK" : "");
+    if (tx.IsCoinBase()) return true;
 
-        bool found = false;
-        const COutPoint *prevOutput = NULL;
-        const CCoins *prevCoins = NULL;
-        int prevOp;
-        vector<vector<unsigned char> > vvchPrevArgs;
+    printf("CheckAssetInputs() block %d best %d %s %s %s %s\n", pindexBlock->nHeight,
+            pindexBest->nHeight, tx.GetHash().ToString().c_str(),
+            fBlock ? "BLOCK" : "", fMiner ? "MINER" : "",
+            fJustCheck ? "JUSTCHECK" : "");
 
-        // Strict check - bug disallowed
-        for (int i = 0; i < (int) tx.vin.size(); i++) {
-            prevOutput = &tx.vin[i].prevout;
-            prevCoins = &inputs.GetCoins(prevOutput->hash);
-            vector<vector<unsigned char> > vvch;
-            if (DecodeAssetScript(prevCoins->vout[prevOutput->n].scriptPubKey, prevOp, vvch)) {
-                found = true; vvchPrevArgs = vvch;
-                break;
-            }
-            if(!found)vvchPrevArgs.clear();
+    bool found = false;
+    const COutPoint *prevOutput = NULL;
+    const CCoins *prevCoins = NULL;
+    int prevOp, op, nOut, nPrevHeight, nDepth;
+    vector<vector<unsigned char> > vvchArgs, vvchPrevArgs;
+
+    // look for a previous asset transaction in this transaction's inputs
+    for (int i = 0; i < (int) tx.vin.size(); i++) {
+        prevOutput = &tx.vin[i].prevout;
+        prevCoins = &inputs.GetCoins(prevOutput->hash);
+        vector<vector<unsigned char> > vvch;
+        if (DecodeAssetScript(prevCoins->vout[prevOutput->n].scriptPubKey, prevOp, vvch)) {
+            found = true;
+            vvchPrevArgs = vvch;
+
+            // make sure there are three parameters in the asset script
+            if (vvchPrevArgs.size() != 3)
+                return error("CheckAssetInputs() : bad number of script params for previousasset transaction");
+
+            break;
         }
+        if(!found) vvchPrevArgs.clear();
+    }
 
-        // Make sure asset outputs are not spent by a regular transaction, or the asset would be lost
-        if (tx.nVersion != SYSCOIN_TX_VERSION) {
-            if (found)
-                return error(
-                        "CheckAssetInputs() : a non-syscoin transaction with a syscoin input");
-            return true;
-        }
+    // Make sure asset outputs are not spent by a regular transaction, or the asset would be lost
+    if (tx.nVersion != SYSCOIN_TX_VERSION) {
+        if (found)
+            return error(
+                    "CheckAssetInputs() : a non-syscoin transaction with a syscoin input");
+        return true;
+    }
 
-        vector<vector<unsigned char> > vvchArgs;
-        int op;
-        int nOut;
-        bool good = DecodeAssetTx(tx, op, nOut, vvchArgs, pindexBlock->nHeight);
-        if (!good)
-            return error("CheckAssetInputs() : could not decode asset tx");
-        int nPrevHeight;
-        int nDepth;
-        int64 nNetFee;
+    int64 nNetFee;
 
-        // unserialize asset object from txn, check for valid
-        CAsset theAsset;
-        theAsset.UnserializeFromTx(tx);
-        if (theAsset.IsNull())
-            error("CheckAssetInputs() : null asset object");
+    // look for an asset transaction in this transction
+    bool good = DecodeAssetTx(tx, op, nOut, vvchArgs, pindexBlock->nHeight);
+    if (!good) return error("CheckAssetInputs() : could not decode asset tx");
 
-        if (vvchArgs[0].size() > MAX_NAME_LENGTH)
-            return error("asset hex rand too long");
+    // unserialize asset object from txn, check for valid
+    CAsset theAsset(tx);
+    if (theAsset.IsNull())
+        error("CheckAssetInputs() : null asset object");
 
-        switch (theAsset.nOp) {
+    // make sure there are three parameters in the asset script
+    if (vvchArgs.size() != 3)
+        return error("CheckAssetInputs() : bad number of script params for asset transaction");
+
+    vector<unsigned char> vchAsset = vvchArgs[0];
+    vector<unsigned char> vchHash  = vvchArgs[1];
+    vector<unsigned char> vchValue = vvchArgs[2];
+
+    // get the blockheight of the asset or -1 if it doesn't exist
+    nPrevHeight = GetAssetHeight(vchAsset);
+
+    // check for enough fees
+    if(found) {
+        nNetFee = GetAssetNetFee(tx);
+        if (nNetFee < GetAssetNetworkFee(1, pindexBlock->nHeight))
+            return error(
+                    "CheckAssetInputs() : got tx %s with fee too low %llu - fee should be %llu",
+                    tx.GetHash().GetHex().c_str(),
+                    nNetFee,
+                    GetAssetNetworkFee(1, pindexBlock->nHeight));
+    }
+
+    bool assetMustHaveInput = ( theAsset.nOp != XOP_ASSET_SEND && theAsset.nOp != XOP_ASSET_GENERATE );
+
+    switch (theAsset.nOp) {
+
         case XOP_ASSET_NEW:
 
+            // make sure no prev asset inputs
             if (found)
                 return error(
                         "CheckAssetInputs() : assetnew tx pointing to previous syscoin tx");
 
-            if (vvchArgs[0].size() != 20)
-                return error("assetnew tx with incorrect hash length");
+            // check symbol
+            if (vvchArgs[0] != theAsset.vchSymbol)
+                return error("assetnew tx with incorrect symbol");
+
+            // disallow activate on an already activated asset
+            if (!fBlock && nPrevHeight >= 0)
+                return error(
+                        "CheckAssetInputs() : assetactivate on an active asset.");
 
             break;
 
-        case XOP_ASSET_ACTIVATE:
+        case XOP_ASSET_PEG:
+        case XOP_ASSET_UPDATE:
+        case XOP_ASSET_DISSOLVE:
+        case XOP_ASSET_GENERATE:
+        case XOP_ASSET_SEND:
 
-            // check for enough fees
-            nNetFee = GetAssetNetFee(tx);
-            if (nNetFee < GetAssetNetworkFee(1, pindexBlock->nHeight) - COIN) // TODO CB - COIN???
-                return error(
-                        "CheckAssetInputs() : got tx %s with fee too low %lu",
-                        tx.GetHash().GetHex().c_str(),
-                        (long unsigned int) nNetFee);
+            // disallow transaction on a nonexistant asset
+            nPrevHeight = GetAssetHeight(vchAsset);
+            if (nPrevHeight < 0) {
+            	if( assetMustHaveInput || (!assetMustHaveInput && theAsset.changeTxHash == 0) ) {
+					return error("CheckAssetInputs() : asset does not exist or invalid asset send.");
+            	}
+            }
 
-            // validate conditions
-            if ((!found || prevOp != OP_ASSET) && !fJustCheck)
-                return error("CheckAssetInputs() : assetactivate tx without previous assetnew tx");
+            if(!fJustCheck) {
+                if(assetMustHaveInput) {
+                    if(prevOp != OP_ASSET)
+                        return error("CheckAssetInputs() : previous tranasction is not asset");
 
-            if (vvchArgs[1].size() > 20)
-                return error("assetactivate tx with rand too big");
+                    if(!found)
+                        return error("CheckAssetInputs() : previous asset tranasction not found");
+                }
 
-            if (vvchArgs[2].size() > MAX_VALUE_LENGTH)
-                return error("assetactivate tx with value too long");
+                if(fBlock) {
 
-            if (fBlock && !fJustCheck) {
-                // Check hash
-                const vector<unsigned char> &vchHash = vvchPrevArgs[0];
-                const vector<unsigned char> &vchAsset = vvchArgs[0];
-                const vector<unsigned char> &vchRand = vvchArgs[1];
-                vector<unsigned char> vchToHash(vchRand);
-                vchToHash.insert(vchToHash.end(), vchAsset.begin(), vchAsset.end());
-                uint160 hash = Hash160(vchToHash);
+                    if(!found && !assetMustHaveInput) break;
 
-                if (uint160(vchHash) != hash)
-                    return error(
-                            "CheckAssetInputs() : asset hash mismatch prev : %s cur %s",
-                            HexStr(stringFromVch(vchHash)).c_str(), HexStr(stringFromVch(vchToHash)).c_str());
+                    // min activation depth is 1
+                    nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 1);
+                    if ((fBlock || fMiner) && nDepth >= 0 && (unsigned int) nDepth < 1)
+                        return false;
 
-                // min activation depth is 1
-                nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 1);
-                if ((fBlock || fMiner) && nDepth >= 0 && (unsigned int) nDepth < 1)
-                    return false;
+                    // check for previous asset
+                    nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 0);
+                    if (nDepth == -1)
+                        return error(
+                                "CheckAssetInputs() : no asset output in previous coins");
 
-                // check for previous asset
-                nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 0);
-                if (nDepth == -1)
-                    return error(
-                            "CheckAssetInputs() : CheckAssetTransactionAtRelativeDepth fail");
-
-                // disallow activate on an already activated asset
-                nPrevHeight = GetAssetHeight(vchAsset);
-                if (!fBlock && nPrevHeight >= 0)
-                    return error(
-                            "CheckAssetInputs() : assetactivate on an active asset.");
-
-                if(pindexBlock->nHeight == pindexBest->nHeight) {
-                    BOOST_FOREACH(const MAPTESTPOOLTYPE& s, mapTestPool) {
-                        if (vvchArgs[0] == s.first) {
-                           return error("CheckInputs() : will not mine assetactivate %s because it clashes with %s",
-                                   tx.GetHash().GetHex().c_str(),
-                                   s.second.GetHex().c_str());
+                    // only mine 1 asset type per transaction
+                    if(pindexBlock->nHeight == pindexBest->nHeight) {
+                        BOOST_FOREACH(const MAPTESTPOOLTYPE& s, mapTestPool) {
+                            if (vchAsset == s.first) {
+                               return error("CheckInputs() : will not mine %s because it clashes with %s",
+                                       tx.GetHash().GetHex().c_str(),
+                                       s.second.GetHex().c_str());
+                            }
                         }
                     }
                 }
             }
-            break;
-
-        case XOP_ASSET_SEND:
-
-            // check for enough fees
-            nNetFee = GetAssetNetFee(tx);
-            if (nNetFee < GetAssetNetworkFee(1, pindexBlock->nHeight) - COIN) // TODO CB - COIN???
-                return error(
-                        "CheckAssetInputs() : got tx %s with fee too low %lu",
-                        tx.GetHash().GetHex().c_str(),
-                        (long unsigned int) nNetFee);
-
-            // TODO CB add logic back
-            // TODO CB check asset change / prev tx / etc to validate the send. if this is not change. require the change txn to be accepted
-            // first. make sure that the change txn's and the prevTxn values all make sense. Disallow txns with bad math
-            if (fBlock && !fJustCheck) {
-                // Check hash
-//            	if(vvchPrevArgs.size()!=0) {
-//                    const vector<unsigned char> &vchHash = vvchPrevArgs[0];
-//                    const vector<unsigned char> &vchAsset = vvchArgs[0];
-//                    const vector<unsigned char> &vchRand = vvchArgs[1];
-//                    vector<unsigned char> vchToHash(vchRand);
-//                    vchToHash.insert(vchToHash.end(), vchAsset.begin(), vchAsset.end());
-//                    uint160 hash = Hash160(vchToHash);
-//
-//                    if (uint160(vchHash) != hash)
-//                        return error(
-//                                "CheckAssetInputs() : asset hash mismatch prev : %s cur %s",
-//                                HexStr(stringFromVch(vchHash)).c_str(), HexStr(stringFromVch(vchToHash)).c_str());
-//            	}
-            }
-
 
             break;
-        
-        case XOP_ASSET_PEG:
-            break;
-        case XOP_ASSET_UPDATE:
-            break;
-        case XOP_ASSET_GENERATE:
-            break;
-        case XOP_ASSET_DISSOLVE:
-            break;
-        case XOP_ASSET_CONVERT:
-            break;
+
         default:
             return error( "CheckAssetInputs() : asset transaction has unknown op");
-        }
+    }
 
-        // save serialized asset for later use
-        CAsset serializedAsset = theAsset;
+    // save serialized asset for later use
+    CAsset serializedAsset = theAsset;
 
-        // if not an assetnew, load the asset data from the DB.
-        vector<CAsset> vtxPos;
-        if(theAsset.nOp != XOP_ASSET_NEW) {
-            if (passetdb->ExistsAsset(theAsset.vchSymbol)) {
-                if (!passetdb->ReadAsset(theAsset.vchSymbol, vtxPos))
-                    return error(
-                            "CheckAssetInputs() : failed to read from asset DB");
-            }
-        }
+    // try to load the asset data from the DB.
+    vector<CAsset> vtxPos;
+    if (passetdb->ExistsAsset(theAsset.vchSymbol)) {
+        if (!passetdb->ReadAsset(theAsset.vchSymbol, vtxPos))
+            return error(
+                    "CheckAssetInputs() : failed to read from asset DB");
+    }
 
-        // these ifs are problably total bullshit except for the assetnew
-        if (fBlock || (!fBlock && !fMiner && !fJustCheck) ) {
+    // these ifs are problably total bullshit except for the assetnew
+    if (fBlock || (!fBlock && !fMiner && !fJustCheck) ) {
 
-            // remove asset from pendings
-            vector<unsigned char> vchAsset = theAsset.vchSymbol;
+        // remove asset from pendings
+        vector<unsigned char> vchAsset = theAsset.vchSymbol;
 
-            // TODO CB this lock needed?
-            LOCK(cs_main);
+        // TODO CB this lock needed?
+        LOCK(cs_main);
 
-            std::map<std::vector<unsigned char>, std::set<uint256> >::iterator mi = mapAssetPending.find(vchAsset);
-            if (mi != mapAssetPending.end())  mi->second.erase(tx.GetHash());
+        std::map<std::vector<unsigned char>, std::set<uint256> >::iterator mi = mapAssetPending.find(vchAsset);
+        if (mi != mapAssetPending.end())  mi->second.erase(tx.GetHash());
 
-            // get the fee for this asset txn
-            int64 nTheFee = GetAssetNetFee(tx);
+        // get the fee for this asset txn
+        int64 nTheFee = GetAssetNetFee(tx);
 
-            // add up everybody's asset fees not just mine
-        	if(theAsset.nOp != XOP_ASSET_NEW) {
-                // compute verify and write fee data to DB
-                InsertAssetFee(pindexBlock, tx.GetHash(), theAsset.nOp, nTheFee);
-                if(nTheFee > 0) printf("ASSET FEES: Added %lf in fees to track for regeneration.\n", (double) nTheFee / COIN);
-                vector<CAssetFee> vAssetFees(lstAssetFees.begin(), lstAssetFees.end());
-                if (!passetdb->WriteAssetFees(vAssetFees))
-                    return error( "CheckAssetInputs() : failed to write fees to asset DB");
+        // compute verify and write fee data to DB
+        InsertAssetFee(pindexBlock, tx.GetHash(), theAsset.nOp, nTheFee);
+        if(nTheFee > 0) printf("ASSET FEES: Added %lf in fees to track for regeneration.\n", (double) nTheFee / COIN);
+        vector<CAssetFee> vAssetFees(lstAssetFees.begin(), lstAssetFees.end());
+        if (!passetdb->WriteAssetFees(vAssetFees))
+            return error( "CheckAssetInputs() : failed to write fees to asset DB");
 
-        	}
+        bool isMine = IsAssetMine(tx);
 
-        	// only record asset info to the database if it's activate (so everyone can see it)
-        	// or if it's a send and we are the recipient
-            if(theAsset.nOp == XOP_ASSET_ACTIVATE
-            	|| (theAsset.nOp == XOP_ASSET_SEND && IsAssetMine(tx) ) 
-                || theAsset.nOp == XOP_ASSET_PEG
-                || theAsset.nOp == XOP_ASSET_UPDATE
-                || theAsset.nOp == XOP_ASSET_GENERATE
-                || theAsset.nOp == XOP_ASSET_DISSOLVE
-                || theAsset.nOp == XOP_ASSET_CONVERT ) {
-                if (!fMiner && !fJustCheck && pindexBlock->nHeight != pindexBest->nHeight) {
-                    int nHeight = pindexBlock->nHeight;
+    	// only record asset info to the database if it's activate (so everyone can see it)
+    	// or if it's a send and we are the recipient
 
-                    // get the latest asset from the db
-					theAsset.GetAssetFromList(vtxPos);
-                    bool isMine = IsAssetMine(tx);
+        if (!fMiner && !fJustCheck && pindexBlock->nHeight != pindexBest->nHeight) {
+            int nHeight = pindexBlock->nHeight;
 
-                    // set the new local asset quantity. if a prev txn exists
-                    // then we increment the asset count. otherwise set it to qty
-                    switch(serializedAsset.nOp) {
-                        case XOP_ASSET_ACTIVATE:
-                            theAsset.nQty =  isMine ? serializedAsset.nQty : 0;
-                            break;
-                        case XOP_ASSET_SEND:
-                            if(serializedAsset.isChange)
-                                theAsset.nQty = serializedAsset.nQty;
-                            else
-                                theAsset.nQty += serializedAsset.nQty;
-                            break;
-                        case XOP_ASSET_PEG:
-                            theAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
-                            break;
-                        case XOP_ASSET_UPDATE:
-                            theAsset.vchDescription = serializedAsset.vchDescription;
-                            break;
-                        case XOP_ASSET_GENERATE:
-                            theAsset.nTotalQty += serializedAsset.nQty;
-                            if(isMine) theAsset.nQty += serializedAsset.nQty;
-                            break;
-                        case XOP_ASSET_DISSOLVE:
-                            theAsset.nTotalQty -= serializedAsset.nQty;
-                            if(isMine) theAsset.nQty -= serializedAsset.nQty;
-                            break;
-                        case XOP_ASSET_CONVERT:
-                            if(serializedAsset.changeTxHash == 0) {
-                                theAsset.nTotalQty += serializedAsset.nQty;
-                                if(isMine) theAsset.nQty += serializedAsset.nQty;
-                            } else {
-                                theAsset.nTotalQty -= serializedAsset.nQty;
-                                if(isMine) theAsset.nQty -= serializedAsset.nQty;
-                                theAsset.vchConvertTargetSymbol = serializedAsset.vchConvertTargetSymbol;                           
-                            }
-                            break;
+            // get the latest asset from the db
+            // TODO CB Actually this is likely a new asset, thus telling me the ridiculous if statement above can be simplified
+			theAsset.GetAssetFromList(vtxPos);
+
+            // set the new local asset quantity. if a prev txn exists
+            // then we increment the asset count. otherwise set it to qty
+            switch(serializedAsset.nOp) {
+                case XOP_ASSET_NEW:
+                    theAsset.nTotalQty =  serializedAsset.nTotalQty;
+                    break;
+                case XOP_ASSET_SEND:
+                    if(isMine) {
+                        theAsset.nQty = serializedAsset.isChange
+                            ? serializedAsset.nQty
+                            : theAsset.nQty + serializedAsset.nQty;
                     }
-
-                    // set the asset's txn-dependent values
-                    theAsset.nHeight = pindexBlock->nHeight;
-                    theAsset.vchRand = vvchArgs[0];
-                    theAsset.txHash = tx.GetHash();
-                    theAsset.prevTxHash = serializedAsset.prevTxHash;
-                    theAsset.prevTxQty = serializedAsset.prevTxQty;
-                    theAsset.isChange = serializedAsset.isChange;
-                    theAsset.changeTxHash = serializedAsset.changeTxHash;
-                    theAsset.nTime = pindexBlock->nTime;
-                    theAsset.PutToAssetList(vtxPos);
-
-                    // write asset
-                    if (!passetdb->WriteAsset(vvchArgs[0], vtxPos))
-                        return error( "CheckAssetInputs() : failed to write to asset DB");
-                    mapTestPool[vvchArgs[0]] = tx.GetHash();
-
-                    // debug
-                    printf( "CONNECTED ASSET: op=%s asset=%s value=%llu symbol=%s title=%s txn=%s height=%d fees=%llu\n",
-                            assetFromOp(theAsset.nOp).c_str(),
-                            stringFromVch(vvchArgs[0]).c_str(),
-                            theAsset.nQty,
-                            stringFromVch(theAsset.vchSymbol).c_str(),
-                            stringFromVch(theAsset.vchTitle).c_str(),
-                            tx.GetHash().ToString().c_str(),
-                            nHeight, nTheFee / COIN);
-                }
+                    break;
+                case XOP_ASSET_PEG:
+                    theAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
+                    break;
+                case XOP_ASSET_UPDATE:
+                    theAsset.vchDescription = serializedAsset.vchDescription;
+                    break;
+                case XOP_ASSET_GENERATE:
+                    theAsset.nTotalQty += serializedAsset.nQty;
+                    if(isMine) theAsset.nQty += serializedAsset.nQty;
+                    break;
+                case XOP_ASSET_DISSOLVE:
+                    theAsset.nTotalQty -= serializedAsset.nQty;
+                    if(isMine) theAsset.nQty -= serializedAsset.nQty;
+                    break;
             }
 
+            // set the asset's txn-dependent values
+
+            theAsset.nOp = serializedAsset.nOp;
+            theAsset.nHeight = pindexBlock->nHeight;
+            theAsset.txHash = tx.GetHash();
+            theAsset.nFee = serializedAsset.nFee;
+            theAsset.prevTxHash = serializedAsset.prevTxHash;
+            theAsset.prevTxQty = serializedAsset.prevTxQty;
+            theAsset.isChange = serializedAsset.isChange;
+            theAsset.changeTxHash = serializedAsset.changeTxHash;
+            theAsset.nTime = pindexBlock->nTime;
+            theAsset.PutToAssetList(vtxPos);
+
+            // write asset to database
+            if (!passetdb->WriteAsset(vvchArgs[0], vtxPos))
+                return error( "CheckAssetInputs() : failed to write to asset DB");
+
+            mapTestPool[vvchArgs[0]] = tx.GetHash();
+
+            // debug
+            printf( "CONNECTED ASSET: op=%s asset=%s value=%llu symbol=%s title=%s txn=%s height=%d fees=%llu\n",
+                    assetFromOp(theAsset.nOp).c_str(),
+                    stringFromVch(vvchArgs[0]).c_str(),
+                    theAsset.nQty,
+                    stringFromVch(theAsset.vchSymbol).c_str(),
+                    stringFromVch(theAsset.vchTitle).c_str(),
+                    tx.GetHash().ToString().c_str(),
+                    nHeight, nTheFee / COIN);
         }
     }
+
     return true;
 }
 
-// TODO CB I still think CAsset's hash should go in the script
+/**
+ * extract the value for the address field show on a listtransactions. 
+ */
 bool ExtractAssetAddress(const CScript& script, string& address) {
     if (script.size() == 1 && script[0] == OP_RETURN) {
         address = string("network fee");
@@ -1431,44 +1210,16 @@ bool ExtractAssetAddress(const CScript& script, string& address) {
     if (!DecodeAssetScript(script, op, vvch))
         return false;
 
-    // TODO CB this is now broken because we cannot rely on script params cnt to identify the op
-    switch(vvch.size()) {
-        case 0:
-        case 1:
-            op = XOP_ASSET_NEW;
-            break;
-        case 2:
-            op = XOP_ASSET_SEND;
-            break;
-        case 3:
-            op = XOP_ASSET_ACTIVATE;
-            break;
-    }
-    string strOp = assetFromOp(op);
-    string strAsset;
-
-    // TODO CB Need to differentiate XOPs - which means we need to txn's data
-    // or find some other way of doing it
-    if (op == XOP_ASSET_NEW) { 
-#ifdef GUI
-        LOCK(cs_main);
-
-        std::map<uint160, std::vector<unsigned char> >::const_iterator mi = mapMyAssetHashes.find(uint160(vvch[0]));
-        if (mi != mapMyAssetHashes.end())
-        strAsset = stringFromVch(mi->second);
-        else
-#endif
-        strAsset = HexStr(vvch[0]);
-    }
-
-    // TODO CB as per comment above. Currently this is never called
-    else
-        strAsset = stringFromVch(vvch[0]);
-
-    address = strOp + ": " + strAsset;
+    string strAsset = stringFromVch(vvch[0]);
+    address = assetFromOp(OP_ASSET) + ": " + strAsset;
+    
     return true;
 }
 
+
+/**
+ * called on a -rescan. rescans the blockchain and rebuilds the db
+ */
 void rescanforassets(CBlockIndex *pindexRescan) {
     printf("Scanning blockchain for assets to create fast index...\n");
     passetdb->ReconstructAssetIndex(pindexRescan);
@@ -1489,6 +1240,209 @@ int GetAssetTxPosHeight(const CDiskTxPos& txPos) {
 int GetAssetTxPosHeight2(const CDiskTxPos& txPos, int nHeight) {
     nHeight = GetAssetTxPosHeight(txPos);
     return nHeight;
+}
+
+/**
+ * create the script for the asset.
+ */
+CScript CreateAssetScript(const vector<vector<unsigned char> >& vvchArgs, uint160 assetHash, CKeyID *dest = NULL, const CTxDestination *txd = NULL) {
+    assert( vvchArgs.size() == 2 );
+    
+    CScript scriptPubKeyOrig, scriptPubKey;
+    if(dest != NULL) {
+        scriptPubKeyOrig.SetDestination(*dest);   
+    } 
+    else if(txd != NULL) {
+        scriptPubKeyOrig.SetDestination(*txd);   
+    } 
+    else {
+        CPubKey newDefaultKey;
+        pwalletMain->GetKeyFromPool(newDefaultKey, false);
+        scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());     
+    }
+       
+    scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vvchArgs[0] << assetHash << vvchArgs[1] << OP_2DROP << OP_2DROP;
+    scriptPubKey += scriptPubKeyOrig;
+    return scriptPubKey;
+}
+
+/**
+ * checks the pending asset transactions map to see if any other asset transactions of this asset type are pending
+ */
+bool IsAssetTransactionPending(const vector<unsigned char> &vchSymbol) {
+    if (mapAssetPending.count(vchSymbol) && mapAssetPending[vchSymbol].size()) {
+        error( "IsAssetTransactionPending() : there are %d pending operations on that asset, including %s",
+               (int) mapAssetPending[vchSymbol].size(),
+               mapAssetPending[vchSymbol].begin()->GetHex().c_str());
+        return true;
+    }
+    return false;
+}
+
+/**
+ * checks the pending asset transactions map to see if any other asset transactions of this asset type are pending
+ */
+bool AssetTransactionExists(const vector<unsigned char> &vchSymbol) {
+    CTransaction tx;
+    if (GetTxOfAsset(*passetdb, vchSymbol, tx)) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * gather all spendable transactions as well as a total spendable asset value out for a given asset
+ */
+bool GetSpendablableAssetTransactions(vector<unsigned char > &vchSymbol, vector<CWalletTx*> &vWtx, uint64 &nTotalSpendable) {
+    vector<CAsset> vtxPos;
+    bool bAssetRead = passetdb->ReadAsset(vchSymbol, vtxPos);
+    if (!bAssetRead) return false;
+    nTotalSpendable = 0;
+
+    BOOST_REVERSE_FOREACH(CAsset myAsset, vtxPos) {
+        // continue if hash not in wallet
+        if (!pwalletMain->mapWallet.count(myAsset.txHash))
+            continue;
+
+        // add the transaction to the inputs list
+        if(myAsset.nOp == XOP_ASSET_SEND
+        || myAsset.nOp == XOP_ASSET_DISSOLVE
+        || myAsset.nOp == XOP_ASSET_GENERATE)
+        {
+        	vWtx.push_back(&pwalletMain->mapWallet[myAsset.txHash]);
+        	nTotalSpendable += myAsset.nQty;
+            printf("AssetSendToDestination() : found %s spendable shares of asset %s in txn %s\n",
+            		Value((double)myAsset.nQty/(double)myAsset.nCoinsPerShare).get_str().c_str(),
+            		assetFromOp(myAsset.nOp).c_str(),
+            		stringFromVch(myAsset.vchSymbol).c_str());
+        }
+    }
+    return true;
+}
+
+//TODO CB make sure that we are correctly setting the isfromme flag in the transaction
+/**
+ * send shares of an asset to the given destination, or to oneself if no destination given
+ */
+string AssetSendToDestination(CAsset &theAsset, CWalletTx &wtx, const CTxDestination *dest = NULL) {
+    
+    // disallow 0 value asset transactions
+    if (theAsset.nQty == 0)
+        throw runtime_error("cannot send 0 value transaction!");
+
+    // can't send more shares than exists
+    if (theAsset.nQty > theAsset.nTotalQty)
+        throw runtime_error("invalid asset quantity for transaction!");
+
+    vector<CWalletTx*> vWtxIn;
+    uint64 nTotalAssetCoins;
+    GetSpendablableAssetTransactions(theAsset.vchSymbol, vWtxIn, nTotalAssetCoins);
+
+    printf("AssetSendToDestination() : send %s shares of asset %s with %lu inputs totalling %s shares backed by %s coins\n",
+    		Value((double) theAsset.nQty / (double) theAsset.nCoinsPerShare).get_str().c_str(),
+    		stringFromVch(theAsset.vchSymbol).c_str(),
+    		vWtxIn.size(),
+    		Value((double) nTotalAssetCoins / (double) theAsset.nCoinsPerShare).get_str().c_str(),
+    		ValueFromAmount(nTotalAssetCoins).get_str().c_str());
+
+    // create the script for the transaction
+    string serAsset = theAsset.SerializeToString();
+    uint160 assetHash = Hash160(vchFromString(serAsset));
+    vector<vector<unsigned char> > vvchInputArgs;
+    vvchInputArgs.push_back(theAsset.vchSymbol);
+    vvchInputArgs.push_back(CBigNum(theAsset.nQty).getvch());
+    CScript assetSendScript = CreateAssetScript(vvchInputArgs, assetHash, NULL, dest);
+
+    // send the transaction and return error message info
+    if(theAsset.changeTxHash != 0 || vWtxIn.size() == 0) {
+        return pwalletMain->SendMoney(
+            assetSendScript, 
+            theAsset.nQty, 
+            wtx, 
+            false, 
+            serAsset);        
+    } else {
+        return SendAssetWithInputTxs(
+            assetSendScript, 
+            theAsset.nQty, 
+            theAsset.nFee, 
+            vWtxIn, 
+            wtx, 
+            false, 
+            serAsset);
+    }
+}
+
+/**
+ * send an asset control transaction the given destination, or to oneself if no destination given
+ */
+string AssetControlToDestination(
+    CAsset &theAsset, 
+    CWalletTx &wtx, 
+    const vector<CWalletTx*> *pvWtxIn = NULL, 
+    const CTxDestination *dest = NULL) {
+    
+    // get the asset from DB
+    vector<CAsset> vtxPos;
+    if (!passetdb->ReadAsset(theAsset.vchSymbol, vtxPos))
+        throw runtime_error("could not read asset from DB");
+
+    vector<CWalletTx*> vWtxIn;
+
+    printf("AssetControlToDestination() : sending control txn %s for asset %s\n",
+    		assetFromOp(theAsset.nOp).c_str(),
+    		stringFromVch(theAsset.vchSymbol).c_str());
+
+    // if optional inputs is null, look for previous control txns
+    if(pvWtxIn == NULL) {
+        //collect all previous unspent and spendable asset transactions to use as inputs for this transaction
+        BOOST_REVERSE_FOREACH(CAsset myAsset, vtxPos) {
+            // continue if hash not in wallet
+            if (!pwalletMain->mapWallet.count(myAsset.txHash) )
+                continue;
+
+            // add the previous control transaction to the inputs list. Only add a single txn.
+            if(myAsset.nOp == XOP_ASSET_NEW
+            || myAsset.nOp == XOP_ASSET_PEG
+            || myAsset.nOp == XOP_ASSET_UPDATE)
+            {
+                printf("AssetControlToDestination() : adding previous control txn %s for asset %s\n",
+                		assetFromOp(myAsset.nOp).c_str(),
+                		stringFromVch(myAsset.vchSymbol).c_str());
+
+                vWtxIn.push_back(&pwalletMain->mapWallet[myAsset.txHash]);
+                break;
+            }
+        }
+    }
+    // otherwise use the contents of the provided vector
+    else vWtxIn.insert(vWtxIn.end(), pvWtxIn->begin(), pvWtxIn->end());
+    
+    if (vWtxIn.size() > 1)
+        throw runtime_error("too many inputs for asset control txn");
+
+    printf("AssetControlToDestination() : creating new control txn with %lu inputs\n",
+    		vWtxIn.size());
+
+    // no asset coins being send in this txn
+    theAsset.nQty = 0;
+
+    string serAsset = theAsset.SerializeToString();
+    uint160 assetHash = Hash160(vchFromString(serAsset));
+    vector<vector<unsigned char> > vvchInputArgs;
+    vvchInputArgs.push_back(theAsset.vchSymbol);
+    vvchInputArgs.push_back(CBigNum(theAsset.nOp).getvch());
+    CScript assetSendScript = CreateAssetScript(vvchInputArgs, assetHash, NULL, dest);
+
+    // send the transaction and return error message info
+    return SendAssetWithInputTxs(
+        assetSendScript, 
+        MIN_AMOUNT, 
+        theAsset.nFee, 
+        vWtxIn, 
+        wtx, 
+        false, 
+        serAsset);
 }
 
 Value assetnew(const Array& params, bool fHelp) {
@@ -1534,211 +1488,72 @@ Value assetnew(const Array& params, bool fHelp) {
     if(nTotalQty<1)
         throw runtime_error("asset total quantity < 1!\n");
 
-    // set wallet tx ver
-    CWalletTx wtx;
-    wtx.nVersion = SYSCOIN_TX_VERSION;
-
-    // generate rand identifier as vch
-    uint64 rand = GetRand((uint64) -1);
-    vector<unsigned char> vchRand = CBigNum(rand).getvch();
-
-    // generate a hex string of rand identifier as a vch
-    vector<unsigned char> vchAsset = vchFromString(HexStr(vchRand));
-
-    // concatenate string representation to number,  hash it
-    vector<unsigned char> vchToHash(vchRand);
-    vchToHash.insert(vchToHash.end(), vchSymbol.begin(), vchSymbol.end());
-    uint160 assetHash = Hash160(vchToHash);
-
-
-
-    // create transaction keys
-    CPubKey newDefaultKey;
-    pwalletMain->GetKeyFromPool(newDefaultKey, false);
-    CScript scriptPubKeyOrig;
-    scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
-    CScript scriptPubKey;
-    scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << assetHash << OP_2DROP;
-    scriptPubKey += scriptPubKeyOrig;
-
-    // build asset object
-    CAsset newAsset;
-    newAsset.nOp = XOP_ASSET_NEW;
-    newAsset.vchRand = vchAsset;
-    newAsset.vchSymbol = vchSymbol;
-    newAsset.vchTitle = vchTitle;
-    newAsset.vchDescription = vchDescription;
-    newAsset.nTotalQty = nTotalQty * COIN;
-    newAsset.nQty = 0;
-    newAsset.nCoinsPerShare = COIN;
-
-    // TODO CB potentially one could add a hash of the bdata to the txn
-
-
-    // send transaction
-    // TODO CB make sure the wallet is getting locked properly in the other commands
-    {
-        LOCK(cs_main);
-        EnsureWalletIsUnlocked();
-        string strError = pwalletMain->SendMoney(scriptPubKey, MIN_AMOUNT, wtx, false, newAsset.SerializeToString());
-        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
-        mapMyAssets[vchSymbol] = wtx.GetHash();
-    }
-    printf("SENT:ASSETNEW : symbol=%s title=%s, description=%s, rand=%s, tx=%s\n",
-            stringFromVch(vchSymbol).c_str(), 
-            stringFromVch(vchTitle).c_str(), 
-            stringFromVch(vchDescription).c_str(), 
-            stringFromVch(vchAsset).c_str(),
-            wtx.GetHash().GetHex().c_str());
-
-    // return results
-    vector<Value> res;
-    res.push_back(wtx.GetHash().GetHex());
-    res.push_back(HexStr(vchRand));
-
-    return res;
-}
-
-Value assetactivate(const Array& params, bool fHelp) {
-    if (fHelp || params.size() < 2 || params.size() > 3)
-        throw runtime_error(
-                "assetactivate <symbol> <guid> [<tx>]\n"
-                "Activate an asset after creating one with assetnew.\n"
-				"<symbol> asset symbol.\n"
-        		"<guid> asset guid.\n"
-        		"[<txid>] assetnew transaction id, if required.\n"
-                + HelpRequiringPassphrase());
-
-    // gather inputs
-    vector<unsigned char> vcAssetHash = vchFromValue(params[1]);
-    vector<unsigned char> vchRand = ParseHex(params[1].get_str());
-    vector<unsigned char> vchSymbol = vchFromString(params[0].get_str());
-    
-    if (vchSymbol.size() > 10)
-        throw runtime_error("asset symbol > 10 bytes!\n");
-
     // this is a syscoin transaction
     CWalletTx wtx, wtxDest;
     wtx.nVersion = SYSCOIN_TX_VERSION;
     wtxDest.nVersion = SYSCOIN_TX_VERSION;
 
-    // check for existing pending assets
+    // build asset object
+    CAsset newAsset;
+    newAsset.nOp = XOP_ASSET_NEW;
+    newAsset.vchSymbol = vchSymbol;
+    newAsset.vchTitle = vchTitle;
+    newAsset.vchDescription = vchDescription;
+    newAsset.nTotalQty = nTotalQty * COIN;
+    newAsset.nQty = 0;
+    newAsset.nFee = 0;
+    newAsset.nCoinsPerShare = COIN;
+
+    if(pwalletMain->GetBalance() < (int64)newAsset.nTotalQty)
+        throw runtime_error("Insufficient balance to create this asset\n");
+
+    // TODO CB make sure the wallet is getting locked properly in the other commands
     {
-        LOCK2(cs_main, pwalletMain->cs_wallet);
-        if (mapAssetPending.count(vchSymbol) && mapAssetPending[vchSymbol].size()) {
-            error( "assetactivate() : there are %d pending operations on that asset, including %s",
-                   (int) mapAssetPending[vchSymbol].size(),
-                   mapAssetPending[vchSymbol].begin()->GetHex().c_str());
-            throw runtime_error("there are pending operations on that asset");
+        LOCK(cs_main);
+
+        // make sure no pending transactions for this asset
+        if(IsAssetTransactionPending(vchSymbol)) {
+            throw runtime_error("there are pending operations on that asset");            
         }
 
-        CTransaction tx;
-        if (GetTxOfAsset(*passetdb, vchSymbol, tx)) {
-            error( "assetactivate() : this asset is already active with tx %s",
-                   tx.GetHash().GetHex().c_str());
+        // cannot activate an asset if it is already active
+        if (AssetTransactionExists(vchSymbol)) {
             throw runtime_error("this asset is already active");
         }
 
         EnsureWalletIsUnlocked();
 
-        // Make sure there is a previous asset tx on this asset and that the random value matches
-        uint256 wtxInHash;
-        if (params.size() == 2) {
-            if (!mapMyAssets.count(vchSymbol))
-                throw runtime_error(
-                        "could not find a coin with this asset, try specifying the assetnew transaction id");
-            wtxInHash = mapMyAssets[vchSymbol];
-        } else
-            wtxInHash.SetHex(params[2].get_str());
-        if (!pwalletMain->mapWallet.count(wtxInHash))
-            throw runtime_error("previous transaction is not in the wallet");
+        // create the ASSET_NEW transaction
+        string serAsset = newAsset.SerializeToString();
+        uint160 assetHash = Hash160(vchFromString(serAsset));
+        vector<vector<unsigned char> > vvchInputArgs;
+        vvchInputArgs.push_back(vchSymbol);
+        vvchInputArgs.push_back(CBigNum(newAsset.nTotalQty).getvch());
+        CScript assetNewScript = CreateAssetScript(vvchInputArgs, assetHash);
 
-        // verify previous txn was asset
-        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        vector<unsigned char> vchHash;
-        bool found = false;
-        BOOST_FOREACH(CTxOut& out, wtxIn.vout) {
-            vector<vector<unsigned char> > vvch;
-            int op;
-            if (DecodeAssetScript(out.scriptPubKey, op, vvch)) {
-                if (op != OP_ASSET)
-                    throw runtime_error(
-                            "previous transaction wasn't asset");
-                vchHash = vvch[0]; 
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-            throw runtime_error("Could not decode asset transaction");
-
-        // calculate network fees
-        int64 nNetFee = GetAssetNetworkFee(1, pindexBest->nHeight);
-
-        // unserialize asset object from txn, serialize back
-        CAsset newAsset;
-        if(!newAsset.UnserializeFromTx(wtxIn))
-            throw runtime_error(
-                    "could not unserialize asset from txn");
-        if (newAsset.nOp != XOP_ASSET_NEW)
-            throw runtime_error(
-                    "previous transaction wasn't asset new");
-
-        // check this hash against previous, ensure they match
-        vector<unsigned char> vchToHash(vchRand);
-        vchToHash.insert(vchToHash.end(), vchSymbol.begin(), vchSymbol.end());
-        uint160 hash = Hash160(vchToHash);
-        if (uint160(vchHash) != hash)
-            throw runtime_error("previous tx has a different guid");
-
-
-        //create assetactivate txn keys
-        CPubKey newDefaultKey;
-        pwalletMain->GetKeyFromPool(newDefaultKey, false);
-        CScript scriptPubKeyOrig;
-        scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
-        CScript scriptPubKey;
-        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchSymbol << vchRand << vchFromString( CBigNum(newAsset.nQty).ToString() ) << OP_2DROP << OP_2DROP;
-        scriptPubKey += scriptPubKeyOrig;
-
-        newAsset.prevTxHash   = wtxInHash;
-        newAsset.prevTxQty    = 0;
-        newAsset.isChange     = false;
-        newAsset.changeTxHash = 0;
-        newAsset.nOp          = XOP_ASSET_ACTIVATE;
-        newAsset.nQty         = 0;
-        newAsset.nFee         = nNetFee;
-        newAsset.vchAdminAddress = vchFromString( CBitcoinAddress(scriptPubKey.GetID()).ToString() );
-
-        string strError = SendAssetWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee, wtxIn, wtx, false, newAsset.SerializeToString() );
-        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError); 
-
-        newAsset.prevTxQty    = 0;
-        newAsset.prevTxHash   = wtx.GetHash();
-        newAsset.nOp          = XOP_ASSET_SEND;
-        newAsset.nQty         = newAsset.nTotalQty;
-        newAsset.nFee         = nNetFee;
-
-        // do an assetsend for the created asset
-        pwalletMain->GetKeyFromPool(newDefaultKey, false);
-        CScript sscriptPubKeyOrig;
-        sscriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
-        CScript sscriptPubKey;
-        sscriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchSymbol << vchFromString( CBigNum(newAsset.nQty).ToString() ) << OP_2DROP << OP_2DROP;
-        sscriptPubKey += sscriptPubKeyOrig;
-        strError = pwalletMain->SendMoney(sscriptPubKey, newAsset.nQty, wtxDest, false, newAsset.SerializeToString() );
+        // send the new asset transaction out
+        string strError = pwalletMain->SendMoney(assetNewScript, MIN_AMOUNT, wtx, false, serAsset);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
+        newAsset.nOp 		  = XOP_ASSET_SEND;
+        newAsset.prevTxHash   = 0;
+        newAsset.prevTxQty    = 0;
+        newAsset.isChange	  = false;
+        newAsset.changeTxHash = wtx.GetHash();
+        newAsset.nQty		  = newAsset.nTotalQty;
 
-        printf("SENT:ASSETACTIVATE: symbol=%s title=%s amount=%s description=%s rand=%s tx=%s\n",
-                stringFromVch(vchSymbol).c_str(),
-                stringFromVch(newAsset.vchTitle).c_str(),
-                CBigNum(newAsset.nQty).ToString().c_str(),
-                stringFromVch(newAsset.vchDescription).c_str(),
-                stringFromVch(vcAssetHash).c_str(),
-                wtxDest.GetHash().GetHex().c_str()  );
+        strError = AssetSendToDestination(newAsset, wtxDest);
+        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
+
+        mapMyAssets[vchSymbol] = wtx.GetHash();
     }
-    return wtx.GetHash().GetHex();
+
+    vector<Value> res;
+    res.push_back(stringFromVch(vchSymbol));
+    res.push_back(wtx.GetHash().GetHex());
+    res.push_back(wtxDest.GetHash().GetHex());
+
+    return res;
 }
 
 Value assetsend(const Array& params, bool fHelp) {
@@ -1763,7 +1578,6 @@ Value assetsend(const Array& params, bool fHelp) {
     if(nQty < 1) throw runtime_error("Invalid asset quantity.");
 
     // validate destination address
-    // TODO CB enable aliases
     CBitcoinAddress sendAddr(stringFromVch(vchAddress));
     if(!sendAddr.IsValid())
         throw runtime_error("Invalid Syscoin address.");
@@ -1776,18 +1590,21 @@ Value assetsend(const Array& params, bool fHelp) {
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
         
-        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
-            error( "assetactivate() : there are %d pending operations on that asset, including %s",
-                   (int) mapAssetPending[vchAsset].size(),
-                   mapAssetPending[vchAsset].begin()->GetHex().c_str());
-            throw runtime_error("there are pending operations on that asset");
+        // make sure no pending transactions for this asset
+        if(IsAssetTransactionPending(vchAsset)) {
+            throw runtime_error("there are pending operations on that asset");            
+        }
+
+        // cannot activate an asset if it is already active
+        if (!AssetTransactionExists(vchAsset)) {
+            throw runtime_error("this asset does not exist");
         }
 
         EnsureWalletIsUnlocked();
 
         // look for a transaction with this key
         CTransaction tx;
-        if (!GetTxOfAsset(*passetdb, vchAsset, tx))
+        if (!GetTxOfAssetSend(*passetdb, vchAsset, tx))
             throw runtime_error("could not find an asset with this key");
 
         // make sure asset is in wallet
@@ -1806,9 +1623,10 @@ Value assetsend(const Array& params, bool fHelp) {
             throw runtime_error("could not read asset from DB");
         theAsset = vtxPos.back();
 
-        if(theAsset.nQty < nQty) {
+        // make sure we have enough quantity to perform the send
+        if(theAsset.nQty < nQty) 
             throw runtime_error("insufficient asset quantity");
-        }
+
         // calculate network fees
         int64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
 
@@ -1816,15 +1634,14 @@ Value assetsend(const Array& params, bool fHelp) {
         if(pwalletMain->GetBalance()<nNetFee)
             throw runtime_error("insufficient balance to send asset.");
 
+        // populate the asset object
         theAsset.isChange     = true;
         theAsset.changeTxHash = 0;
         theAsset.prevTxHash   = wtxInHash;
         theAsset.prevTxQty    = theAsset.nQty;
-
-        // update asset values
-        theAsset.nOp   = XOP_ASSET_SEND;
-        theAsset.nQty -= nQty * theAsset.nCoinsPerShare;
-        theAsset.nFee  = nNetFee;
+        theAsset.nOp          = XOP_ASSET_SEND;
+        theAsset.nQty        -= nQty * theAsset.nCoinsPerShare;
+        theAsset.nFee         = nNetFee;
 
         // serialize asset object
         string bdata = theAsset.SerializeToString();
@@ -1833,20 +1650,7 @@ Value assetsend(const Array& params, bool fHelp) {
 
         // if change qty is not zero, send a change txn to myself
         if(theAsset.nQty != 0) {
-            // get a key from our wallet set dest as ourselves
-            CScript scriptPubKeyOrig;
-            CPubKey newDefaultKey;
-            pwalletMain->GetKeyFromPool(newDefaultKey, false);
-            scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
-
-            // create OP_ASSET txn keys
-            CScript scriptPubKey;
-            scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchFromString( CBigNum(theAsset.nQty).ToString() ) << OP_2DROP << OP_DROP;
-            scriptPubKey += scriptPubKeyOrig;
-
-            // send the asset change to myself
-            CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-            string strError  = SendAssetWithInputTx(scriptPubKey, theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
+            string strError  = AssetSendToDestination(theAsset, wtx);
             if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
             // save the change txn hash
@@ -1856,50 +1660,11 @@ Value assetsend(const Array& params, bool fHelp) {
         // update asset quantities, re-serialize for receiver
         theAsset.nQty     = nQty * theAsset.nCoinsPerShare;
         theAsset.isChange = false;
-        bdata             = theAsset.SerializeToString();
 
-        vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.nQty).ToString() );
-
-        // this asset txn goes to receiver
-        CScript dscriptPubKeyOrig;
-        dscriptPubKeyOrig.SetDestination(sendAddr.Get());
-        CScript dscriptPubKey;
-        dscriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAmount << OP_2DROP << OP_DROP;
-        dscriptPubKey += dscriptPubKeyOrig;
-
-        // collect all previous unspent and spendable asset transactions to use as inputs for this transaction
-        // BOOST_REVERSE_FOREACH(CAsset myAsset, vtxPos) {
-        //     // ignore if: key not in my wallet, op is ACTIVATE (we keep that key), or asset is already in target vector
-        //     if (!pwalletMain->mapWallet.count(myAsset.txHash) || myAsset.nOp == XOP_ASSET_ACTIVATE || myAsset.txHash == wtxInHash)
-        //         continue;
-        //     // add the transaction to the inputs list
-        //     vWtxIns.insert(vWtxIns.end(), &pwalletMain->mapWallet[myAsset.txHash]);
-        // }
-
-        string strError;
-        // do a regular sendmoney if we've send a change txn to ourselves
-        if(theAsset.changeTxHash != 0) {
-            // TODO CB service fee is not applied here. Fix this
-            strError = pwalletMain->SendMoney(dscriptPubKey, theAsset.nQty, wtxDest, false, bdata);
-        } else {
-            // TODO CB change this 
-            CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-            strError = SendAssetWithInputTx(dscriptPubKey, theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
-        }
-        
+        CTxDestination txDest = sendAddr.Get();
+        string strError  = AssetSendToDestination(theAsset, wtxDest, &txDest);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
-
-        printf("SENT:ASSETSEND: symbol=%s title=%s amount=%s description=%s guid=%s tx=%s txchange=%s data:\n%s\n",
-                stringFromVch(theAsset.vchSymbol).c_str(),
-                stringFromVch(theAsset.vchTitle).c_str(),
-                stringFromVch(vchAmount).c_str(),
-                stringFromVch(theAsset.vchDescription).c_str(),
-                stringFromVch(vchAsset).c_str(),
-                wtxDest.GetHash().GetHex().c_str(),
-                wtx.GetHash().GetHex().c_str(),
-                bdata.c_str());
     }
-
 
     return wtxDest.GetHash().GetHex();
 }
@@ -1931,7 +1696,7 @@ Value assetpeg(const Array& params, bool fHelp) {
         LOCK2(cs_main, pwalletMain->cs_wallet);
 
         if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
-            error( "assetactivate() : there are %d pending operations on that asset, including %s",
+            error( "assetpeg() : there are %d pending operations on that asset, including %s",
                    (int) mapAssetPending[vchAsset].size(),
                    mapAssetPending[vchAsset].begin()->GetHex().c_str());
             throw runtime_error("there are pending operations on that asset");
@@ -1941,7 +1706,7 @@ Value assetpeg(const Array& params, bool fHelp) {
 
         // look for a transaction with this key
         CTransaction tx;
-        if (!GetTxOfAsset(*passetdb, vchAsset, tx))
+        if (!GetTxOfAssetControl(*passetdb, vchAsset, tx))
             throw runtime_error("could not find an asset with this key");
 
         // make sure asset is in wallet
@@ -1968,47 +1733,16 @@ Value assetpeg(const Array& params, bool fHelp) {
             throw runtime_error("insufficient balance to pay assetpeg fees.");
 
         // asset transaction
-        theAsset.isChange     = false;
-        theAsset.changeTxHash = 0;
-        theAsset.prevTxHash   = wtxInHash;
-        theAsset.prevTxQty    = theAsset.nQty;
-
-        // update asset values
+        theAsset.isChange       = false;
+        theAsset.changeTxHash   = 0;
+        theAsset.prevTxHash     = wtxInHash;
+        theAsset.prevTxQty      = theAsset.nQty;
         theAsset.nOp            = XOP_ASSET_PEG;
         theAsset.nCoinsPerShare = nCoinsPerShare;
         theAsset.nFee           = nNetFee;
-
-        // TODO CB make it incrementally more and more expensive to split an asset. this is to prevent someone from creating an asset with a low number of shares and then splitting it to save on fees.
-        // serialize asset object
-        string bdata = theAsset.SerializeToString();
         
-        // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to the txn for the destination or the original asset creator will be unable to update it
-        // TODO Currently anyone holding this asset can split it. Fix that.
-
-        // get a key from our wallet set dest as ourselves
-        CScript scriptPubKeyOrig;
-        CPubKey newDefaultKey;
-        pwalletMain->GetKeyFromPool(newDefaultKey, false);
-        scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
-
-        vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.nCoinsPerShare).ToString() );
-
-        // create OP_ASSET txn keys
-        CScript scriptPubKey;
-        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAmount << OP_2DROP << OP_DROP;
-        scriptPubKey += scriptPubKeyOrig;
-
-        // send the asset change to myself
-        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        string strError  = SendAssetWithInputTx(scriptPubKey, theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
+        string strError = AssetControlToDestination(theAsset, wtx);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
-
-        printf("SENT:assetpeg: symbol=%s guid=%s tx=%s cps:%s data:\n%s\n",
-                stringFromVch(theAsset.vchSymbol).c_str(),
-                stringFromVch(vchAsset).c_str(),
-                wtx.GetHash().GetHex().c_str(),
-                stringFromVch(vchAmount).c_str(),
-                bdata.c_str());
     }
 
     return wtx.GetHash().GetHex();
@@ -2041,7 +1775,7 @@ Value assetupdate(const Array& params, bool fHelp) {
         LOCK2(cs_main, pwalletMain->cs_wallet);
 
         if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
-            error( "assetactivate() : there are %d pending operations on that asset, including %s",
+            error( "assetupdate() : there are %d pending operations on that asset, including %s",
                    (int) mapAssetPending[vchAsset].size(),
                    mapAssetPending[vchAsset].begin()->GetHex().c_str());
             throw runtime_error("there are pending operations on that asset");
@@ -2051,7 +1785,7 @@ Value assetupdate(const Array& params, bool fHelp) {
 
         // look for a transaction with this key
         CTransaction tx;
-        if (!GetTxOfAsset(*passetdb, vchAsset, tx))
+        if (!GetTxOfAssetControl(*passetdb, vchAsset, tx))
             throw runtime_error("could not find an asset with this key");
 
         // make sure asset is in wallet
@@ -2078,12 +1812,10 @@ Value assetupdate(const Array& params, bool fHelp) {
             throw runtime_error("insufficient balance to pay assetupdate fees.");
 
         // asset transaction
-        theAsset.isChange     = false;
-        theAsset.changeTxHash = 0;
-        theAsset.prevTxHash   = wtxInHash;
-        theAsset.prevTxQty    = theAsset.nQty;
-
-        // update asset values
+        theAsset.isChange       = false;
+        theAsset.changeTxHash   = 0;
+        theAsset.prevTxHash     = wtxInHash;
+        theAsset.prevTxQty      = theAsset.nQty;
         theAsset.nOp            = XOP_ASSET_UPDATE;
         theAsset.vchDescription = vchDesc;
         theAsset.nFee           = nNetFee;
@@ -2095,31 +1827,21 @@ Value assetupdate(const Array& params, bool fHelp) {
         // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to the txn for the destination or the original asset creator will be unable to update it
         // TODO Currently anyone holding this asset can split it. Fix that.
 
-        // get a key from our wallet set dest as ourselves
-        CScript scriptPubKeyOrig;
-        CPubKey newDefaultKey;
-        pwalletMain->GetKeyFromPool(newDefaultKey, false);
-        scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
-
         vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.nQty).ToString() );
 
-        // create OP_ASSET txn keys
-        CScript scriptPubKey;
-        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAmount << OP_2DROP << OP_DROP;
-        scriptPubKey += scriptPubKeyOrig;
+        string serAsset = theAsset.SerializeToString();
+        uint160 assetHash = Hash160(vchFromString(serAsset));
+        vector<vector<unsigned char> > vvchInputArgs;
+        vvchInputArgs.push_back(vchAsset);
+        vvchInputArgs.push_back(vchAmount);
+        CScript assetUpdateScript = CreateAssetScript(vvchInputArgs, assetHash);
 
         // TODO CB Make sure to correctly set isFromMe in tx
 
         // send the asset change to myself
         CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        string strError  = SendAssetWithInputTx(scriptPubKey, theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
+        string strError  = SendAssetWithInputTx(assetUpdateScript, theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
-
-        printf("SENT:ASSETUPDATE: symbol=%s guid=%s tx=%s data:\n%s\n",
-                stringFromVch(theAsset.vchSymbol).c_str(),
-                stringFromVch(vchAsset).c_str(),
-                wtx.GetHash().GetHex().c_str(),
-                bdata.c_str());
     }
 
     return wtx.GetHash().GetHex();
@@ -2150,7 +1872,7 @@ Value assetgenerate(const Array& params, bool fHelp) {
         LOCK2(cs_main, pwalletMain->cs_wallet);
 
         if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
-            error( "assetactivate() : there are %d pending operations on that asset, including %s",
+            error( "assetgenerate() : there are %d pending operations on that asset, including %s",
                    (int) mapAssetPending[vchAsset].size(),
                    mapAssetPending[vchAsset].begin()->GetHex().c_str());
             throw runtime_error("there are pending operations on that asset");
@@ -2160,7 +1882,7 @@ Value assetgenerate(const Array& params, bool fHelp) {
 
         // look for a transaction with this key
         CTransaction tx;
-        if (!GetTxOfAsset(*passetdb, vchAsset, tx))
+        if (!GetTxOfAssetSend(*passetdb, vchAsset, tx))
             throw runtime_error("could not find an asset with this key");
 
         // make sure asset is in wallet
@@ -2202,22 +1924,16 @@ Value assetgenerate(const Array& params, bool fHelp) {
         theAsset.nFee         = nNetFee;
         theAsset.nQty         = nGenQty * theAsset.nCoinsPerShare;
 
-        // create and send the ASSET_GENERATE txn
-        CScript scriptPubKeyOrig;
-        CPubKey newDefaultKey;
-        pwalletMain->GetKeyFromPool(newDefaultKey, false);
-        scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
-        CScript scriptPubKey;
-        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchFromString( CBigNum(theAsset.prevTxQty + theAsset.nQty).ToString() ) << OP_2DROP << OP_DROP;
-        scriptPubKey += scriptPubKeyOrig;
-        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        string strError  = SendAssetWithInputTx(scriptPubKey, theAsset.prevTxQty + theAsset.nQty, nNetFee, wtxIn, wtx, false, theAsset.SerializeToString());
-        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
+        string serAsset = theAsset.SerializeToString();
+        uint160 assetHash = Hash160(vchFromString(serAsset));
+        vector<vector<unsigned char> > vvchInputArgs;
+        vvchInputArgs.push_back(vchAsset);
+        vvchInputArgs.push_back(vchFromString(CBigNum(theAsset.prevTxQty + theAsset.nQty).ToString()));
+        CScript assetUpdateScript = CreateAssetScript(vvchInputArgs, assetHash);
 
-        printf("SENT:ASSETGENERATE: symbol=%s guid=%s tx=%s\n",
-                stringFromVch(theAsset.vchSymbol).c_str(),
-                stringFromVch(vchAsset).c_str(),
-                wtx.GetHash().GetHex().c_str());
+        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
+        string strError  = SendAssetWithInputTx(assetUpdateScript, theAsset.prevTxQty + theAsset.nQty, nNetFee, wtxIn, wtx, false, theAsset.SerializeToString());
+        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
 
     return wtx.GetHash().GetHex();
@@ -2248,7 +1964,7 @@ Value assetdissolve(const Array& params, bool fHelp) {
         LOCK2(cs_main, pwalletMain->cs_wallet);
 
         if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
-            error( "assetactivate() : there are %d pending operations on that asset, including %s",
+            error( "assetdissolve() : there are %d pending operations on that asset, including %s",
                    (int) mapAssetPending[vchAsset].size(),
                    mapAssetPending[vchAsset].begin()->GetHex().c_str());
             throw runtime_error("there are pending operations on that asset");
@@ -2258,7 +1974,7 @@ Value assetdissolve(const Array& params, bool fHelp) {
 
         // look for a transaction with this key
         CTransaction tx;
-        if (!GetTxOfAsset(*passetdb, vchAsset, tx))
+        if (!GetTxOfAssetSend(*passetdb, vchAsset, tx))
             throw runtime_error("could not find an asset with this key");
 
         // make sure asset is in wallet
@@ -2291,165 +2007,14 @@ Value assetdissolve(const Array& params, bool fHelp) {
         theAsset.prevTxQty    = theAsset.nQty;
         theAsset.nOp          = XOP_ASSET_DISSOLVE;
         theAsset.nFee         = nNetFee;
-        theAsset.nQty         = nGenQty * theAsset.nCoinsPerShare;
-
-        // TODO CB make it incrementally more and more expensive to split an asset. this is to prevent someone from creating an asset with a low number of shares and then splitting it to save on fees.
-        // serialize asset object
-        string bdata = theAsset.SerializeToString();
+        theAsset.nQty         = theAsset.prevTxQty - ( nGenQty * theAsset.nCoinsPerShare );
         
-        // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to the txn for the destination or the original asset creator will be unable to update it
-        // TODO Currently anyone holding this asset can split it. Fix that.
-
-        // get a key from our wallet set dest as ourselves
-        CScript scriptPubKeyOrig;
-        CPubKey newDefaultKey;
-        pwalletMain->GetKeyFromPool(newDefaultKey, false);
-        scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
-
-        vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.prevTxQty - theAsset.nQty).ToString() );
-
-        // create OP_ASSET txn keys
-        CScript scriptPubKey;
-        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchAmount << OP_2DROP << OP_DROP;
-        scriptPubKey += scriptPubKeyOrig;
-
-        // send the asset change to myself
-        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        string strError  = SendAssetWithInputTx(scriptPubKey, theAsset.prevTxQty - theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
+        string strError = AssetSendToDestination(theAsset, wtx);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
-        printf("SENT:ASSETDISSOLVE: symbol=%s guid=%s tx=%s data:\n%s\n",
-                stringFromVch(theAsset.vchSymbol).c_str(),
-                stringFromVch(vchAsset).c_str(),
-                wtx.GetHash().GetHex().c_str(),
-                bdata.c_str());
     }
 
     return wtx.GetHash().GetHex();
-}
-
-Value assetconvert(const Array& params, bool fHelp) {
-    if (fHelp || params.size() != 3)
-        throw runtime_error(
-                "assetconvert <fromsymbol> <tosymbol> <amount>\n"
-                "Convert from one asset type to another.\n"
-                        "<fromsymbol> asset symbol of source asset.\n"
-                        "<tosymbol> asset symbol of destination asset.\n"
-                        "<amount> amount of asset shares to convert.\n"
-                        + HelpRequiringPassphrase());
-
-    // gather & validate inputs
-    vector<unsigned char> vchAsset = vchFromValue(params[0]);
-    vector<unsigned char> vchAssetDest = vchFromValue(params[1]);
-    
-    if (vchAsset.size() > 10)
-        throw runtime_error("asset symbol > 10 bytes!\n");
-
-    uint64 nConvQty = atoi64(params[2].get_str().c_str());
-    if(nConvQty < 1) throw runtime_error("Invalid conversion quantity.");
-
-    // this is a syscoin txn
-    CWalletTx wtx, wtxDest;
-    wtxDest.nVersion = SYSCOIN_TX_VERSION;
-    wtx.nVersion = SYSCOIN_TX_VERSION;
-
-    {
-        LOCK2(cs_main, pwalletMain->cs_wallet);
-
-        if (mapAssetPending.count(vchAsset) && mapAssetPending[vchAsset].size()) {
-            error( "assetconvert() : there are %d pending operations on that asset, including %s",
-                   (int) mapAssetPending[vchAsset].size(),
-                   mapAssetPending[vchAsset].begin()->GetHex().c_str());
-            throw runtime_error("there are pending operations on that asset");
-        }
-
-        EnsureWalletIsUnlocked();
-
-        // look for a transaction with this key
-        CTransaction tx;
-        if (!GetTxOfAsset(*passetdb, vchAsset, tx))
-            throw runtime_error("could not find an asset with this key");
-
-        // make sure asset is in wallet
-        uint256 wtxInHash = tx.GetHash();
-        if (!pwalletMain->mapWallet.count(wtxInHash))
-            throw runtime_error("this asset is not in your wallet");
-
-        // unserialize asset object from txn
-        CAsset theAsset;
-        if(!theAsset.UnserializeFromTx(tx))
-            throw runtime_error("cannot unserialize asset from txn");
-        
-        // unserialize asset object from txn
-        vector<CAsset> vtxPosDest;
-        if (!passetdb->ReadAsset(vchAssetDest, vtxPosDest))
-            throw runtime_error("could not read destination asset from DB");
-        CAsset theDestinationAsset = vtxPosDest.back();
-
-        // get the source asset from DB
-        vector<CAsset> vtxPos;
-        if (!passetdb->ReadAsset(vchAsset, vtxPos))
-            throw runtime_error("could not read asset from DB");
-        theAsset = vtxPos.back();
-
-        // get syscoin service fees
-        int64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
-
-        // make sure there's enough funds to send this txn before trying 
-        if(pwalletMain->GetBalance()<nNetFee)
-            throw runtime_error("insufficient balance to pay assetconvert fees.");
-
-
-        // TODO CB make it incrementally more and more expensive to split an asset. this is to prevent someone from creating an asset with a low number of shares and then splitting it to save on fees.
-        // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to the txn for the destination or the original asset creator will be unable to update it
-        // TODO Currently anyone holding this asset can split it. Fix that.
-        
-        theDestinationAsset.prevTxHash   = wtxInHash;
-        theDestinationAsset.prevTxQty    = theAsset.nQty;
-        theDestinationAsset.isChange     = false;
-        theDestinationAsset.changeTxHash = 0;
-        theDestinationAsset.nOp          = XOP_ASSET_CONVERT;
-        theDestinationAsset.nQty         = nConvQty * theAsset.nCoinsPerShare;
-
-        CScript dscriptPubKeyOrig;
-        CPubKey dnewDefaultKey;
-        pwalletMain->GetKeyFromPool(dnewDefaultKey, false);
-        dscriptPubKeyOrig.SetDestination(dnewDefaultKey.GetID());
-        CScript dscriptPubKey;
-        dscriptPubKey << CScript::EncodeOP_N(OP_ASSET) << theDestinationAsset.vchSymbol << vchFromString( CBigNum(theDestinationAsset.nQty).ToString() ) << OP_2DROP << OP_DROP;
-        dscriptPubKey += dscriptPubKeyOrig;
-        string strError = pwalletMain->SendMoney(dscriptPubKey, theDestinationAsset.nQty, wtxDest, false, theDestinationAsset.SerializeToString()); // TODO CB service fee is not applied here. Fix this
-        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
-
-
-        theAsset.prevTxHash   = wtxInHash;
-        theAsset.prevTxQty    = theAsset.nQty;
-        theAsset.isChange     = false;
-        theAsset.changeTxHash = wtxDest.GetHash();
-        theAsset.nOp          = XOP_ASSET_CONVERT;
-        theAsset.nFee         = nNetFee;
-        theAsset.nQty         = nConvQty * theAsset.nCoinsPerShare;
-        theAsset.vchConvertTargetSymbol = vchAssetDest;
-
-        // get a key from our wallet set dest as ourselves
-        CScript scriptPubKeyOrig;
-        CPubKey newDefaultKey;
-        pwalletMain->GetKeyFromPool(newDefaultKey, false);
-        scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
-        CScript scriptPubKey;
-        scriptPubKey << CScript::EncodeOP_N(OP_ASSET) << vchAsset << vchFromString( CBigNum(theAsset.prevTxQty - theAsset.nQty).ToString() ) << OP_2DROP << OP_DROP;
-        scriptPubKey += scriptPubKeyOrig;
-        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        strError  = SendAssetWithInputTx(scriptPubKey, theAsset.prevTxQty - theAsset.nQty, nNetFee, wtxIn, wtx, false, theAsset.SerializeToString());
-        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
-
-        printf("SENT:ASSETCONVERT: symbol=%s guid=%s tx=%s\n",
-                stringFromVch(theAsset.vchSymbol).c_str(),
-                stringFromVch(vchAsset).c_str(),
-                wtx.GetHash().GetHex().c_str());
-    }
-
-    return wtxDest.GetHash().GetHex();
 }
 
 Value assetinfo(const Array& params, bool fHelp) {
@@ -2479,6 +2044,10 @@ Value assetinfo(const Array& params, bool fHelp) {
 
         CAsset theAsset = vtxPos.back();
 
+        vector<CWalletTx*> vWtxIn;
+        uint64 nTotalAssetCoins;
+        GetSpendablableAssetTransactions(theAsset.vchSymbol, vWtxIn, nTotalAssetCoins);
+
         Object oAsset;
         vector<unsigned char> vchValue;
         int nHeight;
@@ -2487,24 +2056,20 @@ Value assetinfo(const Array& params, bool fHelp) {
             oAsset.push_back(Pair("id", asset));
             oAsset.push_back(Pair("txid", tx.GetHash().GetHex()));
             oAsset.push_back(Pair("prev_txid", theAsset.prevTxHash.GetHex()));
-            oAsset.push_back(Pair("prev_tx_qty", strprintf("%llu", theAsset.prevTxQty)));
+            oAsset.push_back(Pair("prev_tx_qty", ValueFromAmount(theAsset.prevTxQty)));
             oAsset.push_back(Pair("is_change", theAsset.isChange ));
             oAsset.push_back(Pair("change_txid", theAsset.changeTxHash.GetHex()));
             oAsset.push_back(Pair("service_fee", ValueFromAmount(theAsset.nFee) ));
             string strAddress = "";
             GetAssetAddress(tx, strAddress);
             oAsset.push_back(Pair("address", strAddress));
-            oAsset.push_back(Pair("admin_address", stringFromVch(theAsset.vchAdminAddress)));
             oAsset.push_back(Pair("value", stringFromVch(vchValue)));
             oAsset.push_back(Pair("symbol", stringFromVch(theAsset.vchSymbol)));
             oAsset.push_back(Pair("title", stringFromVch(theAsset.vchTitle)));
             oAsset.push_back(Pair("description", stringFromVch(theAsset.vchDescription)));
             oAsset.push_back(Pair("total_quantity", (double) theAsset.nTotalQty / (double)theAsset.nCoinsPerShare ));
             oAsset.push_back(Pair("coins_per_share", ValueFromAmount(theAsset.nCoinsPerShare) ));
-            if(IsAssetMine(tx))
-                oAsset.push_back(Pair("quantity", (double)theAsset.nQty / (double)theAsset.nCoinsPerShare));
-            else
-                oAsset.push_back(Pair("quantity", "0"));
+            oAsset.push_back(Pair("quantity", (double)nTotalAssetCoins / (double)theAsset.nCoinsPerShare));
 
             oLastAsset = oAsset;
         }

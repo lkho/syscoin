@@ -97,7 +97,6 @@ enum opcodetype {
     XOP_ASSET_UPDATE = 0x05,
     XOP_ASSET_GENERATE = 0x06,
     XOP_ASSET_DISSOLVE = 0x07,
-    XOP_ASSET_CONVERT = 0x08,
 
     // syscoin extended reserved 
     OP_SYSCOIN_EXTENDED=0x10,

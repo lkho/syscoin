@@ -3,6 +3,9 @@
 
 #include "bitcoinrpc.h"
 #include "leveldb.h"
+#include "script.h"
+
+#include <boost/foreach.hpp>
 
 class CTransaction;
 class CTxOut;
@@ -54,11 +57,7 @@ class CBitcoinAddress;
 
 class CAsset {
 public:
-    std::vector<unsigned char> vchRand;
-    std::vector<unsigned char> vchGuid;
     std::vector<unsigned char> vchSymbol;
-    std::vector<unsigned char> vchAdminAddress;
-    std::vector<unsigned char> vchConvertTargetSymbol;
     std::vector<unsigned char> vchTitle;
     std::vector<unsigned char> vchDescription;
     uint64 nTotalQty;
@@ -82,21 +81,22 @@ public:
         SetNull();
     }
 
+    CAsset(const CTransaction &tx) {
+        SetNull();
+        UnserializeFromTx(tx);
+    }
+
     IMPLEMENT_SERIALIZE (
-        READWRITE(vchRand);
-        READWRITE(vchGuid);
         READWRITE(vchSymbol);
-        READWRITE(vchAdminAddress);
-        READWRITE(vchConvertTargetSymbol);
         READWRITE(vchTitle);
         READWRITE(vchDescription);
         READWRITE(nTotalQty);
+        READWRITE(nCoinsPerShare);
+        READWRITE(nQty);
         READWRITE(isChange);
         READWRITE(changeTxHash);
         READWRITE(prevTxHash);
         READWRITE(prevTxQty);
-        READWRITE(nQty);
-        READWRITE(nCoinsPerShare);
         READWRITE(txHash);
         READWRITE(nHeight);
         READWRITE(nTime);
@@ -107,38 +107,97 @@ public:
     )
 
     void PutToAssetList(std::vector<CAsset> &assetList) {
-        for(unsigned int i=0;i<assetList.size();i++) {
-            CAsset o = assetList[i];
-            if(o.nHeight == nHeight) {
+        assert(nHeight != 0 || txHash != 0);
+        unsigned int i = assetList.size()-1;
+        BOOST_REVERSE_FOREACH(CAsset o, assetList) {
+            if(o.nHeight != 0 && o.nHeight == nHeight) {
+                assetList[i] = *this;
+                return;
+            } else if(o.txHash != 0 && o.txHash == txHash) {
                 assetList[i] = *this;
                 return;
             }
+            i--;
         }
         assetList.push_back(*this);
     }
 
     bool GetAssetFromList(const std::vector<CAsset> &assetList) {
         if(assetList.size() == 0) return false;
-        for(unsigned int i=0;i<assetList.size();i++) {
-            CAsset o = assetList[i];
+        unsigned int i = assetList.size()-1;
+        BOOST_REVERSE_FOREACH(CAsset o, assetList) {
             if(o.nHeight == nHeight) {
                 *this = assetList[i];
                 return true;
+            } else if(o.txHash == txHash) {
+                *this = assetList[i];
+                return true;
             }
+            i--;
         }
         *this = assetList.back();
         return false;
     }
 
+    bool GetAssetSendFromList(const std::vector<CAsset> &assetList) {
+        if(assetList.size() == 0) return false;
+        unsigned int i = assetList.size()-1;
+        BOOST_REVERSE_FOREACH(CAsset o, assetList) {
+            if(o.nOp == XOP_ASSET_SEND 
+                || o.nOp == XOP_ASSET_GENERATE 
+                || o.nOp == XOP_ASSET_DISSOLVE) {
+                if(nHeight != 0) {
+                    if(o.nHeight == nHeight) {
+                        *this = assetList[i];
+                        return true;
+                    }
+                } else if (txHash != 0) {
+                    if(o.txHash == txHash) {
+                        *this = assetList[i];
+                        return true;
+                    }
+                } else {
+                    *this = assetList[i];
+                    return true;
+                }
+            }
+            i--;
+        }
+        return false;
+    }
+
+    bool GetAssetControlFromList(const std::vector<CAsset> &assetList) {
+        if(assetList.size() == 0) return false;
+        unsigned int i = assetList.size()-1;
+        BOOST_REVERSE_FOREACH(CAsset o, assetList) {
+            if(o.nOp == XOP_ASSET_ACTIVATE 
+                || o.nOp == XOP_ASSET_PEG 
+                || o.nOp == XOP_ASSET_UPDATE) {
+                if(nHeight != 0) {
+                    if(o.nHeight == nHeight) {
+                        *this = assetList[i];
+                        return true;
+                    }
+                } else if (txHash != 0) {
+                    if(o.txHash == txHash) {
+                        *this = assetList[i];
+                        return true;
+                    }
+                } else {
+                    *this = assetList[i];
+                    return true;
+                }
+            }
+            i--;
+        }
+        return false;
+    }
+
     friend bool operator==(const CAsset &a, const CAsset &b) {
         return (
-           a.vchRand == b.vchRand
-        && a.vchGuid == b.vchGuid
-        && a.vchTitle == b.vchTitle
+        a.vchTitle == b.vchTitle
         && a.vchSymbol == b.vchSymbol
-        && a.vchConvertTargetSymbol == b.vchConvertTargetSymbol        
         && a.vchDescription == b.vchDescription
-        && a.vchAdminAddress == b.vchAdminAddress
         && a.nTotalQty == b.nTotalQty
         && a.nQty == b.nQty
         && a.nCoinsPerShare == b.nCoinsPerShare
@@ -157,12 +216,8 @@ public:
     }
 
     CAsset operator=(const CAsset &b) {
-        vchRand = b.vchRand;
-        vchGuid = b.vchGuid;
         vchTitle = b.vchTitle;
         vchSymbol = b.vchSymbol;
-        vchSymbol = b.vchSymbol;
-        vchAdminAddress = b.vchAdminAddress;
         vchDescription = b.vchDescription;
         nTotalQty = b.nTotalQty;
         nCoinsPerShare = b.nCoinsPerShare;
@@ -190,15 +245,11 @@ public:
         txHash = changeTxHash = prevTxHash = hash = 0; 
         nTotalQty = nQty = nCoinsPerShare = prevTxQty = 0;
         isChange = false;
-        vchRand.clear(); 
-        vchGuid.clear();
         vchSymbol.clear(); 
-        vchConvertTargetSymbol.clear();
         vchTitle.clear(); 
         vchDescription.clear(); 
-        vchAdminAddress.clear(); 
     }
-    bool IsNull() const { return (n == 0 && txHash == 0  && changeTxHash == 0 && prevTxHash == 0 && prevTxQty == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchRand.size() == 0 && vchGuid.size() == 0 && vchSymbol.size() == 0 && vchConvertTargetSymbol.size() == 0); }
+    bool IsNull() const { return (n == 0 && txHash == 0  && changeTxHash == 0 && prevTxHash == 0 && prevTxQty == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchSymbol.size() == 0); }
 
     bool UnserializeFromTx(const CTransaction &tx);
     void SerializeToTx(CTransaction &tx);
@@ -288,5 +339,6 @@ extern std::list<CAssetFee> lstAssetFees;
 
 
 bool GetTxOfAsset(CAssetDB& dbAsset, const std::vector<unsigned char> &vchAsset, CTransaction& tx);
+bool GetTxOfAssetSend(CAssetDB& dbAsset, const std::vector<unsigned char> &vchAsset, CTransaction& tx);
 
 #endif // ASSET_H

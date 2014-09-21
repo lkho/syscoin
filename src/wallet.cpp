@@ -828,14 +828,7 @@ void CWalletTx::GetAmounts(list<pair<CTxDestination, int64> >& listReceived,
         }
         else if (DecodeAssetScript(txout.scriptPubKey, op, vvch) && IsAssetOp(op)) {
             nCarriedOverCoin -= txout.nValue;
-            CAsset txAsset;
-            if(!txAsset.UnserializeFromTx(*this)) {
-                error("GetAmounts() : failed to unserialize asset from tx");
-                continue;
-            }
-
-            if (txAsset.nOp != XOP_ASSET_NEW)
-                continue;
+            continue;
         }
 
         // Don't report 'change' txouts
