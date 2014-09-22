@@ -2097,6 +2097,7 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 					if (!pofferdb->WriteOfferTxFees(vOfferFees))
 						return error( "DisconnectBlock() : failed to write fees to offer DB");
 				} 
+
 	        	printf("DISCONNECTED OFFER TXN: offer=%s op=%s hash=%s height=%d\n",
 	                stringFromVch(vvchArgs[0]).c_str(),
                     offerFromOp(op).c_str(),
@@ -2222,7 +2223,7 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 	                tx.GetHash().ToString().c_str(),
 	                pindex->nHeight);
         		fFound = true;
-            }
+        	}
 	    }
 
 		// restore inputs
@@ -2530,9 +2531,11 @@ bool SetBestChain(CValidationState &state, CBlockIndex* pindexNew) {
 
 	// List of what to disconnect (typically nothing)
 	vector<CBlockIndex*> vDisconnect;
-	for (CBlockIndex* pindex = view.GetBestBlock(); pindex != pfork; pindex =
+	CBlockIndex *pindex, *pinToRescan;
+	for (pindex = view.GetBestBlock(); pindex != pfork; pindex =
 			pindex->pprev)
 		vDisconnect.push_back(pindex);
+	pinToRescan = pindex;
 
 	// List of what to connect (typically only pindexNew)
 	vector<CBlockIndex*> vConnect;
@@ -3531,6 +3534,7 @@ bool VerifyDB(int nCheckLevel, int nCheckDepth) {
 			} else
 				nGoodTransactions += block.vtx.size();
 		}
+
 	}
 	if (pindexFailure)
 		return error(

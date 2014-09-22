@@ -324,7 +324,7 @@ int CheckCertIssuerTransactionAtRelativeDepth(CBlockIndex* pindexBlock,
 
 int GetCertTxHashHeight(const uint256 txHash) {
     CDiskTxPos postx;
-    pblocktree->ReadTxIndex(txHash, postx);
+	pblocktree->ReadTxIndex(txHash, postx);
 	return GetNameTxPosHeight(postx);
 }
 
@@ -1401,6 +1401,22 @@ int GetCertTxPosHeight2(const CDiskTxPos& txPos, int nHeight) {
     return nHeight;
 }
 
+Value getcertfees(const Array& params, bool fHelp) {
+    if (fHelp || 0 != params.size())
+        throw runtime_error(
+                "getaliasfees\n"
+                        "get current service fees for alias transactions\n");
+    Object oRes;
+    oRes.push_back(Pair("height", nBestHeight ));
+    oRes.push_back(Pair("subsidy", ValueFromAmount(GetCertFeeSubsidy(nBestHeight) )));
+    oRes.push_back(Pair("new_fee", (double)1.0));
+    oRes.push_back(Pair("activate_fee", ValueFromAmount(GetCertNetworkFee(1, nBestHeight) )));
+    oRes.push_back(Pair("cert_fee", ValueFromAmount(GetCertNetworkFee(2, nBestHeight) )));
+    oRes.push_back(Pair("transfer_fee", ValueFromAmount(GetCertNetworkFee(3, nBestHeight) )));
+    return oRes;
+
+}
+
 Value certissuernew(const Array& params, bool fHelp) {
     // if(!fTestNet && !fCakeNet)
     //     throw runtime_error(
@@ -1929,7 +1945,7 @@ Value certissuerinfo(const Array& params, bool fHelp) {
             oCertItem.push_back(Pair("txid", ca.txHash.GetHex()));
             oCertItem.push_back(Pair("height", sHeight));
             oCertItem.push_back(Pair("time", sTime));
-            oCertItem.push_back(Pair("fee", (double)ca.nFee / COIN));
+            oCertItem.push_back(Pair("fee", ValueFromAmount(ca.nFee)));
             oCertItem.push_back(Pair("title", stringFromVch(ca.vchTitle)));
             oCertItem.push_back(Pair("data", stringFromVch(ca.vchData)));
             aoCertItems.push_back(oCertItem);
@@ -1939,6 +1955,7 @@ Value certissuerinfo(const Array& params, bool fHelp) {
         if (GetValueOfCertIssuerTxHash(txHash, vchValue, certissuerHash, nHeight)) {
             oCertIssuer.push_back(Pair("id", certissuer));
             oCertIssuer.push_back(Pair("txid", tx.GetHash().GetHex()));
+            oCertIssuer.push_back(Pair("service_fee", ValueFromAmount(theCertIssuer.nFee) ));
             string strAddress = "";
             GetCertAddress(tx, strAddress);
             oCertIssuer.push_back(Pair("address", strAddress));
@@ -1993,7 +2010,7 @@ Value certinfo(const Array& params, bool fHelp) {
         oCertItem.push_back(Pair("txid", ca.txHash.GetHex()));
         oCertItem.push_back(Pair("height", sHeight));
         oCertItem.push_back(Pair("time", sTime));
-        oCertItem.push_back(Pair("fee", (double)ca.nFee / COIN));
+        oCertItem.push_back(Pair("service_fee", ValueFromAmount(ca.nFee)));
         oCertItem.push_back(Pair("title", stringFromVch(ca.vchTitle)));
         oCertItem.push_back(Pair("data", stringFromVch(ca.vchData)));
 
@@ -2002,6 +2019,7 @@ Value certinfo(const Array& params, bool fHelp) {
         if (GetValueOfCertIssuerTxHash(txHash, vchValue, certissuerHash, nHeight)) {
             oCertIssuer.push_back(Pair("id", stringFromVch(theCertIssuer.vchRand) ));
             oCertIssuer.push_back(Pair("txid", tx.GetHash().GetHex()));
+            oCertIssuer.push_back(Pair("service_fee", ValueFromAmount(theCertIssuer.nFee)));
             string strAddress = "";
             GetCertAddress(tx, strAddress);
             oCertIssuer.push_back(Pair("address", strAddress));

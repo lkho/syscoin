@@ -4,8 +4,8 @@
  */
 #include "myaliaslistpage.h"
 #include "ui_myaliaslistpage.h"
-
 #include "aliastablemodel.h"
+#include "clientmodel.h"
 #include "optionsmodel.h"
 #include "bitcoingui.h"
 #include "editaliasdialog.h"
@@ -52,6 +52,7 @@ MyAliasListPage::MyAliasListPage(QWidget *parent) :
     connect(copyAliasAction, SIGNAL(triggered()), this, SLOT(on_copyAlias_clicked()));
     connect(copyAliasValueAction, SIGNAL(triggered()), this, SLOT(onCopyAliasValueAction()));
     connect(editAction, SIGNAL(triggered()), this, SLOT(onEditAction()));
+	connect(transferAliasAction, SIGNAL(triggered()), this, SLOT(onTransferAliasAction()));
 
     connect(ui->tableView, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(contextualMenu(QPoint)));
 
@@ -83,7 +84,8 @@ void MyAliasListPage::setModel(AliasTableModel *model)
     
 		ui->tableView->setModel(proxyModel);
 		ui->tableView->sortByColumn(0, Qt::AscendingOrder);
-
+        ui->tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
+        ui->tableView->setSelectionMode(QAbstractItemView::SingleSelection);
     // Set column widths
 #if QT_VERSION < 0x050000
     ui->tableView->horizontalHeader()->setResizeMode(AliasTableModel::Name, QHeaderView::ResizeToContents);
@@ -104,14 +106,15 @@ void MyAliasListPage::setModel(AliasTableModel *model)
     selectionChanged();
 }
 
-void MyAliasListPage::setOptionsModel(OptionsModel *optionsModel)
+void MyAliasListPage::setOptionsModel(ClientModel* clientmodel, OptionsModel *optionsModel)
 {
     this->optionsModel = optionsModel;
+	this->clientModel = clientmodel;
 }
 
 void MyAliasListPage::on_copyAlias_clicked()
 {
-    GUIUtil::copyEntryData(ui->tableView, AliasTableModel::Value);
+    GUIUtil::copyEntryData(ui->tableView, AliasTableModel::Name);
 }
 
 void MyAliasListPage::onCopyAliasValueAction()
@@ -136,16 +139,31 @@ void MyAliasListPage::onEditAction()
 
 void MyAliasListPage::onTransferAliasAction()
 {
-    QTableView *table = ui->tableView;
-    QModelIndexList indexes = table->selectionModel()->selectedRows(AliasTableModel::Name);
+    if(!ui->tableView->selectionModel())
+        return;
+    QModelIndexList indexes = ui->tableView->selectionModel()->selectedRows();
+    if(indexes.isEmpty())
+        return;
 
-    foreach (QModelIndex index, indexes)
-    {
-        QString alias = index.data().toString();
-        emit transferAlias(alias);
-    }
+    EditAliasDialog dlg(EditAliasDialog::TransferAlias);
+    dlg.setModel(model);
+    QModelIndex origIndex = proxyModel->mapToSource(indexes.at(0));
+    dlg.loadRow(origIndex.row());
+    dlg.exec();
 }
-
+void MyAliasListPage::on_refreshButton_clicked()
+{
+    if(!model)
+        return;
+	/*if(this->clientModel->inInitialBlockDownload())
+	{
+        QMessageBox::critical(this, windowTitle(),
+            tr("The blockchain must be fully synchronized before loading Aliases. Please try again later."),
+            QMessageBox::Ok, QMessageBox::Ok);
+		return;
+	}*/
+    model->refreshAliasTable();
+}
 void MyAliasListPage::on_newAlias_clicked()
 {
     if(!model)

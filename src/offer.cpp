@@ -1432,6 +1432,22 @@ int GetOfferTxPosHeight2(const CDiskTxPos& txPos, int nHeight) {
     return nHeight;
 }
 
+Value getofferfees(const Array& params, bool fHelp) {
+	if (fHelp || 0 != params.size())
+		throw runtime_error(
+				"getaliasfees\n"
+						"get current service fees for alias transactions\n");
+	Object oRes;
+	oRes.push_back(Pair("height", nBestHeight ));
+	oRes.push_back(Pair("subsidy", ValueFromAmount(GetOfferFeeSubsidy(nBestHeight) )));
+	oRes.push_back(Pair("new_fee", (double)1.0));
+	oRes.push_back(Pair("activate_fee", ValueFromAmount(GetOfferNetworkFee(1, nBestHeight) )));
+	oRes.push_back(Pair("update_fee", ValueFromAmount(GetOfferNetworkFee(2, nBestHeight) )));
+	oRes.push_back(Pair("pay_fee", ValueFromAmount(GetOfferNetworkFee(3, nBestHeight) )));
+	return oRes;
+
+}
+
 Value offernew(const Array& params, bool fHelp) {
 	if (fHelp || params.size() < 5 || params.size() > 6)
 		throw runtime_error(
@@ -2015,10 +2031,10 @@ Value offerinfo(const Array& params, bool fHelp) {
 			oOfferAccept.push_back(Pair("height", sHeight));
 			oOfferAccept.push_back(Pair("time", sTime));
 			oOfferAccept.push_back(Pair("quantity", strprintf("%llu", ca.nQty)));
-			oOfferAccept.push_back(Pair("price", (double)ca.nPrice / COIN));
+			oOfferAccept.push_back(Pair("price", ValueFromAmount(ca.nPrice)));
 			oOfferAccept.push_back(Pair("paid", ca.bPaid ? "true" : "false"));
 			if(ca.bPaid) {
-				oOfferAccept.push_back(Pair("fee", (double)ca.nFee / COIN));
+				oOfferAccept.push_back(Pair("service_fee", ValueFromAmount(ca.nFee)));
 				oOfferAccept.push_back(Pair("paytxid", ca.txPayId.GetHex() ));
 				oOfferAccept.push_back(Pair("message", stringFromVch(ca.vchMessage)));
 			}
@@ -2029,6 +2045,7 @@ Value offerinfo(const Array& params, bool fHelp) {
         if (GetValueOfOfferTxHash(txHash, vchValue, offerHash, nHeight)) {
 			oOffer.push_back(Pair("id", offer));
 			oOffer.push_back(Pair("txid", tx.GetHash().GetHex()));
+			oOffer.push_back(Pair("service_fee", ValueFromAmount(theOffer.nFee)));
 			string strAddress = "";
 			GetOfferAddress(tx, strAddress);
 			oOffer.push_back(Pair("address", strAddress));
@@ -2044,8 +2061,7 @@ Value offerinfo(const Array& params, bool fHelp) {
 			oOffer.push_back(Pair("category", stringFromVch(theOffer.sCategory)));
 			oOffer.push_back(Pair("title", stringFromVch(theOffer.sTitle)));
 			oOffer.push_back(Pair("quantity", strprintf("%llu", theOffer.GetRemQty())));
-			oOffer.push_back(Pair("price", (double)theOffer.nPrice / COIN));
-			oOffer.push_back(Pair("fee", (double)theOffer.nFee / COIN));
+			oOffer.push_back(Pair("price", ValueFromAmount(theOffer.nFee) ) );
 			oOffer.push_back(Pair("description", stringFromVch(theOffer.sDescription)));
 			oOffer.push_back(Pair("accepts", aoOfferAccepts));
 			oLastOffer = oOffer;
@@ -2098,21 +2114,23 @@ Value offerlist(const Array& params, bool fHelp) {
             // decode txn, skip non-offer txns
             vector<vector<unsigned char> > vvch;
             int op, nOut;
-            if (!DecodeOfferTx(tx, op, nOut, vvch, -1) || !IsOfferOp(op))
+            if (!DecodeOfferTx(tx, op, nOut, vvch, -1) 
+            	|| !IsOfferOp(op) 
+            	|| (op == OP_OFFER_ACCEPT || op == OP_OFFER_PAY))
                 continue;
 
             // get the txn height
             nHeight = GetOfferTxHashHeight(hash);
 
-            // get the txn offer name
+            // get the txn alias name
             if(!GetNameOfOfferTx(tx, vchName))
                 continue;
 
-            // skip this offer if it doesn't match the given filter value
+            // skip this alias if it doesn't match the given filter value
             if(vchNameUniq.size() > 0 && vchNameUniq != vchName)
                 continue;
 
-            // get the value of the offer txn
+            // get the value of the alias txn
             if(!GetValueOfOfferTx(tx, vchValue))
                 continue;
 
@@ -2144,6 +2162,103 @@ Value offerlist(const Array& params, bool fHelp) {
 
     return oRes;
 }
+
+Value offeracceptlist(const Array& params, bool fHelp) {
+    if (fHelp || 1 < params.size())
+		throw runtime_error("offeracceptlist [<offer>]\n"
+				"list my accepted offers");
+
+    vector<unsigned char> vchName;
+
+    if (params.size() == 1)
+        vchName = vchFromValue(params[0]);
+
+    vector<unsigned char> vchNameUniq;
+    if (params.size() == 1)
+        vchNameUniq = vchFromValue(params[0]);
+
+    Array oRes;
+    map< vector<unsigned char>, int > vNamesI;
+    map< vector<unsigned char>, Object > vNamesO;
+
+    {
+        LOCK(pwalletMain->cs_wallet);
+
+        uint256 blockHash;
+        uint256 hash;
+        CTransaction tx;
+
+        vector<unsigned char> vchValue;
+        int nHeight;
+
+        BOOST_FOREACH(PAIRTYPE(const uint256, CWalletTx)& item, pwalletMain->mapWallet)
+        {
+            // get txn hash, read txn index
+            hash = item.second.GetHash();
+
+            if (!GetTransaction(hash, tx, blockHash, true))
+                continue;
+
+            // skip non-syscoin txns
+            if (tx.nVersion != SYSCOIN_TX_VERSION)
+                continue;
+
+            // decode txn, skip non-alias txns
+            vector<vector<unsigned char> > vvch;
+            int op, nOut;
+            if (!DecodeOfferTx(tx, op, nOut, vvch, -1) 
+            	|| !IsOfferOp(op) 
+            	|| !(op == OP_OFFER_ACCEPT || op == OP_OFFER_PAY))
+                continue;
+
+            // get the txn height
+            nHeight = GetOfferTxHashHeight(hash);
+
+            // get the txn offer name
+            if(!GetNameOfOfferTx(tx, vchName))
+                continue;
+
+            // skip this offer if it doesn't match the given filter value
+            if(vchNameUniq.size() > 0 && vchNameUniq != vchName)
+                continue;
+
+            // get the value of the offer txn
+            if(!GetValueOfOfferTx(tx, vchValue))
+                continue;
+
+            // build the output object
+            Object oName;
+            oName.push_back(Pair("name", stringFromVch(vchName)));
+            oName.push_back(Pair("value", stringFromVch(vchValue)));
+            if(op == OP_OFFER_ACCEPT)
+            	oName.push_back(Pair("status", "accepted"));
+           	else if(op == OP_OFFER_PAY)
+            	oName.push_back(Pair("status", "paid"));           	        
+
+            string strAddress = "";
+            GetOfferAddress(tx, strAddress);
+            oName.push_back(Pair("address", strAddress));
+
+            oName.push_back(Pair("expires_in", nHeight
+                                 + GetOfferDisplayExpirationDepth(nHeight) - pindexBest->nHeight));
+            if(nHeight + GetOfferDisplayExpirationDepth(nHeight) - pindexBest->nHeight <= 0)
+                oName.push_back(Pair("expired", 1));
+
+            // get last active name only
+            if(vNamesI.find(vchName) != vNamesI.end() && vNamesI[vchName] > nHeight)
+                continue;
+
+            vNamesI[vchName] = nHeight;
+            vNamesO[vchName] = oName;
+        }
+    }
+
+    BOOST_FOREACH(const PAIRTYPE(vector<unsigned char>, Object)& item, vNamesO)
+        oRes.push_back(item.second);
+
+    return oRes;
+}
+
 
 Value offerhistory(const Array& params, bool fHelp) {
 	if (fHelp || 1 != params.size())

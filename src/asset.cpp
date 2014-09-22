@@ -1434,15 +1434,24 @@ string AssetControlToDestination(
     vvchInputArgs.push_back(CBigNum(theAsset.nOp).getvch());
     CScript assetSendScript = CreateAssetScript(vvchInputArgs, assetHash, NULL, dest);
 
-    // send the transaction and return error message info
-    return SendAssetWithInputTxs(
-        assetSendScript, 
-        MIN_AMOUNT, 
-        theAsset.nFee, 
-        vWtxIn, 
-        wtx, 
-        false, 
-        serAsset);
+    if(vWtxIn.size()==0) {
+        return pwalletMain->SendMoney(
+            assetSendScript, 
+            MIN_AMOUNT, 
+            wtx, 
+            false, 
+            serAsset);  
+    } else {
+        // send the transaction and return error message info
+        return SendAssetWithInputTxs(
+            assetSendScript, 
+            MIN_AMOUNT, 
+            theAsset.nFee, 
+            vWtxIn, 
+            wtx, 
+            false, 
+            serAsset);        
+    }
 }
 
 Value assetnew(const Array& params, bool fHelp) {
@@ -1523,17 +1532,11 @@ Value assetnew(const Array& params, bool fHelp) {
 
         EnsureWalletIsUnlocked();
 
-        // create the ASSET_NEW transaction
-        string serAsset = newAsset.SerializeToString();
-        uint160 assetHash = Hash160(vchFromString(serAsset));
-        vector<vector<unsigned char> > vvchInputArgs;
-        vvchInputArgs.push_back(vchSymbol);
-        vvchInputArgs.push_back(CBigNum(newAsset.nTotalQty).getvch());
-        CScript assetNewScript = CreateAssetScript(vvchInputArgs, assetHash);
-
         // send the new asset transaction out
-        string strError = pwalletMain->SendMoney(assetNewScript, MIN_AMOUNT, wtx, false, serAsset);
+        vector<CWalletTx*> pvWtxIn;
+        string strError = AssetControlToDestination(newAsset, wtxDest, &pvWtxIn);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
+
 
         newAsset.nOp 		  = XOP_ASSET_SEND;
         newAsset.prevTxHash   = 0;
@@ -1819,28 +1822,12 @@ Value assetupdate(const Array& params, bool fHelp) {
         theAsset.nOp            = XOP_ASSET_UPDATE;
         theAsset.vchDescription = vchDesc;
         theAsset.nFee           = nNetFee;
-
-        // TODO CB make it incrementally more and more expensive to split an asset. this is to prevent someone from creating an asset with a low number of shares and then splitting it to save on fees.
-        // serialize asset object
-        string bdata = theAsset.SerializeToString();
         
         // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to the txn for the destination or the original asset creator will be unable to update it
         // TODO Currently anyone holding this asset can split it. Fix that.
 
-        vector<unsigned char> vchAmount = vchFromString( CBigNum(theAsset.nQty).ToString() );
-
-        string serAsset = theAsset.SerializeToString();
-        uint160 assetHash = Hash160(vchFromString(serAsset));
-        vector<vector<unsigned char> > vvchInputArgs;
-        vvchInputArgs.push_back(vchAsset);
-        vvchInputArgs.push_back(vchAmount);
-        CScript assetUpdateScript = CreateAssetScript(vvchInputArgs, assetHash);
-
         // TODO CB Make sure to correctly set isFromMe in tx
-
-        // send the asset change to myself
-        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        string strError  = SendAssetWithInputTx(assetUpdateScript, theAsset.nQty, nNetFee, wtxIn, wtx, false, bdata);
+        string strError = AssetControlToDestination(theAsset, wtx);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
 
@@ -1924,15 +1911,7 @@ Value assetgenerate(const Array& params, bool fHelp) {
         theAsset.nFee         = nNetFee;
         theAsset.nQty         = nGenQty * theAsset.nCoinsPerShare;
 
-        string serAsset = theAsset.SerializeToString();
-        uint160 assetHash = Hash160(vchFromString(serAsset));
-        vector<vector<unsigned char> > vvchInputArgs;
-        vvchInputArgs.push_back(vchAsset);
-        vvchInputArgs.push_back(vchFromString(CBigNum(theAsset.prevTxQty + theAsset.nQty).ToString()));
-        CScript assetUpdateScript = CreateAssetScript(vvchInputArgs, assetHash);
-
-        CWalletTx& wtxIn = pwalletMain->mapWallet[wtxInHash];
-        string strError  = SendAssetWithInputTx(assetUpdateScript, theAsset.prevTxQty + theAsset.nQty, nNetFee, wtxIn, wtx, false, theAsset.SerializeToString());
+        string strError = AssetSendToDestination(theAsset, wtx);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
 

@@ -30,7 +30,7 @@
       <enum>Qt::CustomContextMenu</enum>
      </property>
      <property name="toolTip">
-      <string>Double-click to edit certificate</string>
+      <string/>
      </property>
      <property name="tabKeyNavigation">
       <bool>false</bool>
@@ -55,6 +55,17 @@
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout">
      <item>
+      <widget class="QPushButton" name="refreshButton">
+       <property name="text">
+        <string>&amp;Refresh</string>
+       </property>
+       <property name="icon">
+        <iconset resource="../bitcoin.qrc">
+         <normaloff>:/icons/refresh</normaloff>:/icons/refresh</iconset>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QPushButton" name="newAlias">
        <property name="toolTip">
         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Create a new alias&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
@@ -71,7 +82,7 @@
      <item>
       <widget class="QPushButton" name="copyAlias">
        <property name="toolTip">
-        <string>Copy the currently selected certificate issuer to the system clipboard</string>
+        <string>Copy the currently selected alias to the system clipboard</string>
        </property>
        <property name="text">
         <string>&amp;Copy Alias</string>

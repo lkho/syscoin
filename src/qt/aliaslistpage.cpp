@@ -1,3 +1,6 @@
+#include <boost/assign/list_of.hpp>
+#include <boost/foreach.hpp>
+
 #include "aliaslistpage.h"
 #include "ui_aliaslistpage.h"
 
@@ -8,18 +11,19 @@
 #include "editaliasdialog.h"
 #include "csvmodelwriter.h"
 #include "guiutil.h"
-
+#include "ui_interface.h"
 #include <QSortFilterProxyModel>
 #include <QClipboard>
 #include <QMessageBox>
 #include <QMenu>
-
+#include "main.h"
 using namespace std;
 using namespace json_spirit;
 
 extern const CRPCTable tableRPC;
 extern string JSONRPCReply(const Value& result, const Value& error, const Value& id);
-
+//int GetAliasExpirationDepth(int nHeight);
+int GetAliasDisplayExpirationDepth(int nHeight);
 AliasListPage::AliasListPage(QWidget *parent) :
     QDialog(parent),
     ui(new Ui::AliasListPage),
@@ -33,21 +37,17 @@ AliasListPage::AliasListPage(QWidget *parent) :
     ui->exportButton->setIcon(QIcon());
 #endif
 
-    ui->labelExplanation->setText(tr("These are the first 500 registered Syscoin Aliases."));
+    ui->labelExplanation->setText(tr("Search for any Syscoin Aliases"));
 	
     // Context menu actions
     QAction *copyAliasAction = new QAction(ui->copyAlias->text(), this);
     QAction *copyAliasValueAction = new QAction(tr("Copy Va&lue"), this);
-    QAction *editAction = new QAction(tr("&Edit"), this);
-    QAction *transferAliasAction = new QAction(tr("&Transfer Alias"), this);
+
 
     // Build context menu
     contextMenu = new QMenu();
     contextMenu->addAction(copyAliasAction);
     contextMenu->addAction(copyAliasValueAction);
-    contextMenu->addAction(editAction);
-    contextMenu->addSeparator();
-    contextMenu->addAction(transferAliasAction);
 
     // Connect signals for context menu actions
     connect(copyAliasAction, SIGNAL(triggered()), this, SLOT(on_copyAlias_clicked()));
@@ -56,7 +56,7 @@ AliasListPage::AliasListPage(QWidget *parent) :
     connect(ui->tableView, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(contextualMenu(QPoint)));
 
 
-    ui->lineEditAliasSearch->setPlaceholderText(tr("Enter an Alias to search"));
+	ui->lineEditAliasSearch->setPlaceholderText(tr("Enter search term, regex accepted (ie: ^name returns all Aliases starting with 'name')"));
 }
 
 AliasListPage::~AliasListPage()
@@ -202,7 +202,7 @@ void AliasListPage::on_searchAlias_clicked()
     if(ui->lineEditAliasSearch->text().trimmed().isEmpty())
     {
         QMessageBox::warning(this, tr("Error Searching Alias"),
-            tr("You haven't entered an Alias"),
+            tr("Please enter search term"),
             QMessageBox::Ok, QMessageBox::Ok);
         return;
     }
@@ -218,6 +218,7 @@ void AliasListPage::on_searchAlias_clicked()
         string strMethod = string("aliasfilter");
          
         params.push_back(ui->lineEditAliasSearch->text().toStdString());
+        params.push_back(GetAliasDisplayExpirationDepth(pindexBest->nHeight));
 
         try {
             result = tableRPC.execute(strMethod, params);
@@ -240,8 +241,44 @@ void AliasListPage::on_searchAlias_clicked()
     
         if (result.type() == array_type)
         {
-            
-            
+		  this->model->clear();
+          Array arr = result.get_array();
+		  BOOST_FOREACH(Value& input, arr)
+				{
+				if (input.type() != obj_type)
+					continue;
+				Object& o = input.get_obj();
+			std::string name = "";
+			std::string value = "";
+			std::string expires = "";
+			int expired = 0;
+			int expiresi = 0;
+			const Value& nv = find_value(o, "name");
+			if (nv.type() == str_type)
+				name = nv.get_str();
+			const Value& v = find_value(o, "value");
+			if (v.type() == str_type)
+				value = v.get_str();
+			const Value& ev = find_value(o, "expires_in");
+			if (ev.type() == int_type)
+				expiresi = ev.get_int();
+			const Value& expv = find_value(o, "expired");
+			if (expv.type() == int_type)
+				expired = expv.get_int();
+			if(expired == 1)
+			{
+				expires = "Expired";
+			}
+			else
+			{
+				expires = strprintf("%d", expiresi);
+			}
+				model->addRow(AliasTableModel::Alias,
+						QString::fromStdString(name),
+						QString::fromStdString(value),
+						QString::fromStdString(expires));
+					this->model->updateEntry(QString::fromStdString(name), QString::fromStdString(value), QString::fromStdString(expires), AllAlias, CT_NEW);
+				}           
         }
         else
         {

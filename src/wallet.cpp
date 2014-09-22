@@ -378,7 +378,7 @@ void CWallet::WalletUpdateSpent(const CTransaction &tx)
                         const vector<unsigned char> &vchName = vvchArgs[0];
                         vector<CAliasIndex> vtxPos;
                         if (paliasdb->ReadAlias(vchName, vtxPos)) {
-                            NotifyAliasListChanged(this, &tx, vtxPos.back(), CT_UPDATED);
+                            NotifyAliasListChanged(this, &tx, CT_UPDATED);
                         }
                         fFound = true;
                     } 
@@ -541,7 +541,7 @@ bool CWallet::AddToWallet(const CWalletTx& wtxIn)
 
         // Notify UI of new or updated transaction
         NotifyTransactionChanged(this, hash, fInsertedNew ? CT_NEW : CT_UPDATED);
-        
+
         // notify service UI screens of new or updated syscoin transaction
         vector<vector<unsigned char> > vvchArgs;
         int op, nOut;
@@ -553,7 +553,7 @@ bool CWallet::AddToWallet(const CWalletTx& wtxIn)
             const vector<unsigned char> &vchName = vvchArgs[0];
             vector<CAliasIndex> vtxPos;
             if (paliasdb->ReadAlias(vchName, vtxPos)) {
-                NotifyAliasListChanged(this, &wtx, vtxPos.back(), fInsertedNew ? CT_NEW : CT_UPDATED);
+                NotifyAliasListChanged(this, &wtx, fInsertedNew ? CT_NEW : CT_UPDATED); 
             }
             fFound = true;
         }
@@ -1616,7 +1616,7 @@ bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey)
                     const vector<unsigned char> &vchName = vvchArgs[0];
                     vector<CAliasIndex> vtxPos;
                     if (paliasdb->ReadAlias(vchName, vtxPos)) {
-                        NotifyAliasListChanged(this, &wtxNew, vtxPos.back(), CT_UPDATED);
+                        NotifyAliasListChanged(this, &wtxNew, CT_UPDATED);
                     }
                     fFound = true;
                 }
@@ -2211,7 +2211,7 @@ void CWallet::UpdatedTransaction(const uint256 &hashTx)
                 const vector<unsigned char> &vchName = vvchArgs[0];
                 vector<CAliasIndex> vtxPos;
                 if (paliasdb->ReadAlias(vchName, vtxPos)) {
-                    NotifyAliasListChanged(this, &wtx, vtxPos.back(), CT_UPDATED);
+                    NotifyAliasListChanged(this, &wtx, CT_UPDATED); 
                 }
                 fFound = true;
             }
@@ -2231,7 +2231,6 @@ void CWallet::UpdatedTransaction(const uint256 &hashTx)
                 theCI.UnserializeFromTx(wtx);
                 NotifyCertIssuerListChanged(this, &wtx, theCI, CT_UPDATED);
                 fFound = true;
-
             }
             // asset
             if(!fFound) good = DecodeAssetTx(wtx, op, nOut, vvchArgs, -1);

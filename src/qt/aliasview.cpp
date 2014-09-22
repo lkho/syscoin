@@ -30,10 +30,11 @@ AliasView::AliasView(QStackedWidget *parent, BitcoinGUI *_gui):
 	tabWidget = new QTabWidget();
     aliasListPage = new AliasListPage();
     myAliasListPage = new MyAliasListPage();
-
-	tabWidget->addTab(aliasListPage, tr("Aliases"));
+	
 	tabWidget->addTab(myAliasListPage, tr("&My Aliases"));
-
+	tabWidget->addTab(aliasListPage, tr("&Search"));
+	tabWidget->setTabIcon(0, QIcon(":/icons/alias"));
+	tabWidget->setTabIcon(1, QIcon(":/icons/search"));
 	parent->addWidget(tabWidget);
 
 }
@@ -54,16 +55,18 @@ void AliasView::setClientModel(ClientModel *clientModel)
     {
        
         aliasListPage->setOptionsModel(clientModel->getOptionsModel());
-		myAliasListPage->setOptionsModel(clientModel->getOptionsModel());
+		myAliasListPage->setOptionsModel(clientModel,clientModel->getOptionsModel());
 
     }
 }
 
 void AliasView::setWalletModel(WalletModel *walletModel)
 {
+
     this->walletModel = walletModel;
     if (walletModel)
     {
+
         aliasListPage->setModel(walletModel->getAliasTableModelAll());
 		myAliasListPage->setModel(walletModel->getAliasTableModelMine());
 
