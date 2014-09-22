@@ -9,6 +9,8 @@ src/*.exe
 src/syscoin
 src/syscoind
 src/test_syscoin
+src/1
+src/2
 .*.swp
 *.*~*
 *.bak

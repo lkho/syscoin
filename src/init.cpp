@@ -602,6 +602,8 @@ bool AppInit2(boost::thread_group& threadGroup)
     else
         fServer = GetBoolArg("-server");
 
+    fHTTPClient = GetBoolArg("-http");
+
     /* force fServer when running without GUI */
 #if !defined(QT_GUI)
     fServer = true;

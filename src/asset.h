@@ -47,6 +47,7 @@ int64 GetAssetNetworkFee(int seed, int nHeight);
 int64 GetAssetNetFee(const CTransaction& tx);
 bool InsertAssetFee(CBlockIndex *pindex, uint256 hash, int nOp, uint64 nValue);
 bool ExtractAssetAddress(const CScript& script, std::string& address);
+std::string stringFromVch(const std::vector<unsigned char> &vch);
 
 std::string assetFromOp(int op);
 
@@ -110,10 +111,11 @@ public:
         assert(nHeight != 0 || txHash != 0);
         unsigned int i = assetList.size()-1;
         BOOST_REVERSE_FOREACH(CAsset o, assetList) {
-            if(o.nHeight != 0 && o.nHeight == nHeight) {
-                assetList[i] = *this;
-                return;
-            } else if(o.txHash != 0 && o.txHash == txHash) {
+        	if(o.txHash != 0 && o.txHash == txHash) {
+				assetList[i] = *this;
+				return;
+        	}
+        	else if(o.nHeight != 0 && o.nHeight == nHeight) {
                 assetList[i] = *this;
                 return;
             }
@@ -126,10 +128,11 @@ public:
         if(assetList.size() == 0) return false;
         unsigned int i = assetList.size()-1;
         BOOST_REVERSE_FOREACH(CAsset o, assetList) {
-            if(o.nHeight == nHeight) {
-                *this = assetList[i];
-                return true;
-            } else if(o.txHash == txHash) {
+        	if(o.txHash == txHash) {
+				*this = assetList[i];
+				return true;
+			}
+        	if(o.nHeight == nHeight) {
                 *this = assetList[i];
                 return true;
             }
@@ -251,6 +254,7 @@ public:
     }
     bool IsNull() const { return (n == 0 && txHash == 0  && changeTxHash == 0 && prevTxHash == 0 && prevTxQty == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchSymbol.size() == 0); }
 
+    std::string toString();
     bool UnserializeFromTx(const CTransaction &tx);
     void SerializeToTx(CTransaction &tx);
     std::string SerializeToString();
