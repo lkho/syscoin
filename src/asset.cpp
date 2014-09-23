@@ -162,7 +162,7 @@ string CAsset::toString() {
 			"--------------------------\n",
 			assetFromOp(nOp).c_str(),
 			stringFromVch(vchSymbol).c_str(),
-
+			ValueFromAmount(nQty).get_real(),
 			stringFromVch(vchSymbol).c_str(),
 			stringFromVch(vchTitle).c_str(),
 			stringFromVch(vchDescription).c_str(),
@@ -285,15 +285,13 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
                     mi = mapAssetPending.find(vchSymbol);
             if (mi != mapAssetPending.end())  mi->second.erase(tx.GetHash());
 
-            bool bMyAsset =  IsAssetMine(tx);
-
             switch(xop) {
                 case XOP_ASSET_NEW:
                     txAsset.nTotalQty = serializedAsset.nTotalQty;
                     break;
                 case XOP_ASSET_SEND:
-                    if(bMyAsset) {
-                        txAsset.nQty = serializedAsset.isChange 
+                    if(IsAssetMine(tx)) {
+                        txAsset.nQty = serializedAsset.isChange
                             ? serializedAsset.nQty
                             : txAsset.nQty + serializedAsset.nQty;
                     }
@@ -306,37 +304,39 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
                     break;
                 case XOP_ASSET_GENERATE:
                     txAsset.nTotalQty += serializedAsset.nQty;
-                    if(bMyAsset) txAsset.nQty += serializedAsset.nQty;
+                    if(IsAssetMine(tx)) txAsset.nQty += serializedAsset.nQty;
                     break;
                 case XOP_ASSET_DISSOLVE:
                     txAsset.nTotalQty -= serializedAsset.nQty;
-                    if(bMyAsset) txAsset.nQty -= serializedAsset.nQty;
+                    if(IsAssetMine(tx)) txAsset.nQty -= serializedAsset.nQty;
                     break;
                 default:
                     return error("ReconstructAssetIndex() : unknown asset op");
             }      
 
-            txAsset.nOp = serializedAsset.nOp;
-            txAsset.txHash = tx.GetHash();
-            txAsset.nHeight = nHeight;
-            txAsset.nTime = pindex->nTime;
-            txAsset.prevTxHash = serializedAsset.prevTxHash;
-            txAsset.prevTxQty = serializedAsset.prevTxQty;
-            txAsset.isChange = serializedAsset.isChange;
-            txAsset.changeTxHash = serializedAsset.changeTxHash;
+            if(serializedAsset.nOp != XOP_ASSET_SEND){
+                txAsset.nOp = serializedAsset.nOp;
+                txAsset.txHash = tx.GetHash();
+                txAsset.nHeight = nHeight;
+                txAsset.nTime = pindex->nTime;
+                txAsset.prevTxHash = serializedAsset.prevTxHash;
+                txAsset.prevTxQty = serializedAsset.prevTxQty;
+                txAsset.isChange = serializedAsset.isChange;
+                txAsset.changeTxHash = serializedAsset.changeTxHash;
 
-            txAsset.PutToAssetList(vtxPos);
+                txAsset.PutToAssetList(vtxPos);
 
-            if (!WriteAsset(vchSymbol, vtxPos))
-                return error("ReconstructAssetIndex() : failed to write to asset DB");
+                if (!WriteAsset(vchSymbol, vtxPos))
+                    return error("ReconstructAssetIndex() : failed to write to asset DB");
 
-            printf( "RECONSTRUCT ASSET: op=%s symbol=%s title=%s hash=%s height=%d fees=%llu\n",
-                    assetFromOp(txAsset.nOp).c_str(),
-                    stringFromVch(txAsset.vchSymbol).c_str(),
-                    stringFromVch(txAsset.vchTitle).c_str(),
-                    tx.GetHash().ToString().c_str(),
-                    nHeight,
-                    nTheFee);
+                printf( "RECONSTRUCT ASSET: op=%s symbol=%s title=%s hash=%s height=%d fees=%llu\n",
+                        assetFromOp(txAsset.nOp).c_str(),
+                        stringFromVch(txAsset.vchSymbol).c_str(),
+                        stringFromVch(txAsset.vchTitle).c_str(),
+                        tx.GetHash().ToString().c_str(),
+                        nHeight,
+                        nTheFee);
+            }
         }
         pindex = pindex->pnext;
         Flush();
@@ -356,6 +356,7 @@ int CheckAssetTransactionAtRelativeDepth(CBlockIndex* pindexBlock,
             return pindexBlock->nHeight - pindex->nHeight;
     return -1;
 }
+
 
 int GetAssetTxHashHeight(const uint256 txHash) {
     CDiskTxPos postx;
@@ -390,6 +391,9 @@ uint64 GetAssetFeeSubsidy(unsigned int nHeight) {
                 }
             }
         }
+    }
+    if((nHeight - blk12hrht) + 1 == 0) {
+    	return 0;
     }
     hr12 /= (nHeight - blk12hrht) + 1;
     hr1 /= (nHeight - blk1hrht) + 1;
@@ -481,10 +485,6 @@ bool GetNameOfAssetTx(const CTransaction& tx, vector<unsigned char>& asset) {
     if (!DecodeAssetTx(tx, op, nOut, vvchArgs, -1))
         return error("GetNameOfAssetTx() : could not decode asset tx");
     
-    CAsset theAsset;
-    if(!theAsset.UnserializeFromTx(tx))
-        return error("cannot unserialize asset from txn");
-    
     if(vvchArgs.size()==0)
         return error("GetNameOfAssetTx() : no script values");
 
@@ -503,11 +503,6 @@ bool GetValueOfAssetTx(const CTransaction& tx, vector<unsigned char>& value) {
         return false;
 
     if(!IsAssetOp(op)) return false;
-
-    // get the asset so we can get the extended op code
-    CAsset txAsset;
-    if(!txAsset.UnserializeFromTx(tx))
-        return error("GetValueOfAssetTx() : failed to unserialize asset from tx");
 
     if(vvch.size()==0)
         return error("GetValueOfAssetTx() : no script values");
@@ -604,19 +599,6 @@ bool GetValueOfAssetTxHash(const uint256 &txHash, vector<unsigned char>& vchValu
     return true;
 }
 
-bool GetAssetOfAssetTxHash(const uint256 &txHash, CAsset& theAsset, int& nHeight) {
-    nHeight = GetAssetTxHashHeight(txHash);
-    CTransaction tx;
-    uint256 blockHash;
-
-    if (!GetTransaction(txHash, tx, blockHash, true))
-        return error("GetAssetOfAssetTxHash() : could not read tx from disk");
-
-    if(!theAsset.UnserializeFromTx(tx))
-    	return error("GetAssetOfAssetTxHash() : could not unserialize object from txn");
-
-    return true;
-}
 
 bool GetValueOfAsset(CAssetDB& dbAsset, const vector<unsigned char> &vchAsset, vector<unsigned char>& vchValue, int& nHeight) {
     vector<CAsset> vtxPos;
@@ -998,7 +980,45 @@ bool CreateAssetTransactionWithInputTxs(
     return true;
 }
 
-bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidationState &state, CCoinsViewCache &inputs, map<vector<unsigned char>, uint256> &mapTestPool, bool fBlock, bool fMiner, bool fJustCheck) {
+bool GetAssetPrevCoins(
+	const CTransaction &tx,
+	CCoinsViewCache &inputs,
+	COutPoint &prevOutput,
+	CCoins &prevCoins,
+	vector<vector<unsigned char> > &vvchPrevArgs) {
+
+    int prevOp;
+    vector<vector<unsigned char> > vvchArgs, vvchPrevArgs;
+
+    // look for a previous asset transaction in this transaction's inputs
+    for (int i = 0; i < (int) tx.vin.size(); i++) {
+        prevOutput = &tx.vin[i].prevout;
+        prevCoins = inputs.GetCoins(prevOutput->hash);
+        vector<vector<unsigned char> > vvch;
+        if (DecodeAssetScript(prevCoins.vout[prevOutput.n].scriptPubKey, prevOp, vvch)) {
+            found = true;
+            vvchPrevArgs = vvch;
+
+            // make sure there are three parameters in the asset script
+            if (vvchPrevArgs.size() != 3)
+                return error("CheckAssetInputs() : bad number of script params for previousasset transaction");
+
+            break;
+        }
+    }
+
+    vvchPrevArgs.clear();
+}
+
+bool CheckAssetInputs(
+		CBlockIndex *pindexBlock,
+		const CTransaction &tx,
+		CValidationState &state,
+		CCoinsViewCache &inputs,
+		map<vector<unsigned char>, uint256> &mapTestPool,
+		bool fBlock,
+		bool fMiner,
+		bool fJustCheck) {
 
     if (tx.IsCoinBase()) return true;
 
@@ -1072,20 +1092,10 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                     GetAssetNetworkFee(1, pindexBlock->nHeight));
     }
 
-    bool assetMustHaveInput = ( theAsset.nOp != XOP_ASSET_SEND
-    						 && theAsset.nOp != XOP_ASSET_GENERATE );
-
-    bool assetIsInitialSend = ( assetMustHaveInput
-								&& theAsset.changeTxHash != 0
-								&& theAsset.prevTxHash == 0
-								&& theAsset.isChange == false) ;
-
-    int genAHeight, prevAHeight, chgAHeight;
-    CAsset genAsset, prevAsset, chgAsset;
-
-	bool genAssetFound  = assetIsInitialSend ? GetAssetOfAssetTxHash(theAsset.changeTxHash, chgAsset, genAHeight ) : false;
-	bool prevAssetFound  = theAsset.prevTxHash != 0 ? GetAssetOfAssetTxHash(theAsset.prevTxHash, prevAsset, prevAHeight ) : false;
-	bool chgAssetFound  = theAsset.changeTxHash != 0 && theAsset.isChange ? GetAssetOfAssetTxHash(theAsset.changeTxHash, prevAsset, chgAHeight ) : false;
+    bool isAssetSend    = ( theAsset.nOp == XOP_ASSET_SEND ),
+    	 isAssetControl = !isAssetSend,
+    	 isAssetChange  = theAsset.isChange,
+    	 isAssetGenesis = !isAssetChange && theAsset.prevTxHash == 0 && theAsset.changeTxHash != 0;
 
     switch (theAsset.nOp) {
 
@@ -1130,22 +1140,33 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                         return error("CheckAssetInputs() : previous asset tranasction not found");
                 }
 
+                // min activation depth is 1
+                nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 1);
+                if ((fBlock || fMiner) && nDepth >= 0 && (unsigned int) nDepth < 1)
+                    return false;
+
+            	bool genAssetFound  = assetIsInitialSend ? GetAssetOfAssetTxHash(theAsset.changeTxHash, chgAsset, genAHeight ) : false;
+            	bool prevAssetFound  = theAsset.prevTxHash != 0 ? GetAssetOfAssetTxHash(theAsset.prevTxHash, prevAsset, prevAHeight ) : false;
+            	bool chgAssetFound  = theAsset.changeTxHash != 0 && theAsset.isChange ? GetAssetOfAssetTxHash(theAsset.changeTxHash, prevAsset, chgAHeight ) : false;
+
+            	// if this send has no previous txn, has a previous change tx, and is not change,
+            	// then it was sent via an assetnew or an assetsend. Check to see if the previous
+            	// transaction has been accepted. If not, we wait until it is.
+
+            	if(assetIsInitialSend) {
+            		if(!genAssetFound || GetAssetTxHashHeight(genAsset.txHash) < 1 )
+            			return error( "CheckAssetInputs() : cannot accept this initial send until prev tx has been accepted.");
+            	}
+
                 if(fBlock) {
 
-                	// if this send has no previous txn, has a previous change tx, and is not change,
-                	// then it was sent via an assetnew or an assetsend. Check to see if the previous
-                	// transaction has been accepted. If not, we wait until it is.
-                	if(assetIsInitialSend) {
-                		if(!genAssetFound || !( genAsset.nHeight < (uint64) pindexBlock->nHeight ) )
-                			return error( "CheckAssetInputs() : cannot accept this initial send until prev tx has been accepted.");
-                	}
+                    int genAHeight, prevAHeight, chgAHeight;
+                    CAsset genAsset, prevAsset, chgAsset;
+
+
 
                     if(!found && !assetMustHaveInput) break;
 
-                    // min activation depth is 1
-                    nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 1);
-                    if ((fBlock || fMiner) && nDepth >= 0 && (unsigned int) nDepth < 1)
-                        return false;
 
                     // check for previous asset
                     nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 0);
@@ -1205,8 +1226,6 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
         if (!passetdb->WriteAssetFees(vAssetFees))
             return error( "CheckAssetInputs() : failed to write fees to asset DB");
 
-        bool isMine = IsAssetMine(tx);
-
     	// only record asset info to the database if it's activate (so everyone can see it)
     	// or if it's a send and we are the recipient
 
@@ -1223,11 +1242,12 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                     theAsset.nTotalQty =  serializedAsset.nTotalQty;
                     break;
                 case XOP_ASSET_SEND:
-                    if(isMine) {
-                        theAsset.nQty = serializedAsset.isChange
-                            ? serializedAsset.nQty
-                            : theAsset.nQty + serializedAsset.nQty;
-                    }
+                	if(pwalletMain != NULL)
+						if(IsAssetMine(tx)) {
+							theAsset.nQty = serializedAsset.isChange
+								? serializedAsset.nQty
+								: theAsset.nQty + serializedAsset.nQty;
+						}
                     break;
                 case XOP_ASSET_PEG:
                     theAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
@@ -1237,11 +1257,15 @@ bool CheckAssetInputs(CBlockIndex *pindexBlock, const CTransaction &tx, CValidat
                     break;
                 case XOP_ASSET_GENERATE:
                     theAsset.nTotalQty += serializedAsset.nQty;
-                    if(isMine) theAsset.nQty += serializedAsset.nQty;
+                    if(pwalletMain != NULL)
+						if(IsAssetMine(tx))
+							theAsset.nQty += serializedAsset.nQty;
                     break;
                 case XOP_ASSET_DISSOLVE:
                     theAsset.nTotalQty -= serializedAsset.nQty;
-                    if(isMine) theAsset.nQty -= serializedAsset.nQty;
+                    if(pwalletMain != NULL)
+						if(IsAssetMine(tx))
+							theAsset.nQty -= serializedAsset.nQty;
                     break;
             }
 
@@ -1440,29 +1464,28 @@ string AssetSendToDestination(CAsset &theAsset, CWalletTx &wtx, const CTxDestina
     vvchInputArgs.push_back(CBigNum(theAsset.nQty).getvch());
     CScript assetSendScript = CreateAssetScript(vvchInputArgs, assetHash, NULL, dest);
 
+    printf("SENT: %f %s to %s\n%s",
+    		ValueFromAmount(theAsset.nQty).get_real(),
+    		stringFromVch(theAsset.vchSymbol).c_str(),
+    		dest == NULL ? "myself" : "recipient",
+    		theAsset.toString().c_str());
+
     // send the transaction and return error message info
-    if(theAsset.changeTxHash != 0 || vWtxIn.size() == 0) {
+    if(theAsset.changeTxHash != 0 || vWtxIn.size() == 0)
         return pwalletMain->SendMoney(
             assetSendScript, 
             theAsset.nQty, 
             wtx, 
             false, 
             serAsset);        
-    } else {
-        return SendAssetWithInputTxs(
-            assetSendScript, 
-            theAsset.nQty, 
-            theAsset.nFee, 
-            vWtxIn, 
-            wtx, 
-            false, 
-            serAsset);
-    }
-    printf("SENT: %f %s to %s\n%s",
-    		ValueFromAmount(theAsset.nQty).get_real(),
-    		stringFromVch(theAsset.vchSymbol).c_str(),
-    		dest == NULL ? "myself" : "recipient",
-    		theAsset.toString().c_str());
+	return SendAssetWithInputTxs(
+		assetSendScript,
+		theAsset.nQty,
+		theAsset.nFee,
+		vWtxIn,
+		wtx,
+		false,
+		serAsset);
 }
 
 /**
@@ -1524,6 +1547,10 @@ string AssetControlToDestination(
     vvchInputArgs.push_back(CBigNum(theAsset.nOp).getvch());
     CScript assetSendScript = CreateAssetScript(vvchInputArgs, assetHash, NULL, dest);
 
+    printf("SENT: CONTROL %s of %s\n%s",
+    		assetFromOp(theAsset.nOp).c_str(),
+    		stringFromVch(theAsset.vchSymbol).c_str(),
+    		theAsset.toString().c_str());
     if(vWtxIn.size()==0) {
         return pwalletMain->SendMoney(
             assetSendScript, 
@@ -1534,18 +1561,15 @@ string AssetControlToDestination(
     } else {
         // send the transaction and return error message info
         return SendAssetWithInputTxs(
-            assetSendScript, 
-            MIN_AMOUNT, 
-            theAsset.nFee, 
-            vWtxIn, 
-            wtx, 
-            false, 
-            serAsset);        
+            assetSendScript,
+            MIN_AMOUNT,
+            theAsset.nFee,
+            vWtxIn,
+            wtx,
+            false,
+            serAsset);
     }
-    printf("SENT: CONTROL %s of %s\n%s",
-    		assetFromOp(theAsset.nOp).c_str(),
-    		stringFromVch(theAsset.vchSymbol).c_str(),
-    		theAsset.toString().c_str());
+
 }
 
 Value assetnew(const Array& params, bool fHelp) {
