@@ -980,34 +980,41 @@ bool CreateAssetTransactionWithInputTxs(
     return true;
 }
 
+bool IsSyscoinTransaction(const CTransaction &tx) {
+    return tx.nVersion == SYSCOIN_TX_VERSION;
+}
+
 bool GetAssetPrevCoins(
 	const CTransaction &tx,
 	CCoinsViewCache &inputs,
 	COutPoint &prevOutput,
 	CCoins &prevCoins,
+	int &prevOp,
 	vector<vector<unsigned char> > &vvchPrevArgs) {
 
-    int prevOp;
-    vector<vector<unsigned char> > vvchArgs, vvchPrevArgs;
-
+    bool found = false;
     // look for a previous asset transaction in this transaction's inputs
     for (int i = 0; i < (int) tx.vin.size(); i++) {
-        prevOutput = &tx.vin[i].prevout;
-        prevCoins = inputs.GetCoins(prevOutput->hash);
-        vector<vector<unsigned char> > vvch;
-        if (DecodeAssetScript(prevCoins.vout[prevOutput.n].scriptPubKey, prevOp, vvch)) {
-            found = true;
-            vvchPrevArgs = vvch;
-
+        prevOutput = tx.vin[i].prevout;
+        prevCoins = inputs.GetCoins(prevOutput.hash);
+        if (DecodeAssetScript(prevCoins.vout[prevOutput.n].scriptPubKey, prevOp, vvchPrevArgs)) {
             // make sure there are three parameters in the asset script
             if (vvchPrevArgs.size() != 3)
-                return error("CheckAssetInputs() : bad number of script params for previousasset transaction");
-
+                break;
+            found = true;
             break;
         }
     }
+    if(!found) {
+    	vvchPrevArgs.clear();
+    	return false;
+    }
+    return true;
+}
 
-    vvchPrevArgs.clear();
+bool GetTxn(uint256 txHash, CTransaction &tx) {
+    uint256 blockHash;
+    return GetTransaction(txHash, tx, blockHash, true);
 }
 
 bool CheckAssetInputs(
@@ -1027,33 +1034,17 @@ bool CheckAssetInputs(
             fBlock ? "BLOCK" : "", fMiner ? "MINER" : "",
             fJustCheck ? "JUSTCHECK" : "");
 
-    bool found = false;
-    const COutPoint *prevOutput = NULL;
-    const CCoins *prevCoins = NULL;
+    COutPoint prevOutput;
+    CCoins prevCoins;
     int prevOp, op, nOut, nPrevHeight, nDepth;
     vector<vector<unsigned char> > vvchArgs, vvchPrevArgs;
 
     // look for a previous asset transaction in this transaction's inputs
-    for (int i = 0; i < (int) tx.vin.size(); i++) {
-        prevOutput = &tx.vin[i].prevout;
-        prevCoins = &inputs.GetCoins(prevOutput->hash);
-        vector<vector<unsigned char> > vvch;
-        if (DecodeAssetScript(prevCoins->vout[prevOutput->n].scriptPubKey, prevOp, vvch)) {
-            found = true;
-            vvchPrevArgs = vvch;
-
-            // make sure there are three parameters in the asset script
-            if (vvchPrevArgs.size() != 3)
-                return error("CheckAssetInputs() : bad number of script params for previousasset transaction");
-
-            break;
-        }
-        if(!found) vvchPrevArgs.clear();
-    }
+    bool hasAssetPrevout = GetAssetPrevCoins(tx, inputs, prevOutput, prevCoins, prevOp, vvchPrevArgs);
 
     // Make sure asset outputs are not spent by a regular transaction, or the asset would be lost
-    if (tx.nVersion != SYSCOIN_TX_VERSION) {
-        if (found)
+    if (!IsSyscoinTransaction(tx)) {
+        if (hasAssetPrevout)
             return error(
                     "CheckAssetInputs() : a non-syscoin transaction with a syscoin input");
         return true;
@@ -1082,7 +1073,7 @@ bool CheckAssetInputs(
     nPrevHeight = GetAssetHeight(vchAsset);
 
     // check for enough fees
-    if(found) {
+    if(hasAssetPrevout) {
         nNetFee = GetAssetNetFee(tx);
         if (nNetFee < GetAssetNetworkFee(1, pindexBlock->nHeight))
             return error(
@@ -1092,21 +1083,19 @@ bool CheckAssetInputs(
                     GetAssetNetworkFee(1, pindexBlock->nHeight));
     }
 
-    bool isAssetSend    = ( theAsset.nOp == XOP_ASSET_SEND ),
-    	 isAssetControl = !isAssetSend,
-    	 isAssetChange  = theAsset.isChange,
-    	 isAssetGenesis = !isAssetChange && theAsset.prevTxHash == 0 && theAsset.changeTxHash != 0;
+    bool isAssetSend       = ( theAsset.nOp == XOP_ASSET_SEND ),
+    	 isAssetGenerate   = ( !theAsset.isChange && theAsset.prevTxHash == 0 && theAsset.changeTxHash != 0 ),
+    	 isGeneratingBlock = ( fBlock || fMiner );
 
     switch (theAsset.nOp) {
 
         case XOP_ASSET_NEW:
 
-            // make sure no prev asset inputs
-            if (found)
-                return error(
-                        "CheckAssetInputs() : assetnew tx pointing to previous syscoin tx");
+            // make sure no prevouts are assets
+            if (hasAssetPrevout)
+                return error( "CheckAssetInputs() : assetnew tx pointing to previous syscoin tx");
 
-            // check symbol
+            // check to make sure symbol from script matches asset object
             if (vvchArgs[0] != theAsset.vchSymbol)
                 return error("assetnew tx with incorrect symbol");
 
@@ -1126,50 +1115,48 @@ bool CheckAssetInputs(
             // disallow transaction on a nonexistant asset
             nPrevHeight = GetAssetHeight(vchAsset);
             if (nPrevHeight < 0) {
-            	if( assetMustHaveInput || (!assetMustHaveInput && theAsset.changeTxHash == 0) ) {
+            	if( !isAssetSend || ( isAssetSend && theAsset.changeTxHash == 0) ) {
 					return error("CheckAssetInputs() : asset does not exist or invalid asset send.");
             	}
             }
 
             if(!fJustCheck) {
-                if(assetMustHaveInput) {
+                if(!isAssetSend) {
                     if(prevOp != OP_ASSET)
-                        return error("CheckAssetInputs() : previous tranasction is not asset");
+                        return error("CheckAssetInputs() : previous transaction is not asset");
 
-                    if(!found)
-                        return error("CheckAssetInputs() : previous asset tranasction not found");
+                    if(!hasAssetPrevout)
+                        return error("CheckAssetInputs() : previous asset transaction not found");
                 }
 
-                // min activation depth is 1
-                nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 1);
-                if ((fBlock || fMiner) && nDepth >= 0 && (unsigned int) nDepth < 1)
+                // min depth is 1 for asset transactions.
+                nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, &prevCoins, 1);
+                if ( isGeneratingBlock && nDepth >= 0 && (unsigned int) nDepth < 1) {
+                	printf("CheckAssetInputs() : waiting to mine transaction %s until its prevout is mined",
+                			tx.GetHash().GetHex().c_str());
                     return false;
-
-            	bool genAssetFound  = assetIsInitialSend ? GetAssetOfAssetTxHash(theAsset.changeTxHash, chgAsset, genAHeight ) : false;
-            	bool prevAssetFound  = theAsset.prevTxHash != 0 ? GetAssetOfAssetTxHash(theAsset.prevTxHash, prevAsset, prevAHeight ) : false;
-            	bool chgAssetFound  = theAsset.changeTxHash != 0 && theAsset.isChange ? GetAssetOfAssetTxHash(theAsset.changeTxHash, prevAsset, chgAHeight ) : false;
+                }
 
             	// if this send has no previous txn, has a previous change tx, and is not change,
             	// then it was sent via an assetnew or an assetsend. Check to see if the previous
             	// transaction has been accepted. If not, we wait until it is.
 
-            	if(assetIsInitialSend) {
-            		if(!genAssetFound || GetAssetTxHashHeight(genAsset.txHash) < 1 )
+            	if(!hasAssetPrevout && isAssetGenerate) {
+            		CTransaction genTx;
+            		bool bGenTxFound = GetTxn(theAsset.changeTxHash, genTx);
+
+            		if(!bGenTxFound || GetAssetTxHashHeight(theAsset.changeTxHash) < 1 )
             			return error( "CheckAssetInputs() : cannot accept this initial send until prev tx has been accepted.");
             	}
 
                 if(fBlock) {
 
-                    int genAHeight, prevAHeight, chgAHeight;
                     CAsset genAsset, prevAsset, chgAsset;
 
-
-
-                    if(!found && !assetMustHaveInput) break;
-
+                    if(!hasAssetPrevout && isAssetSend) break;
 
                     // check for previous asset
-                    nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins, 0);
+                    nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, &prevCoins, 0);
                     if (nDepth == -1)
                         return error(
                                 "CheckAssetInputs() : no asset output in previous coins");
