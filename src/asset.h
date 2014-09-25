@@ -27,10 +27,10 @@ CScript RemoveAssetScriptPrefix(const CScript& scriptIn);
 std::string SendAssetWithInputTx(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxIn, CWalletTx& wtxNew, bool fAskFee, const std::string& txData = "");
 bool CreateAssetTransactionWithInputTx(const std::vector<std::pair<CScript, int64> >& vecSend, CWalletTx& wtxIn, int nTxOut, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, const std::string& txData);
 
-std::string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, const std::vector<CWalletTx*>& vecWtxIns, CWalletTx& wtxNew, bool fAskFee, const std::string& txData = "");
-bool CreateAssetTransactionWithInputTxs(const std::vector<std::pair<CScript, int64> >& vecSend, const std::vector<CWalletTx*>& vecWtxIns, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, const std::string& txData);
+std::string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, const std::vector<CWalletTx*>& vecWtxIns, CWalletTx& wtxNew, bool fAskFee, bool bIsFromMe, const std::string& txData = "" );
+bool CreateAssetTransactionWithInputTxs(const std::vector<std::pair<CScript, int64> >& vecSend, const std::vector<CWalletTx*>& vecWtxIns, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, bool bIsFromMe, const std::string& txData = "");
 
-
+int CheckAssetTransactionAtRelativeDepth(CBlockIndex* pindexBlock, int target, int maxDepth = -1);
 
 bool DecodeAssetTx(const CTransaction& tx, int& op, int& nOut, std::vector<std::vector<unsigned char> >& vvch, int nHeight);
 bool DecodeAssetTx(const CCoins& tx, int& op, int& nOut, std::vector<std::vector<unsigned char> >& vvch, int nHeight);
@@ -83,8 +83,13 @@ public:
     }
 
     CAsset(const CTransaction &tx) {
-        SetNull();
-        UnserializeFromTx(tx);
+        if(!UnserializeFromTx(tx))
+            SetNull();
+    }
+
+    CAsset(std::vector<unsigned char> &vchSymbol) {
+        if(!GetAsset(vchSymbol))
+            SetNull();
     }
 
     IMPLEMENT_SERIALIZE (
@@ -140,6 +145,12 @@ public:
         }
         *this = assetList.back();
         return false;
+    }
+
+    bool GetAsset(std::vector<unsigned char> &vchSymbol); 
+
+    bool GetAsset(CTransaction &tx) {
+        return UnserializeFromTx(tx);
     }
 
     bool GetAssetSendFromList(const std::vector<CAsset> &assetList) {

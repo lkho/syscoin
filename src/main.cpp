@@ -886,7 +886,8 @@ void CTxMemPool::pruneSpent(const uint256 &hashTx, CCoins &coins) {
 
 bool CTxMemPool::accept(CValidationState &state, CTransaction &tx,
 		bool fCheckInputs, bool fLimitFree, bool* pfMissingInputs) {
-	printf( "*** ACCEPTTOMEMORYPOOL %s %s\n", fCheckInputs ? "CHECKINPUTS" : "", tx.GetHash().ToString().c_str() );
+
+	//printf( "*** ACCEPTTOMEMORYPOOL %s %s\n", fCheckInputs ? "CHECKINPUTS" : "", tx.GetHash().ToString().c_str() );
 
 	if (pfMissingInputs)
 		*pfMissingInputs = false;
@@ -1253,8 +1254,7 @@ bool CWalletTx::AcceptWalletTransaction(bool fCheckInputs) {
 }
 
 // Return transaction in tx, and if it was found inside a block, its hash is placed in hashBlock
-bool GetTransaction(const uint256 &hash, CTransaction &txOut,
-		uint256 &hashBlock, bool fAllowSlow) {
+bool GetTransaction(const uint256 &hash, CTransaction &txOut, uint256 &hashBlock, bool fAllowSlow) {
 	CBlockIndex *pindexSlow = NULL;
 	{
 		TRY_LOCK(cs_main, cs_trymain);
@@ -1406,8 +1406,8 @@ int64 static GetBlockValue(int nHeight, int64 nFees, uint256 prevHash) {
         || nHeight >= MM_FEEREGEN_HARDFORK
         || (fCakeNet || fTestNet)) s += b + c + d + e;
 
-    if (fDebug)
-	printf ("GetBlockvalue of Block %d: subsidy=%"PRI64d", fees=%"PRI64d", aliasSubsidy=%"PRI64d", offerSubsidy=%"PRI64d", certSubidy=%"PRI64d", assetSubidy=%"PRI64d", sum=%"PRI64d". \n", nHeight, a, f, b, c, d, e, s);
+    //if (fDebug)
+	//printf ("GetBlockvalue of Block %d: subsidy=%"PRI64d", fees=%"PRI64d", aliasSubsidy=%"PRI64d", offerSubsidy=%"PRI64d", certSubidy=%"PRI64d", assetSubidy=%"PRI64d", sum=%"PRI64d". \n", nHeight, a, f, b, c, d, e, s);
     
     if(fCakeNet) {
     	if(nHeight==1) return s;
@@ -2531,11 +2531,10 @@ bool SetBestChain(CValidationState &state, CBlockIndex* pindexNew) {
 
 	// List of what to disconnect (typically nothing)
 	vector<CBlockIndex*> vDisconnect;
-	CBlockIndex *pindex, *pinToRescan;
+	CBlockIndex *pindex;
 	for (pindex = view.GetBestBlock(); pindex != pfork; pindex =
 			pindex->pprev)
 		vDisconnect.push_back(pindex);
-	pinToRescan = pindex;
 
 	// List of what to connect (typically only pindexNew)
 	vector<CBlockIndex*> vConnect;

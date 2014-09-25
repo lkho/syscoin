@@ -136,7 +136,9 @@ string CAsset::SerializeToString() {
 string CAsset::toString() {
 	bool isGenTx = isChange == false  && changeTxHash != 0 && prevTxHash == 0;
 	uint256 genTxHash = isGenTx ? changeTxHash : 0;
-	return strprintf("ASSET %s %s %f\n"
+	return strprintf(
+			"--------------------------\n"
+			"ASSET %s %s %f\n"
 			"--------------------------\n"
 			"SYMBOL: %s\n"
 			"TITLE: %s\n"
@@ -183,6 +185,21 @@ string CAsset::toString() {
 			n,
 			hash.GetHex().c_str());
 }
+
+bool CAsset::GetAsset(vector<unsigned char> &vchSymbol) {
+    bool found = false;
+    vector<CAsset> vtxPos;
+    if (passetdb->ExistsAsset(vchSymbol)) {
+        if (!passetdb->ReadAsset(vchSymbol, vtxPos)) {
+            if(vtxPos.size()) {
+                *this = vtxPos.back();
+                found = true;
+            }
+        }
+    }    
+    return found;    
+}
+
 
 //TODO this is all completely broken in terms of given rsults
 bool CAssetDB::ScanAssets(const std::vector<unsigned char>& vchAsset, unsigned int nMax,
@@ -345,18 +362,24 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
     return true;
 }
 
-// get the depth of transaction txnindex relative to block at index pIndexBlock, looking
-// up to maxdepth. Return relative depth if found, or -1 if not found and maxdepth reached.
-int CheckAssetTransactionAtRelativeDepth(CBlockIndex* pindexBlock,
-        const CCoins *txindex, int maxDepth) {
-    for (CBlockIndex* pindex = pindexBlock;
-            pindex /*&& pindexBlock->nHeight - pindex->nHeight < maxDepth */;
-            pindex = pindex->pprev)
-        if (pindex->nHeight == (int) txindex->nHeight)
-            return pindexBlock->nHeight - pindex->nHeight;
+int CheckAssetTransactionAtRelativeDepth(CBlockIndex* pindexBlock, int target, int maxDepth) {
+
+	if(maxDepth == -1){
+		for (CBlockIndex* pindex = pindexBlock;
+				pindex;
+				pindex = pindex->pprev)
+			if (pindex->nHeight == target)
+				return pindexBlock->nHeight - pindex->nHeight;
+	} else {
+		for (CBlockIndex* pindex = pindexBlock;
+				pindex && pindexBlock->nHeight - pindex->nHeight < maxDepth;
+				pindex = pindex->pprev)
+			if (pindex->nHeight == target)
+				return pindexBlock->nHeight - pindex->nHeight;
+	}
+
     return -1;
 }
-
 
 int GetAssetTxHashHeight(const uint256 txHash) {
     CDiskTxPos postx;
@@ -402,7 +425,6 @@ uint64 GetAssetFeeSubsidy(unsigned int nHeight) {
 }
 
 bool InsertAssetFee(CBlockIndex *pindex, uint256 hash, int nOp, uint64 nValue) {
-    unsigned int h12 = 3600 * 12;
     list<CAssetFee> txnDup;
     CAssetFee oFee;
     oFee.nTime = pindex->nTime;
@@ -411,17 +433,6 @@ bool InsertAssetFee(CBlockIndex *pindex, uint256 hash, int nOp, uint64 nValue) {
     oFee.nFee = nValue;
     bool bFound = false;
 
-    unsigned int tHeight =
-            pindex->nHeight - 2880 < 0 ? 0 : pindex->nHeight - 2880;
-
-    while (true) {
-        if (lstAssetFees.size() > 0
-                && (lstAssetFees.back().nTime + h12 < pindex->nTime
-                        || lstAssetFees.back().nHeight < tHeight))
-            lstAssetFees.pop_back();
-        else
-            break;
-    }
     BOOST_FOREACH(CAssetFee &nmFee, lstAssetFees) {
         if (oFee.hash == nmFee.hash
                 && oFee.nHeight == nmFee.nHeight) {
@@ -795,7 +806,8 @@ CScript RemoveAssetScriptPrefix(const CScript& scriptIn) {
 }
 
 // nTxOut is the output from wtxIn that we should grab
-string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, const vector<CWalletTx*>& vecWtxIns, CWalletTx& wtxNew, bool fAskFee, const string& txData) {
+string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, const vector<CWalletTx*>& vecWtxIns, 
+    CWalletTx& wtxNew, bool fAskFee, bool bIsFromMe, const string& txData) {
 
     CReserveKey reservekey(pwalletMain);
     int64 nFeeRequired;
@@ -809,7 +821,7 @@ string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, 
         vecSend.push_back(make_pair(scriptFee, nNetFee));
     }
 
-    if (!CreateAssetTransactionWithInputTxs(vecSend, vecWtxIns, wtxNew, reservekey, nFeeRequired, txData)) {
+    if (!CreateAssetTransactionWithInputTxs(vecSend, vecWtxIns, wtxNew, reservekey, nFeeRequired, bIsFromMe, txData)) {
         string strError;
         if (nValue + nFeeRequired > pwalletMain->GetBalance())
             strError = strprintf(_("Error: This transaction requires a transaction fee of at least %s because of its amount, complexity, or use of recently received funds "),
@@ -837,7 +849,7 @@ string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, 
 
 bool CreateAssetTransactionWithInputTxs(
         const vector<pair<CScript, int64> >& vecSend, const vector<CWalletTx*>& vecWtxIns,
-        CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, const string& txData) {
+        CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, bool bIsFromMe, const string& txData) {
 
 	// add up the value of all output scripts. this is our value out for the transaction
     int64 nValue = 0;
@@ -856,7 +868,7 @@ bool CreateAssetTransactionWithInputTxs(
         loop {
             wtxNew.vin.clear();
             wtxNew.vout.clear();
-            wtxNew.fFromMe = true;
+            wtxNew.fFromMe = bIsFromMe;
             wtxNew.data = vchFromString(txData);
 
             int64 nTotalValue = nValue + nFeeRet;
@@ -1029,14 +1041,15 @@ bool CheckAssetInputs(
 
     if (tx.IsCoinBase()) return true;
 
-    printf("CheckAssetInputs() block %d best %d %s %s %s %s\n", pindexBlock->nHeight,
-            pindexBest->nHeight, tx.GetHash().ToString().c_str(),
-            fBlock ? "BLOCK" : "", fMiner ? "MINER" : "",
-            fJustCheck ? "JUSTCHECK" : "");
+    // if (fDebug)
+    //     printf("CheckAssetInputs() block %d best %d %s %s %s %s\n", pindexBlock->nHeight,
+    //             pindexBest->nHeight, tx.GetHash().ToString().c_str(),
+    //             fBlock ? "BLOCK" : "", fMiner ? "MINER" : "",
+    //             fJustCheck ? "JUSTCHECK" : "");
 
     COutPoint prevOutput;
     CCoins prevCoins;
-    int prevOp, op, nOut, nPrevHeight, nDepth;
+    int prevOp, op, nOut, nPrevCoinsHeight, nDepth;
     vector<vector<unsigned char> > vvchArgs, vvchPrevArgs;
 
     // look for a previous asset transaction in this transaction's inputs
@@ -1070,7 +1083,7 @@ bool CheckAssetInputs(
     vector<unsigned char> vchValue = vvchArgs[2];
 
     // get the blockheight of the asset or -1 if it doesn't exist
-    nPrevHeight = GetAssetHeight(vchAsset);
+    nPrevCoinsHeight = GetAssetHeight(vchAsset);
 
     // check for enough fees
     if(hasAssetPrevout) {
@@ -1100,9 +1113,8 @@ bool CheckAssetInputs(
                 return error("assetnew tx with incorrect symbol");
 
             // disallow activate on an already activated asset
-            if (!fBlock && nPrevHeight >= 0)
-                return error(
-                        "CheckAssetInputs() : assetactivate on an active asset.");
+            if (!fBlock && nPrevCoinsHeight >= 0)
+                return error( "CheckAssetInputs() : assetactivate on an active asset.");
 
             break;
 
@@ -1113,8 +1125,8 @@ bool CheckAssetInputs(
         case XOP_ASSET_SEND:
 
             // disallow transaction on a nonexistant asset
-            nPrevHeight = GetAssetHeight(vchAsset);
-            if (nPrevHeight < 0) {
+            nPrevCoinsHeight = GetAssetHeight(vchAsset);
+            if (nPrevCoinsHeight < 0) {
             	if( !isAssetSend || ( isAssetSend && theAsset.changeTxHash == 0) ) {
 					return error("CheckAssetInputs() : asset does not exist or invalid asset send.");
             	}
@@ -1129,37 +1141,56 @@ bool CheckAssetInputs(
                         return error("CheckAssetInputs() : previous asset transaction not found");
                 }
 
-                // min depth is 1 for asset transactions.
-                nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, &prevCoins, 1);
-                if ( isGeneratingBlock && nDepth >= 0 && (unsigned int) nDepth < 1) {
-                	printf("CheckAssetInputs() : waiting to mine transaction %s until its prevout is mined",
-                			tx.GetHash().GetHex().c_str());
-                    return false;
-                }
-
             	// if this send has no previous txn, has a previous change tx, and is not change,
             	// then it was sent via an assetnew or an assetsend. Check to see if the previous
             	// transaction has been accepted. If not, we wait until it is.
 
-            	if(!hasAssetPrevout && isAssetGenerate) {
-            		CTransaction genTx;
-            		bool bGenTxFound = GetTxn(theAsset.changeTxHash, genTx);
+                if(isGeneratingBlock) {
 
-            		if(!bGenTxFound || GetAssetTxHashHeight(theAsset.changeTxHash) < 1 )
-            			return error( "CheckAssetInputs() : cannot accept this initial send until prev tx has been accepted.");
-            	}
+                    // min depth is 1 for asset transactions which have prev inputs.
+                    if(hasAssetPrevout) {
+                         nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins.nHeight);
+                        if ( nDepth >= 0 && (unsigned int) nDepth < 1) {
+                            printf("CheckAssetInputs() : waiting to mine %s transaction %s until its prevout is mined\n",
+                                assetFromOp(theAsset.nOp).c_str(), tx.GetHash().GetHex().c_str());
+                            return false;
+                        }                       
+                    }
+
+                    // if this is an asset generate (initial shares allotment created on assetnew) then
+                    // make sure that the assetnew transaction has been accepted and mined before accepting
+                    if(isAssetGenerate) {
+
+                        CTransaction genTx;
+                        uint256 genBlockHash = 0;
+                        bool genTxnFound = GetTransaction(theAsset.changeTxHash, genTx, genBlockHash, true);
+                        if(genTxnFound) {
+                        	CBlockLocator locator(genBlockHash);
+                        	CBlockIndex *pindexGenBlk = locator.GetBlockIndex();
+                        	if(pindexGenBlk) {
+                        		nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, pindexGenBlk->nHeight);
+                        		nDepth = pindexBlock->nHeight - nDepth;
+                                if(nDepth > -1 && nDepth < 1) {
+                                    printf("CheckAssetInputs() : waiting to accept this %s transaction %s until its prevtx %s is mined\n",
+                                        assetFromOp(theAsset.nOp).c_str(), tx.GetHash().GetHex().c_str(),
+                                        theAsset.changeTxHash.GetHex().c_str());
+                                    return false;
+                                }
+                        	}
+                        }
+
+                    }
+                } 
 
                 if(fBlock) {
 
-                    CAsset genAsset, prevAsset, chgAsset;
 
                     if(!hasAssetPrevout && isAssetSend) break;
 
                     // check for previous asset
-                    nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, &prevCoins, 0);
+                    nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins.nHeight);
                     if (nDepth == -1)
-                        return error(
-                                "CheckAssetInputs() : no asset output in previous coins");
+                        return error( "CheckAssetInputs() : no asset output in previous coins");
 
                     // only mine 1 asset type per transaction
                     if(pindexBlock->nHeight == pindexBest->nHeight) {
@@ -1172,6 +1203,8 @@ bool CheckAssetInputs(
                         }
                     }
                 }
+
+
             }
 
             break;
@@ -1277,7 +1310,8 @@ bool CheckAssetInputs(
             mapTestPool[vvchArgs[0]] = tx.GetHash();
 
             // debug
-            printf( "CONNECTED ASSET\n%s", theAsset.toString().c_str());
+            if (fDebug)
+                printf( "CONNECTED ASSET\n%s", theAsset.toString().c_str());
         }
     }
 
@@ -1457,6 +1491,8 @@ string AssetSendToDestination(CAsset &theAsset, CWalletTx &wtx, const CTxDestina
     		dest == NULL ? "myself" : "recipient",
     		theAsset.toString().c_str());
 
+    bool bIsFromMe = (dest == NULL);
+
     // send the transaction and return error message info
     if(theAsset.changeTxHash != 0 || vWtxIn.size() == 0)
         return pwalletMain->SendMoney(
@@ -1472,6 +1508,7 @@ string AssetSendToDestination(CAsset &theAsset, CWalletTx &wtx, const CTxDestina
 		vWtxIn,
 		wtx,
 		false,
+        bIsFromMe,
 		serAsset);
 }
 
@@ -1534,6 +1571,7 @@ string AssetControlToDestination(
     vvchInputArgs.push_back(CBigNum(theAsset.nOp).getvch());
     CScript assetSendScript = CreateAssetScript(vvchInputArgs, assetHash, NULL, dest);
 
+    bool bIsFromMe = (dest == NULL);
     printf("SENT: CONTROL %s of %s\n%s",
     		assetFromOp(theAsset.nOp).c_str(),
     		stringFromVch(theAsset.vchSymbol).c_str(),
@@ -1554,7 +1592,8 @@ string AssetControlToDestination(
             vWtxIn,
             wtx,
             false,
-            serAsset);
+            bIsFromMe,
+            serAsset );
     }
 
 }
@@ -1639,11 +1678,12 @@ Value assetnew(const Array& params, bool fHelp) {
 
         // send the new asset transaction out
         vector<CWalletTx*> pvWtxIn;
-        string strError = AssetControlToDestination(newAsset, wtxDest, &pvWtxIn);
+        string strError = AssetControlToDestination(newAsset, wtx, &pvWtxIn);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
 
         newAsset.nOp 		  = XOP_ASSET_SEND;
+        newAsset.nHeight      = 0;
         newAsset.prevTxHash   = 0;
         newAsset.prevTxQty    = 0;
         newAsset.isChange	  = false;
