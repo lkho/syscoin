@@ -137,31 +137,26 @@ string CAsset::toString() {
 	bool isGenTx = isChange == false  && changeTxHash != 0 && prevTxHash == 0;
 	uint256 genTxHash = isGenTx ? changeTxHash : 0;
 	return strprintf(
-			"--------------------------\n"
-			"ASSET %s %s %f\n"
-			"--------------------------\n"
-			"SYMBOL: %s\n"
-			"TITLE: %s\n"
-			"DESC: %s\n"
-			"TOTAL QUANTITY: %f\n"
-			"COINS PER SHARE: %f\n"
-			"QUANTITY: %f\n"
-			"- - - - - - - - - - - - - \n"
-			"OP: %s\n"
-			"PREV TXID: %s\n"
-			"PREV QTY: %f\n"
-			"IS CHANGE: %s\n"
-			"CHANGE TXID: %s\n"
-			"IS GEN: %s\n"
-			"GEN TXID: %s\n"
-			"FEE: %f\n"
-			"- - - - - - - - - - - - - \n"
-			"TXID: %s\n"
-			"HEIGHT: %llu\n"
-			"TIME: %llu\n"
-			"NOUT: %llu\n"
-			"NHASH: %s\n"
-			"--------------------------\n",
+			"ASSET %s %s %f | "
+			"SYMBOL: %s, "
+			"TITLE: %s, ,"
+			"DESC: %s\n, "
+			"TOTAL QUANTITY: %f, "
+			"COINS PER SHARE: %f, "
+			"QUANTITY: %f | "
+			"OP: %s, "
+			"PREV TXID: %s, "
+			"PREV QTY: %f, "
+			"IS CHANGE: %s, "
+			"CHANGE TXID: %s, "
+			"IS GEN: %s, "
+			"GEN TXID: %s, "
+			"FEE: %f | "
+			"TXID: %s, "
+			"HEIGHT: %llu, "
+			"TIME: %llu, "
+			"NOUT: %llu, "
+			"NHASH: %s\n",
 			assetFromOp(nOp).c_str(),
 			stringFromVch(vchSymbol).c_str(),
 			ValueFromAmount(nQty).get_real(),
@@ -1261,14 +1256,6 @@ bool CheckAssetInputs(
                 case XOP_ASSET_NEW:
                     theAsset.nTotalQty =  serializedAsset.nTotalQty;
                     break;
-                case XOP_ASSET_SEND:
-                	if(pwalletMain != NULL)
-						if(IsAssetMine(tx)) {
-							theAsset.nQty = serializedAsset.isChange
-								? serializedAsset.nQty
-								: theAsset.nQty + serializedAsset.nQty;
-						}
-                    break;
                 case XOP_ASSET_PEG:
                     theAsset.nCoinsPerShare = serializedAsset.nCoinsPerShare;
                     break;
@@ -1277,20 +1264,15 @@ bool CheckAssetInputs(
                     break;
                 case XOP_ASSET_GENERATE:
                     theAsset.nTotalQty += serializedAsset.nQty;
-                    if(pwalletMain != NULL)
-						if(IsAssetMine(tx))
-							theAsset.nQty += serializedAsset.nQty;
                     break;
                 case XOP_ASSET_DISSOLVE:
                     theAsset.nTotalQty -= serializedAsset.nQty;
-                    if(pwalletMain != NULL)
-						if(IsAssetMine(tx))
-							theAsset.nQty -= serializedAsset.nQty;
                     break;
             }
 
-            // set the asset's txn-dependent values
-
+            // use data from latest asset info in DB as
+            // a basis for creating a new asset for this txn
+            theAsset.nQty = serializedAsset.nQty;
             theAsset.nOp = serializedAsset.nOp;
             theAsset.nHeight = pindexBlock->nHeight;
             theAsset.txHash = tx.GetHash();
@@ -1425,28 +1407,66 @@ bool GetSpendablableAssetTransactions(
     if (!bAssetRead) return false;
     nTotalSpendable = 0;
 
-    BOOST_REVERSE_FOREACH(CAsset myAsset, vtxPos) {
 
-    	bool bIsExcluded = std::find(excludedTxns.begin(), excludedTxns.end(), myAsset.txHash) != excludedTxns.end();
+     nTotalSpendable = 0;
+     BOOST_FOREACH(PAIRTYPE(const uint256, CWalletTx)& item, pwalletMain->mapWallet)
+     {
+         // get txn hash, read txn index
+         const uint256 hash = item.second.GetHash();
 
-        // continue if hash not in wallet
-        if (!pwalletMain->mapWallet.count(myAsset.txHash)
-        		|| bIsExcluded)
-            continue;
+         bool bIsExcluded = std::find(excludedTxns.begin(), excludedTxns.end(), hash) != excludedTxns.end();
+         if(bIsExcluded) continue;
 
-        // add the transaction to the inputs list
-        if(myAsset.nOp == XOP_ASSET_SEND
-        || myAsset.nOp == XOP_ASSET_DISSOLVE
-        || myAsset.nOp == XOP_ASSET_GENERATE)
-        {
-        	vWtx.push_back(&pwalletMain->mapWallet[myAsset.txHash]);
-        	nTotalSpendable += myAsset.nQty;
-            printf("AssetSendToDestination() : found %f shares for asset %s in txn %s\n",
-            		(double)myAsset.nQty / (double)myAsset.nCoinsPerShare,
-            		stringFromVch(myAsset.vchSymbol).c_str(),
-            		myAsset.txHash.GetHex().c_str());
-        }
-    }
+         uint256 blockHash;
+         CTransaction tx;
+         if (!GetTransaction(hash, tx, blockHash, true))
+             continue;
+
+         // skip non-syscoin txns
+         if (tx.nVersion != SYSCOIN_TX_VERSION)
+             continue;
+
+         // decode txn, skip non-asset txns
+         vector<vector<unsigned char> > vvch;
+         int op, nOut;
+         if (!DecodeAssetTx(tx, op, nOut, vvch, -1) || !IsAssetOp(op))
+             continue;
+
+         CAsset asset(tx);
+         if(asset.nOp == XOP_ASSET_SEND) {
+             vWtx.push_back(&pwalletMain->mapWallet[asset.txHash]);
+             nTotalSpendable += asset.nQty;
+             printf("AssetSendToDestination() : found %lf shares for asset %s in txn %s\n",
+                     Value((double)asset.nQty / (double)asset.nCoinsPerShare).get_real(),
+                     stringFromVch(asset.vchSymbol).c_str(),
+                     hash.GetHex().c_str());
+         }
+     }
+
+
+
+//    BOOST_REVERSE_FOREACH(CAsset myAsset, vtxPos) {
+//
+//    	bool bIsExcluded = std::find(excludedTxns.begin(), excludedTxns.end(), myAsset.txHash) != excludedTxns.end();
+//
+//        // continue if hash not in wallet
+//        if (!pwalletMain->mapWallet.count(myAsset.txHash)
+//        		|| bIsExcluded)
+//            continue;
+//
+//        CAsset serAsset(myAsset.txHash);
+//
+//        // add the transaction to the inputs list
+//        if(serAsset.nOp == XOP_ASSET_SEND)
+//        {
+//        	vWtx.push_back(&pwalletMain->mapWallet[serAsset.txHash]);
+//        	nTotalSpendable += serAsset.nQty;
+//            printf("AssetSendToDestination() : found %f shares for asset %s in txn %s\n",
+//            		(double)serAsset.nQty / (double)serAsset.nCoinsPerShare,
+//            		stringFromVch(serAsset.vchSymbol).c_str(),
+//            		serAsset.txHash.GetHex().c_str());
+//        }
+//    }
     return true;
 }
 
@@ -1470,12 +1490,12 @@ string AssetSendToDestination(CAsset &theAsset, CWalletTx &wtx, const CTxDestina
     uint64 nTotalAssetCoins;
     GetSpendablableAssetTransactions(theAsset.vchSymbol, vWtxIn, nTotalAssetCoins, excludedTxns);
 
-    printf("AssetSendToDestination() : send %f shares of asset %s with %lu inputs totaling %f shares backed by %f coins\n",
-    		Value((double)theAsset.nQty/(double)theAsset.nCoinsPerShare).get_real(),
+    printf("AssetSendToDestination() : send %lf shares of asset %s with %lu inputs totaling %lf shares backed by %lf coins\n",
+    		(double)theAsset.nQty/(double)theAsset.nCoinsPerShare,
     		stringFromVch(theAsset.vchSymbol).c_str(),
     		vWtxIn.size(),
-    		Value((double)nTotalAssetCoins/(double)theAsset.nCoinsPerShare).get_real(),
-    		ValueFromAmount(nTotalAssetCoins).get_real());
+    		(double)nTotalAssetCoins/(double)theAsset.nCoinsPerShare,
+    		(double)nTotalAssetCoins/(double)COIN);
 
     // create the script for the transaction
     string serAsset = theAsset.SerializeToString();
@@ -1572,10 +1592,8 @@ string AssetControlToDestination(
     CScript assetSendScript = CreateAssetScript(vvchInputArgs, assetHash, NULL, dest);
 
     bool bIsFromMe = (dest == NULL);
-    printf("SENT: CONTROL %s of %s\n%s",
-    		assetFromOp(theAsset.nOp).c_str(),
-    		stringFromVch(theAsset.vchSymbol).c_str(),
-    		theAsset.toString().c_str());
+    printf("SENT: %s", theAsset.toString().c_str());
+
     if(vWtxIn.size()==0) {
         return pwalletMain->SendMoney(
             assetSendScript, 
@@ -1648,13 +1666,14 @@ Value assetnew(const Array& params, bool fHelp) {
 
     // build asset object
     CAsset newAsset;
-    newAsset.nOp = XOP_ASSET_NEW;
-    newAsset.vchSymbol = vchSymbol;
-    newAsset.vchTitle = vchTitle;
+    //newAsset.txHash		  	= wtxDest.GetHash();
+    newAsset.nOp 			= XOP_ASSET_NEW;
+    newAsset.vchSymbol 		= vchSymbol;
+    newAsset.vchTitle 		= vchTitle;
     newAsset.vchDescription = vchDescription;
-    newAsset.nTotalQty = nTotalQty * COIN;
-    newAsset.nQty = 0;
-    newAsset.nFee = 0;
+    newAsset.nTotalQty 		= nTotalQty * COIN;
+    newAsset.nQty 			= 0;
+    newAsset.nFee 			= 0;
     newAsset.nCoinsPerShare = COIN;
 
     if(pwalletMain->GetBalance() < (int64)newAsset.nTotalQty)
@@ -1681,7 +1700,7 @@ Value assetnew(const Array& params, bool fHelp) {
         string strError = AssetControlToDestination(newAsset, wtx, &pvWtxIn);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
-
+       // newAsset.txHash		  = wtxDest.GetHash();
         newAsset.nOp 		  = XOP_ASSET_SEND;
         newAsset.nHeight      = 0;
         newAsset.prevTxHash   = 0;

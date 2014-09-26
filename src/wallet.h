@@ -237,13 +237,18 @@ public:
     }
     bool IsMine(const CTransaction& tx) const
     {
-        BOOST_FOREACH(const CTxOut& txout, tx.vout)
+        BOOST_FOREACH(const CTxOut& txout, tx.vout) {
             if (IsMine(txout) && txout.nValue >= nMinimumInputValue)
                 return true;
-        if (IsAliasMine(tx)) return true;
-        if (IsOfferMine(tx)) return true;
-        if (IsCertMine(tx))  return true;
-        if (IsAssetMine(tx)) return true;
+            else if (IsAliasMine(tx))
+            	return true;
+            else if (IsOfferMine(tx))
+            	return true;
+            else if (IsCertMine(tx))
+            	return true;
+            else if (IsAssetMine(tx))
+            	return true;
+        }
         return false;
     }
     bool IsFromMe(const CTransaction& tx) const
@@ -290,6 +295,8 @@ public:
     bool SetAddressBookName(const CTxDestination& address, const std::string& strName);
 
     bool DelAddressBookName(const CTxDestination& address);
+
+    void InsertedTransaction(const uint256 &hashTx);
 
     void UpdatedTransaction(const uint256 &hashTx);
 
