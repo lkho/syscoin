@@ -7,6 +7,7 @@
 #include "aliastablemodel.h"
 #include "clientmodel.h"
 #include "optionsmodel.h"
+#include "walletmodel.h"
 #include "bitcoingui.h"
 #include "editaliasdialog.h"
 #include "csvmodelwriter.h"
@@ -16,7 +17,6 @@
 #include <QClipboard>
 #include <QMessageBox>
 #include <QMenu>
-
 MyAliasListPage::MyAliasListPage(QWidget *parent) :
     QDialog(parent),
     ui(new Ui::MyAliasListPage),
@@ -32,13 +32,16 @@ MyAliasListPage::MyAliasListPage(QWidget *parent) :
 #endif
 
 	ui->buttonBox->setVisible(false);
-    ui->labelExplanation->setText(tr("These are your registered Syscoin Aliases."));
+
+    ui->labelExplanation->setText(tr("These are your registered Syscoin Aliases. Alias updates take 1 confirmation to appear in this table."));
+	
 	
     // Context menu actions
     QAction *copyAliasAction = new QAction(ui->copyAlias->text(), this);
     QAction *copyAliasValueAction = new QAction(tr("Copy Va&lue"), this);
     QAction *editAction = new QAction(tr("&Edit"), this);
-    QAction *transferAliasAction = new QAction(tr("&Transfer Alias"), this);
+    //---Alias transfer disabled until we fix the bugs on encrypted wallets
+    //QAction *transferAliasAction = new QAction(tr("&Transfer Alias"), this);
 
     // Build context menu
     contextMenu = new QMenu();
@@ -46,13 +49,15 @@ MyAliasListPage::MyAliasListPage(QWidget *parent) :
     contextMenu->addAction(copyAliasValueAction);
     contextMenu->addAction(editAction);
     contextMenu->addSeparator();
-    contextMenu->addAction(transferAliasAction);
+    //---Alias transfer disabled until we fix the bugs on encrypted wallets
+    //contextMenu->addAction(transferAliasAction);
 
     // Connect signals for context menu actions
     connect(copyAliasAction, SIGNAL(triggered()), this, SLOT(on_copyAlias_clicked()));
     connect(copyAliasValueAction, SIGNAL(triggered()), this, SLOT(onCopyAliasValueAction()));
     connect(editAction, SIGNAL(triggered()), this, SLOT(onEditAction()));
-	connect(transferAliasAction, SIGNAL(triggered()), this, SLOT(onTransferAliasAction()));
+    //---Alias transfer disabled until we fix the bugs on encrypted wallets
+    //connect(transferAliasAction, SIGNAL(triggered()), this, SLOT(onTransferAliasAction()));
 
     connect(ui->tableView, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(contextualMenu(QPoint)));
 
@@ -64,12 +69,22 @@ MyAliasListPage::~MyAliasListPage()
 {
     delete ui;
 }
-
-void MyAliasListPage::setModel(AliasTableModel *model)
+void MyAliasListPage::showEvent ( QShowEvent * event )
+{
+    if(!walletModel) return;
+	if(walletModel->getEncryptionStatus() == WalletModel::Locked)
+	{
+        ui->labelExplanation->setText(tr("<font color='red'>WARNING: Your wallet is currently locked. For security purposes you'll need to enter your passphrase in order to interact with Syscoin Aliases. Because your wallet is locked you must manually refresh this table after creating or updating an Alias. </font> <a href=\"http://lockedwallet.syscoin.org\">more info</a><br><br>These are your registered Syscoin Aliases. Alias updates take 1 confirmation to appear in this table."));
+		ui->labelExplanation->setTextFormat(Qt::RichText);
+		ui->labelExplanation->setTextInteractionFlags(Qt::TextBrowserInteraction);
+		ui->labelExplanation->setOpenExternalLinks(true);
+	}
+}
+void MyAliasListPage::setModel(WalletModel *walletModel, AliasTableModel *model)
 {
     this->model = model;
+	this->walletModel = walletModel;
     if(!model) return;
-
     proxyModel = new QSortFilterProxyModel(this);
     proxyModel->setSourceModel(model);
     proxyModel->setDynamicSortFilter(true);
@@ -90,11 +105,17 @@ void MyAliasListPage::setModel(AliasTableModel *model)
 #if QT_VERSION < 0x050000
     ui->tableView->horizontalHeader()->setResizeMode(AliasTableModel::Name, QHeaderView::ResizeToContents);
     ui->tableView->horizontalHeader()->setResizeMode(AliasTableModel::Value, QHeaderView::Stretch);
-    ui->tableView->horizontalHeader()->setResizeMode(AliasTableModel::ExpirationDepth, QHeaderView::ResizeToContents);
+    ui->tableView->horizontalHeader()->setResizeMode(AliasTableModel::LastUpdateHeight, QHeaderView::ResizeToContents);
+    ui->tableView->horizontalHeader()->setResizeMode(AliasTableModel::ExpiresOn, QHeaderView::ResizeToContents);
+    ui->tableView->horizontalHeader()->setResizeMode(AliasTableModel::ExpiresIn, QHeaderView::ResizeToContents);
+    ui->tableView->horizontalHeader()->setResizeMode(AliasTableModel::Expired, QHeaderView::ResizeToContents);
 #else
     ui->tableView->horizontalHeader()->setSectionResizeMode(AliasTableModel::Name, QHeaderView::ResizeToContents);
     ui->tableView->horizontalHeader()->setSectionResizeMode(AliasTableModel::Value, QHeaderView::Stretch);
-    ui->tableView->horizontalHeader()->setSectionResizeMode(AliasTableModel::ExpirationDepth, QHeaderView::ResizeToContents);
+    ui->tableView->horizontalHeader()->setSectionResizeMode(AliasTableModel::LastUpdateHeight, QHeaderView::ResizeToContents);
+    ui->tableView->horizontalHeader()->setSectionResizeMode(AliasTableModel::ExpiresOn, QHeaderView::ResizeToContents);
+    ui->tableView->horizontalHeader()->setSectionResizeMode(AliasTableModel::ExpiresIn, QHeaderView::ResizeToContents);
+    ui->tableView->horizontalHeader()->setSectionResizeMode(AliasTableModel::Expired, QHeaderView::ResizeToContents);
 #endif
 
     connect(ui->tableView->selectionModel(), SIGNAL(selectionChanged(QItemSelection,QItemSelection)),
@@ -131,7 +152,7 @@ void MyAliasListPage::onEditAction()
         return;
 
     EditAliasDialog dlg(EditAliasDialog::EditAlias);
-    dlg.setModel(model);
+    dlg.setModel(walletModel, model);
     QModelIndex origIndex = proxyModel->mapToSource(indexes.at(0));
     dlg.loadRow(origIndex.row());
     dlg.exec();
@@ -146,7 +167,7 @@ void MyAliasListPage::onTransferAliasAction()
         return;
 
     EditAliasDialog dlg(EditAliasDialog::TransferAlias);
-    dlg.setModel(model);
+    dlg.setModel(walletModel, model);
     QModelIndex origIndex = proxyModel->mapToSource(indexes.at(0));
     dlg.loadRow(origIndex.row());
     dlg.exec();
@@ -155,13 +176,6 @@ void MyAliasListPage::on_refreshButton_clicked()
 {
     if(!model)
         return;
-	/*if(this->clientModel->inInitialBlockDownload())
-	{
-        QMessageBox::critical(this, windowTitle(),
-            tr("The blockchain must be fully synchronized before loading Aliases. Please try again later."),
-            QMessageBox::Ok, QMessageBox::Ok);
-		return;
-	}*/
     model->refreshAliasTable();
 }
 void MyAliasListPage::on_newAlias_clicked()
@@ -170,7 +184,7 @@ void MyAliasListPage::on_newAlias_clicked()
         return;
 
     EditAliasDialog dlg(EditAliasDialog::NewAlias, this);
-    dlg.setModel(model);
+    dlg.setModel(walletModel,model);
     if(dlg.exec())
     {
         newAliasToSelect = dlg.getAlias();
@@ -233,7 +247,10 @@ void MyAliasListPage::on_exportButton_clicked()
     writer.setModel(proxyModel);
     writer.addColumn("Alias", AliasTableModel::Name, Qt::EditRole);
     writer.addColumn("Value", AliasTableModel::Value, Qt::EditRole);
-    writer.addColumn("Expiration Depth", AliasTableModel::ExpirationDepth, Qt::EditRole);
+	writer.addColumn("Last Update", AliasTableModel::LastUpdateHeight, Qt::EditRole);
+	writer.addColumn("Expires On", AliasTableModel::ExpiresOn, Qt::EditRole);
+	writer.addColumn("Expires In", AliasTableModel::ExpiresIn, Qt::EditRole);
+	writer.addColumn("Expired", AliasTableModel::Expired, Qt::EditRole);
     if(!writer.write())
     {
         QMessageBox::critical(this, tr("Error exporting"), tr("Could not write to file %1.").arg(filename),
@@ -241,10 +258,7 @@ void MyAliasListPage::on_exportButton_clicked()
     }
 }
 
-void MyAliasListPage::on_transferAlias_clicked()
-{
 
-}
 
 void MyAliasListPage::contextualMenu(const QPoint &point)
 {

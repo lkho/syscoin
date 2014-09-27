@@ -32,6 +32,7 @@ extern uint256 SignatureHash(CScript scriptCode, const CTransaction& txTo,
 		unsigned int nIn, int nHashType);
 
 CScript RemoveOfferScriptPrefix(const CScript& scriptIn);
+
 bool DecodeOfferScript(const CScript& script, int& op,
 		std::vector<std::vector<unsigned char> > &vvch,
 		CScript::const_iterator& pc);
@@ -39,6 +40,7 @@ bool DecodeOfferScript(const CScript& script, int& op,
 extern bool Solver(const CKeyStore& keystore, const CScript& scriptPubKey,
 		uint256 hash, int nHashType, CScript& scriptSigRet,
 		txnouttype& whichTypeRet);
+
 extern bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey,
 		const CTransaction& txTo, unsigned int nIn, unsigned int flags,
 		int nHashType);
@@ -361,7 +363,6 @@ uint64 GetOfferFeeSubsidy(unsigned int nHeight) {
 }
 
 bool InsertOfferFee(CBlockIndex *pindex, uint256 hash, uint64 nValue) {
-	unsigned int h12 = 3600 * 12;
 	list<COfferFee> txnDup;
 	COfferFee oFee;
 	oFee.nTime = pindex->nTime;
@@ -369,17 +370,6 @@ bool InsertOfferFee(CBlockIndex *pindex, uint256 hash, uint64 nValue) {
 	oFee.nFee = nValue;
 	bool bFound = false;
 	
-	unsigned int tHeight =
-			pindex->nHeight - 2880 < 0 ? 0 : pindex->nHeight - 2880;
-	
-	while (true) {
-		if (lstOfferFees.size() > 0
-				&& (lstOfferFees.back().nTime + h12 < pindex->nTime
-						|| lstOfferFees.back().nHeight < tHeight))
-			lstOfferFees.pop_back();
-		else
-			break;
-	}
 	BOOST_FOREACH(COfferFee &nmFee, lstOfferFees) {
 		if (oFee.hash == nmFee.hash
 				&& oFee.nHeight == nmFee.nHeight) {

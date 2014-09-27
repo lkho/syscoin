@@ -24,7 +24,10 @@ public:
     enum ColumnIndex {
         Name = 0,   /**< alias name */
         Value = 1,  /**< Alias value */
-        ExpirationDepth = 2
+		LastUpdateHeight = 2,
+		ExpiresOn = 3,
+		ExpiresIn = 4,
+		Expired = 5
     };
 
     enum RoleIndex {
@@ -58,7 +61,7 @@ public:
     /* Add an alias to the model.
        Returns the added alias on success, and an empty string otherwise.
      */
-    QString addRow(const QString &type, const QString &value, const QString &alias, const QString &exp);
+    QString addRow(const QString &type, const QString &alias, const QString &value, const QString &lastupdate_height, const QString &expires_on,const QString &expires_in, const QString &expired);
 
     /* Look up label for alias in alias book, if not found return empty string.
      */
@@ -71,13 +74,13 @@ public:
 	void clear();
 	void refreshAliasTable();
     EditStatus getEditStatus() const { return editStatus; }
-
+	EditStatus editStatus;
 private:
     WalletModel *walletModel;
     CWallet *wallet;
     AliasTablePriv *priv;
     QStringList columns;
-    EditStatus editStatus;
+    
 	AliasModelType modelType;
     /** Notify listeners that data changed. */
     void emitDataChanged(int index);
@@ -85,7 +88,7 @@ private:
 public slots:
     /* Update alias list from core.
      */
-    void updateEntry(const QString &alias, const QString &value, const QString &exp, AliasModelType type, int status);
+    void updateEntry(const QString &alias, const QString &value, const QString &lastupdate_height, const QString &expires_on,const QString &expires_in, const QString &expired, AliasModelType type, int status);
 
     friend class AliasTablePriv;
 };

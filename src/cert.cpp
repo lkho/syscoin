@@ -364,7 +364,7 @@ uint64 GetCertFeeSubsidy(unsigned int nHeight) {
 }
 
 bool InsertCertFee(CBlockIndex *pindex, uint256 hash, uint64 nValue) {
-    unsigned int h12 = 3600 * 12;
+
     list<CCertFee> txnDup;
     CCertFee oFee;
     oFee.nTime = pindex->nTime;
@@ -372,17 +372,6 @@ bool InsertCertFee(CBlockIndex *pindex, uint256 hash, uint64 nValue) {
     oFee.nFee = nValue;
     bool bFound = false;
 
-    unsigned int tHeight =
-            pindex->nHeight - 2880 < 0 ? 0 : pindex->nHeight - 2880;
-
-    while (true) {
-        if (lstCertIssuerFees.size() > 0
-                && (lstCertIssuerFees.back().nTime + h12 < pindex->nTime
-                        || lstCertIssuerFees.back().nHeight < tHeight))
-            lstCertIssuerFees.pop_back();
-        else
-            break;
-    }
     BOOST_FOREACH(CCertFee &nmFee, lstCertIssuerFees) {
         if (oFee.hash == nmFee.hash
                 && oFee.nHeight == nmFee.nHeight) {
@@ -1407,7 +1396,7 @@ Value getcertfees(const Array& params, bool fHelp) {
     Object oRes;
     oRes.push_back(Pair("height", nBestHeight ));
     oRes.push_back(Pair("subsidy", ValueFromAmount(GetCertFeeSubsidy(nBestHeight) )));
-    oRes.push_back(Pair("new_fee", (double)1.0));
+	oRes.push_back(Pair("new_fee", (double)1.0));
     oRes.push_back(Pair("activate_fee", ValueFromAmount(GetCertNetworkFee(1, nBestHeight) )));
     oRes.push_back(Pair("cert_fee", ValueFromAmount(GetCertNetworkFee(2, nBestHeight) )));
     oRes.push_back(Pair("transfer_fee", ValueFromAmount(GetCertNetworkFee(3, nBestHeight) )));

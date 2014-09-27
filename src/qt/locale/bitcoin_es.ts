@@ -15,12 +15,12 @@
     <message>
         <location filename="../forms/aboutdialog.ui" line="+14"/>
         <source>About SysCoin</source>
-        <translation type="unfinished"></translation>
+        <translation>Sobre SysCoin</translation>
     </message>
     <message>
         <location line="+24"/>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;SysCoin&lt;/span&gt; v0.1.4c&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="unfinished"></translation>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Syscoin &lt;/span&gt;0.1.5 RC2&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Syscoin &lt;/span&gt;0.1.5 RC2&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <location line="+61"/>
@@ -50,17 +50,17 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
     <message>
         <location line="-3"/>
         <source>The Bitcoin developers</source>
-        <translation type="unfinished"></translation>
+        <translation>Los desarrolladores de Bitcoin</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>2011-%1 The Litecoin developers</source>
-        <translation type="unfinished"></translation>
+        <translation>2011-%1 Los desarrolladores de Litecoin</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>2014 The Syscoin developers</source>
-        <translation type="unfinished"></translation>
+        <translation>2014 Los desarrolladores de SisCoin</translation>
     </message>
     <message>
         <source>The Syscoin developers</source>
@@ -342,7 +342,7 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
         <translation>Alias</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+27"/>
         <source>Search</source>
         <translation>Buscar</translation>
     </message>
@@ -367,9 +367,9 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
         <translation>&amp;Exportar</translation>
     </message>
     <message>
-        <location filename="../aliaslistpage.cpp" line="+40"/>
+        <location filename="../aliaslistpage.cpp" line="+41"/>
         <source>Search for any Syscoin Aliases</source>
-        <translation>Busca Alias de Syscoin</translation>
+        <translation>Buscar Alias de SysCoin</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -379,10 +379,19 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
     <message>
         <location line="+15"/>
         <source>Enter search term, regex accepted (ie: ^name returns all Aliases starting with &apos;name&apos;)</source>
-        <translation>Introduce término de búsqueda, expresiones regulares aceptadas (i. e. ^nombre devuelve todos los Alias que empiecen por &apos;nombre&apos;)</translation>
+        <translation>Introduce término de búsqueda, expresiones regulares aceptadas (ie: ^nombre devuelve todos los Alias que empiecen por &apos;nombre&apos;)</translation>
     </message>
     <message>
-        <location line="+97"/>
+        <source>&lt;font color=&apos;red&apos;&gt;WARNING: Your wallet is currently locked. For security purposes you&apos;ll need to enter your passphrase in order to interact with Syscoin Aliases.&lt;/font&gt; &lt;a href=&quot;http://lockedwallet.syscoin.org&quot;&gt;more info&lt;/a&gt;</source>
+        <translation type="obsolete">&lt;font color=&apos;red&apos;&gt;AVISO: Tu monedero está bloqueado. Por razones de seguridad, debes introducir tu contraseña para interaccionar con los Alias de SysCoin. &lt;/font&gt; &lt;a href=&quot;http://lockedwallet.syscoin.org&quot;&gt;más info.&lt;/a&gt;</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>&lt;font color=&apos;red&apos;&gt;WARNING: Your wallet is currently locked. For security purposes you&apos;ll need to enter your passphrase in order to search Syscoin Aliases.&lt;/font&gt; &lt;a href=&quot;http://lockedwallet.syscoin.org&quot;&gt;more info&lt;/a&gt;</source>
+        <translation>&lt;font color=&apos;red&apos;&gt;&lt;/font&gt;AVISO: Su monedero está bloqueado actualmente. Por motivos de seguridad, debe introducir su contraseña para buscar Alias de SysCoin.&lt;a href=&quot;http://lockedwallet.syscoin.org&quot;&gt;más info.&lt;/a&gt;</translation>
+    </message>
+    <message>
+        <location line="+111"/>
         <source>Export Alias Data</source>
         <translation>Exportar datos de Alias</translation>
     </message>
@@ -392,7 +401,7 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
         <translation>Archivos de columnas separadas por coma (*.csv)</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+16"/>
         <source>Error exporting</source>
         <translation>Error Exportando</translation>
     </message>
@@ -402,7 +411,7 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
         <translation>No se pudo escribir en el archivo %1.</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+32"/>
         <source>Error Searching Alias</source>
         <translation>Error buscando Alias</translation>
     </message>
@@ -412,7 +421,7 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
         <translation>Por favor, introduzca un término de búsqueda</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+34"/>
         <source>Error searching Alias: &quot;%1&quot;</source>
         <translation>Error buscando Alias: &quot;%1&quot;</translation>
     </message>
@@ -422,7 +431,7 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
         <translation>Excepción general en la búsqueda de Alias</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+78"/>
         <source>Error: Invalid response from aliasnew command</source>
         <translation>Error: Respuesta no válida del comando aliasnew</translation>
     </message>
@@ -430,7 +439,7 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
 <context>
     <name>AliasTableModel</name>
     <message>
-        <location filename="../aliastablemodel.cpp" line="+204"/>
+        <location filename="../aliastablemodel.cpp" line="+248"/>
         <source>Alias</source>
         <translation>Alias</translation>
     </message>
@@ -443,6 +452,21 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
         <location line="+0"/>
         <source>Expires In</source>
         <translation>Expira en</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Last Update</source>
+        <translation>Última Edición</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Expires On</source>
+        <translation>Expiración</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Alias Status</source>
+        <translation>Estado del Alias</translation>
     </message>
 </context>
 <context>
@@ -589,8 +613,8 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
         <translation>Confirmar cifrado del monedero</translation>
     </message>
     <message>
-        <source>Warning: If you encrypt your wallet and lose your passphrase, you will &lt;b&gt;LOSE ALL OF YOUR LITECOINS&lt;/b&gt;!</source>
-        <translation type="obsolete">Atencion: ¡Si cifra su monedero y pierde la contraseña perderá &lt;b&gt;TODOS SUS LITECOINS&lt;/b&gt;!&quot;</translation>
+        <source>Warning: If you encrypt your wallet and lose your passphrase, you will &lt;b&gt;LOSE ALL OF YOUR Syscoins&lt;/b&gt;!</source>
+        <translation type="obsolete">Atencion: ¡Si cifra su monedero y pierde la contraseña perderá &lt;b&gt;TODOS SUS Syscoins&lt;/b&gt;!&quot;</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -721,7 +745,7 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
     <message>
         <location line="+4"/>
         <source>Show information about Syscoin</source>
-        <translation>Mostrar información acerca de Syscoin</translation>
+        <translation>Muestra información acerca de SysCoin</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -766,7 +790,7 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
     <message>
         <location line="-451"/>
         <source>Send coins to a Syscoin address</source>
-        <translation>Enviar monedas a una dirección Syscoin</translation>
+        <translation>Enviar monedas a una dirección SysCoin</translation>
     </message>
     <message>
         <location line="+102"/>
@@ -802,7 +826,7 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
         <location line="-223"/>
         <location line="+639"/>
         <source>Syscoin</source>
-        <translation>Syscoin</translation>
+        <translation>SysCoin</translation>
     </message>
     <message>
         <location line="-639"/>
@@ -832,7 +856,7 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
     <message>
         <location line="+1"/>
         <source>Manage aliases</source>
-        <translation>Operar con Alias</translation>
+        <translation>Gestionar Alias</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -877,7 +901,7 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
     <message>
         <location line="+38"/>
         <source>&amp;About Syscoin</source>
-        <translation>&amp;Acerca de Syscoin</translation>
+        <translation>&amp;Acerca de SysCoin</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -897,7 +921,7 @@ Eric Young (eay@cryptsoft.com) y el software UPnP escrito por Thomas Bernard.</t
     <message>
         <location line="+7"/>
         <source>Sign messages with your Syscoin addresses to prove you own them</source>
-        <translation>Firmar mensajes con sus direcciones Syscoin para demostrar la propiedad</translation>
+        <translation>Firmar mensajes con sus direcciones Syscoin para demostrar la autoría</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -1539,6 +1563,7 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
     <name>EditAliasDialog</name>
     <message>
         <location filename="../forms/editaliasdialog.ui" line="+14"/>
+        <location filename="../editaliasdialog.cpp" line="+41"/>
         <source>Edit Alias</source>
         <translation>Editar Alias</translation>
     </message>
@@ -1550,7 +1575,7 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
     <message>
         <location line="+10"/>
         <source>The alias name.</source>
-        <translation>Nombre de Alias</translation>
+        <translation>Nombre de Alias.</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -1560,7 +1585,7 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
     <message>
         <location line="+10"/>
         <source>The value associated with this alias.</source>
-        <translation>Valor asociado a este Alias</translation>
+        <translation>Valor asociado a este Alias.</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -1568,79 +1593,177 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
         <translation>Dirección de Tranferencia</translation>
     </message>
     <message>
-        <location filename="../editaliasdialog.cpp" line="+27"/>
-        <source>New data alias</source>
-        <translation></translation>
-    </message>
-    <message>
-        <location line="+4"/>
         <source>New alias</source>
-        <translation>Nuevo Alias</translation>
+        <translation type="obsolete">Nuevo Alias</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Edit data alias</source>
-        <translation></translation>
-    </message>
-    <message>
-        <location line="+4"/>
         <source>Edit alias</source>
-        <translation>Editar Alias</translation>
+        <translation type="obsolete">Editar Alias</translation>
     </message>
     <message>
-        <location line="+4"/>
         <source>Transfer alias</source>
-        <translation>Transferir Alias</translation>
+        <translation type="obsolete">Transferir Alias</translation>
     </message>
     <message>
-        <location line="+74"/>
         <source>New Alias created successfully! Please Refresh to update your Aliases. GUID for the new Alias is: &quot;%1&quot;</source>
-        <translation>Nuevo Alias creado con éxito! Por favor, haz click en Actualizar. GUID para el nuevo Alias es:&quot;%1&quot; </translation>
+        <translation type="obsolete">Nuevo Alias creado con éxito! Por favor, haz click en Actualizar. GUID para el nuevo Alias es:&quot;%1&quot; </translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location filename="../editaliasdialog.cpp" line="+100"/>
         <source>Error creating new Alias: &quot;%1&quot;</source>
         <translation>Error creando nuevo Alias: &quot;%1&quot;</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>General exception creating new alias</source>
-        <translation>Escepción general creando nuevo Alias</translation>
+        <translation type="obsolete">Escepción general creando nuevo Alias</translation>
     </message>
     <message>
-        <location line="+22"/>
         <source>Alias updated successfully! Please Refresh to update your Aliases. Transaction Id for the update is: &quot;%1&quot;</source>
-        <translation>Alias editado correctamente! Por favor, haz click en Actualizar. El Id de la transación de edición es: &quot;%1&quot; </translation>
+        <translation type="obsolete">Alias editado correctamente! Por favor, haz click en Actualizar. El Id de la transación de edición es: &quot;%1&quot; </translation>
     </message>
     <message>
-        <location line="+9"/>
         <source>Error updating alias: &quot;%1&quot;</source>
-        <translation>Error editando Alias: &quot;%1&quot;</translation>
+        <translation type="obsolete">Error editando Alias: &quot;%1&quot;</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>General exception updating alias</source>
-        <translation>Excepción General editando Alias</translation>
+        <translation type="obsolete">Excepción General editando Alias</translation>
     </message>
     <message>
-        <location line="+22"/>
         <source>Alias transferred successfully! Please Refresh to update your Aliases. Transaction Id for the update is: &quot;%1&quot;</source>
-        <translation>Alias transferido con éxito! Por favor, pulsa Actualizar. El Id de la transación transferencia es: &quot;%1&quot; </translation>
+        <translation type="obsolete">Alias transferido con éxito! Por favor, pulsa Actualizar. El Id de la transación transferencia es: &quot;%1&quot; </translation>
     </message>
     <message>
-        <location line="+9"/>
         <source>Error transferring alias: &quot;%1&quot;</source>
-        <translation>Error transfiriendo Alias: &quot;%1&quot;</translation>
+        <translation type="obsolete">Error transfiriendo Alias: &quot;%1&quot;</translation>
+    </message>
+    <message>
+        <source>General exception transferring alias</source>
+        <translation type="obsolete">Excepción general transfiriendo Alias.</translation>
+    </message>
+    <message>
+        <source>The entered alias &quot;%1&quot; is not a valid Syscoin alias.</source>
+        <translation type="obsolete">El Alias introducido &quot;%1&quot; no es un Alias de Syscoin válido.</translation>
+    </message>
+    <message>
+        <location line="-111"/>
+        <source>New Data Alias</source>
+        <translation>Nuevo Alias de Datos</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>New Alias</source>
+        <translation>Nuevo Alias</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Edit Data Alias</source>
+        <translation>Editar Alias de datos</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Transfer Alias</source>
+        <translation>Transferir Alias</translation>
+    </message>
+    <message>
+        <location line="+59"/>
+        <source>Confirm new Alias</source>
+        <translation>Confirmar nuevo Alias</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Warning: Creating new Alias will cost </source>
+        <translation>Aviso: Crear un nuevo Alias costará </translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source> SYS, and activating will cost </source>
+        <translation> SYS, y activarlo costará </translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Are you sure you wish to create an Alias?</source>
+        <translation>¿Está seguro de que quiere crear el Alias?</translation>
+    </message>
+    <message>
+        <location line="+25"/>
+        <source>New Alias created successfully! Alias will be active after 120 confirmations. GUID for the new Alias is: &quot;%1&quot;</source>
+        <translation>Nuevo Alias creado con éxito! El Alias estará activo tras 120 confirmaciones. El GUID del nuevo Alias es: &quot;%1&quot;</translation>
+    </message>
+    <message>
+        <location line="+50"/>
+        <source>Alias updated successfully! Update will take effect after 1 confirmation. Transaction Id for the update is: &quot;%1&quot;</source>
+        <translation>Alias editado con éxito! La edición será efectiva tras 1 confirmación. El Id de la transacción de edición es: &quot;%1&quot;</translation>
+    </message>
+    <message>
+        <location line="+48"/>
+        <source>Alias transferred successfully! Transaction Id for the update is: &quot;%1&quot; &lt;br&gt;&lt;br&gt;</source>
+        <translation>Alias transferido con éxito! El Id de la transacción es: &quot;%1&quot; &lt;br&gt;&lt;br&gt;</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Please click refresh after 1 confirmation to update the Alias table.</source>
+        <translation>Por favor, haga clic en Actualizar tras 1 confirmación para actualizar la tabla de Alias.</translation>
+    </message>
+    <message>
+        <location line="-81"/>
+        <source>General exception creating new Alias</source>
+        <translation>Excepción general en la creación de Alias</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Confirm Alias Update</source>
+        <translation>Confirme la Edición de Alias</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Warning: Updating Alias will cost </source>
+        <translation>Aviso: La edición costará </translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Are you sure you wish update this Alias?</source>
+        <translation>¿Está seguro de que quiere editar este Alias?</translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>Error updating Alias: &quot;%1&quot;</source>
+        <translation>Error en la edición de Alias: &quot;%1&quot;</translation>
     </message>
     <message>
         <location line="+7"/>
-        <source>General exception transferring alias</source>
-        <translation>Excepción general transfiriendo Alias.</translation>
+        <source>General exception updating Alias</source>
+        <translation>Excepción general en la edición de Alias</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Confirm Alias Transfer</source>
+        <translation>Confirme Transferencia de Alias</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Warning: Transfering Alias will cost </source>
+        <translation>Aviso: Transferir el Alias costará </translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Are you sure you wish transfer this Alias?</source>
+        <translation>¿Está seguro de que quiere trasnferir este Alias?</translation>
+    </message>
+    <message>
+        <location line="+30"/>
+        <source>Error transferring Alias: &quot;%1&quot;</source>
+        <translation>Error en la transferencia de Alias: &quot;%1&quot;</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>General exception transferring Alias</source>
+        <translation>Excepción general en la transferencia de Alias</translation>
     </message>
     <message>
         <location line="+26"/>
-        <source>The entered alias &quot;%1&quot; is not a valid Syscoin alias.</source>
-        <translation>El Alias introducido &quot;%1&quot; no es un Alias de Syscoin válido.</translation>
+        <source>The entered alias &quot;%1&quot; is not a valid Syscoin Alias.</source>
+        <translation>El Alias introducido &quot;%1&quot; no es un Alias de SysCoin válido.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -1658,7 +1781,7 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
     <message>
         <location filename="../forms/editcertdialog.ui" line="+14"/>
         <source>Edit Cert</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">git </translation>
     </message>
     <message>
         <location line="+11"/>
@@ -1871,7 +1994,7 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
         <translation>Mis Alias</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+52"/>
         <source>&amp;Refresh</source>
         <translation>&amp;Actualizar</translation>
     </message>
@@ -1910,7 +2033,7 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
         <translation type="obsolete">Éstos son tus Alias de Syscoin. Haz click en Actualizar una vez la sincronización con la red se haya completado.</translation>
     </message>
     <message>
-        <location filename="../myaliaslistpage.cpp" line="+39"/>
+        <location filename="../myaliaslistpage.cpp" line="+41"/>
         <source>Copy Va&amp;lue</source>
         <translation>Copiar Va&amp;lor</translation>
     </message>
@@ -1920,21 +2043,41 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
         <translation>&amp;Editar</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>&amp;Transfer Alias</source>
-        <translation>&amp;Transferir Alias</translation>
+        <translation type="obsolete">&amp;Transferir Alias</translation>
     </message>
     <message>
         <source>The blockchain must be fully synchronized before loading Aliases. Please try again later.</source>
         <translation type="obsolete">La sincronización con la red debe estar completada antes de cargar Alias. Por favor, inténtalo más tarde.</translation>
     </message>
     <message>
-        <location line="-6"/>
-        <source>These are your registered Syscoin Aliases.</source>
-        <translation type="unfinished"></translation>
+        <source>These are your registered Syscoin Aliases. NOTE: New Syscoin Aliases take 120 blocks to appear in this list and alias updates or transfers can take up to 6 blocks to appear in this list.</source>
+        <translation type="obsolete">Éstos son tus Alias de SysCoin registrados. NOTA: Los Alias de SysCoin nuevos tardan 120 bloques en aparecer en esta lista, y los alias editados o transferidos pueden tardar hasta 6 bloques en aparecer.  </translation>
     </message>
     <message>
-        <location line="+190"/>
+        <source>&lt;font color=&apos;red&apos;&gt;WARNING: Your wallet is currently locked. For security purposes you&apos;ll need to enter your passphrase in order to interact with Syscoin Aliases. Click refresh to load aliases securely. &lt;/font&gt; &lt;a href=&quot;http://lockedwallet.syscoin.org&quot;&gt;more info&lt;/a&gt;&lt;br&gt;&lt;br&gt;These are your registered Syscoin Aliases. NOTE: New Syscoin Aliases take 120 blocks to appear in this list and alias updates or transfers can take up to 6 blocks to appear in this list.</source>
+        <translation type="obsolete">&lt;font color=&apos;red&apos;&gt;AVISO: Tu monedero está bloqueado. Por razones de seguridad, debes introducir tu contraseña para interaccionar con los Alias de SysCoin. Haz clic en Actualizar para cargar los Alias con seguridad. &lt;/font&gt;&lt;a href=&quot;http://lockedwallet.syscoin.org&quot;&gt;más info.&lt;/a&gt;&lt;br&gt;&lt;br&gt;Éstos son tus Alias de SysCoin registrados. NOTA: Los Alias de SysCoin nuevos tardan 120 bloques en aparecer en esta lista, y los alias editados o transferidos pueden tardar hasta 6 bloques en aparecer.</translation>
+    </message>
+    <message>
+        <source>These are your registered Syscoin Aliases. Alias updates take 1 confirmation to appear in this table. Alias transfers require clicking refresh after 1 confirmation for the table to update.</source>
+        <translation type="obsolete">Éstos son sus Alias de SysCoin registrados. Las ediciones de Alias necesitan 1 confirmación para aparecer en esta tabla. Las transferencias de Alias requieren hacer clic en Actualizar después de 1 confirmación para que la tabla se actualice.</translation>
+    </message>
+    <message>
+        <source>&lt;font color=&apos;red&apos;&gt;WARNING: Your wallet is currently locked. For security purposes you&apos;ll need to enter your passphrase in order to interact with Syscoin Aliases. Because your wallet is locked you must manually refresh this table after creating, updating or transferring an Alias. &lt;/font&gt; &lt;a href=&quot;http://lockedwallet.syscoin.org&quot;&gt;more info&lt;/a&gt;&lt;br&gt;&lt;br&gt;These are your registered Syscoin Aliases. Alias updates take 1 confirmation to appear in this table. Alias transfers require clicking refresh after 1 confirmation for the table to update.</source>
+        <translation type="obsolete">&lt;font color=&apos;red&apos;&gt;AVISO: Su monedero está bloqueado actualmente. Por motivos de seguridad, debe introducir su contraseña para interactuar con los Alias de SysCoin. Dado que el monedero está bloqueado, debe actualizar manualmente esta tabla tras crear, editar o trasferir Alias. &lt;/font&gt; &lt;a href=&quot;http://lockedwallet.syscoin.org&quot;&gt;más info.&lt;/a&gt;&lt;br&gt;&lt;br&gt;Éstos son sus Alias de SysCoin registrados. Las ediciones de Alias necesitan 1 confirmación para aparecer en esta tabla. Las transferencias de Alias requieren hacer clic en Actualizar después de 1 confirmación para que la tabla se actualice.</translation>
+    </message>
+    <message>
+        <location line="-6"/>
+        <source>These are your registered Syscoin Aliases. Alias updates take 1 confirmation to appear in this table.</source>
+        <translation>Éstos son sus Alias de SysCoin registrados. Las ediciones de Alias necesitan 1 confirmación para aparecer en esta tabla.</translation>
+    </message>
+    <message>
+        <location line="+41"/>
+        <source>&lt;font color=&apos;red&apos;&gt;WARNING: Your wallet is currently locked. For security purposes you&apos;ll need to enter your passphrase in order to interact with Syscoin Aliases. Because your wallet is locked you must manually refresh this table after creating or updating an Alias. &lt;/font&gt; &lt;a href=&quot;http://lockedwallet.syscoin.org&quot;&gt;more info&lt;/a&gt;&lt;br&gt;&lt;br&gt;These are your registered Syscoin Aliases. Alias updates take 1 confirmation to appear in this table.</source>
+        <translation>&lt;font color=&apos;red&apos;&gt;AVISO: Su monedero está bloqueado. Por razones de seguridad, debe introducir su contraseña para interaccionar con los Alias de SysCoin. Dado que su monedero está bloqueado, debe hacer clic en Actualizar tras crear o editar un Alias para actualizar esta tabla &lt;/font&gt; &lt;a href=&quot;http://lockedwallet.syscoin.org&quot;&gt;más info.&lt;/a&gt;&lt;br&gt;&lt;br&gt;Éstos son sus Alias de SysCoin registrados. Las ediciones de Alias necesitan 1 confirmación para aparecer en esta tabla.</translation>
+    </message>
+    <message>
+        <location line="+162"/>
         <source>Export Alias Data</source>
         <translation>Exportar datos de Alias</translation>
     </message>
@@ -1944,7 +2087,7 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
         <translation>Archivos de columnas separadas por coma (*.csv)</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+16"/>
         <source>Error exporting</source>
         <translation>Error Exportando</translation>
     </message>
@@ -2347,28 +2490,28 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
     <message>
         <location line="-267"/>
         <source>Follow us on Twitter:</source>
-        <translation type="unfinished"></translation>
+        <translation>Siguenos en Twitter:</translation>
     </message>
     <message>
         <location line="+88"/>
         <source>&lt;a href=&quot;https://twitter.com/syscoin&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#0093dd;&quot;&gt;@syscoin&lt;/span&gt;&lt;/a&gt;</source>
-        <translation type="unfinished"></translation>
+        <translation>&lt;a href=&quot;https://twitter.com/syscoin&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#0093dd;&quot;&gt;@syscoin&lt;/span&gt;&lt;/a&gt;</translation>
     </message>
     <message>
         <location line="+94"/>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;http://www.facebook.com/syscoin&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#0093dd;&quot;&gt;facebook.com/syscoin&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="unfinished"></translation>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;http://www.facebook.com/syscoin&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#0093dd;&quot;&gt;facebook.com/syscoin&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Like us on Facebook:</source>
-        <translation type="unfinished"></translation>
+        <translation>Haz click en Me Gusta en Facebook:</translation>
     </message>
     <message>
         <location line="+58"/>
         <location line="+173"/>
         <source>The displayed information may be out of date. Your wallet automatically synchronizes with the SysCoin network after a connection is established, but this process has not completed yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>La información mostrada puede estar desfasada. Tu monedero sincroniza automáticamente con la red SysCoin una vez se ha establecido conexión, pero este proceso aún no ha finalizado.  </translation>
     </message>
     <message>
         <location line="-49"/>
@@ -2383,7 +2526,7 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
     <message>
         <location line="+26"/>
         <source>Recent transactions</source>
-        <translation type="unfinished"></translation>
+        <translation>Transacciones recientes</translation>
     </message>
     <message>
         <source>&lt;b&gt;Recent transactions&lt;/b&gt;</source>
@@ -3135,7 +3278,7 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
     <message>
         <location filename="../splashscreen.cpp" line="+25"/>
         <source>The Bitcoin developers</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">Los desarrolladores de Bitcoin</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -3145,7 +3288,7 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
     <message>
         <location line="+1"/>
         <source>The Syscoin developers</source>
-        <translation>Los programadores Syscoin</translation>
+        <translation type="unfinished">Los programadores Syscoin</translation>
     </message>
     <message>
         <source>[testnet]</source>
@@ -3457,7 +3600,12 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
         <translation>Alias Editado</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+2"/>
+        <source>Alias Updated (Transfer)</source>
+        <translation>Alias Editado (Transferido)</translation>
+    </message>
+    <message>
+        <location line="+43"/>
         <source>(n/a)</source>
         <translation>(nd)</translation>
     </message>
@@ -3490,7 +3638,7 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
 <context>
     <name>TransactionView</name>
     <message>
-        <location filename="../transactionview.cpp" line="+52"/>
+        <location filename="../transactionview.cpp" line="+54"/>
         <location line="+16"/>
         <source>All</source>
         <translation>Todo</translation>
@@ -3564,6 +3712,11 @@ This label turns red, if the priority is smaller than &quot;medium&quot;.
         <location line="+1"/>
         <source>Alias Updated</source>
         <translation>Alias Editado</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Alias Updated (Transfer)</source>
+        <translation>Àlies Editat (Transferido)</translation>
     </message>
     <message>
         <location line="+7"/>
