@@ -19,6 +19,16 @@ class CReserveKey;
 
 #include "util.h"
 
+std::string HTTPPost(const std::string& strMsg, const std::map<std::string,std::string>& mapRequestHeaders);
+std::string rfc1123Time();
+std::string HTTPReply(int nStatus, const std::string& strMsg, bool keepalive);
+bool ReadHTTPRequestLine(std::basic_istream<char>& stream, int &proto, std::string& http_method, std::string& http_uri);
+int ReadHTTPStatus(std::basic_istream<char>& stream, int &proto);
+int ReadHTTPHeaders(std::basic_istream<char>& stream, std::map<std::string, std::string>& mapHeadersRet);
+int ReadHTTPMessage(std::basic_istream<char>& stream, std::map<std::string, std::string>& mapHeadersRet, std::string& strMessageRet, int nProto);
+bool HTTPAuthorized(std::map<std::string, std::string>& mapHeaders);
+
+
 // HTTP status codes
 enum HTTPStatusCode
 {
@@ -189,6 +199,7 @@ extern json_spirit::Value getinfo(const json_spirit::Array& params, bool fHelp);
 
 extern json_spirit::Value getrawtransaction(const json_spirit::Array& params, bool fHelp); // in rcprawtransaction.cpp
 extern json_spirit::Value listunspent(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value listabunch(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value lockunspent(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value listlockunspent(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value createrawtransaction(const json_spirit::Array& params, bool fHelp);
@@ -262,6 +273,20 @@ extern json_spirit::Value certissuerfilter(const json_spirit::Array& params, boo
 extern json_spirit::Value certissuerscan(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value certissuerclean(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value getcertfees(const json_spirit::Array& params, bool fHelp);
+
+extern json_spirit::Value assetnew(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetsend(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetpeg(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetupdate(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetgenerate(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetdissolve(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetinfo(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetlist(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assethistory(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetfilter(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetscan(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value assetclean(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value listassettransactions(const json_spirit::Array& params, bool fHelp);
 
 extern json_spirit::Value phrpcfunc(const json_spirit::Array& params, bool fHelp);
 

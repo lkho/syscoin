@@ -323,7 +323,7 @@ int CheckCertIssuerTransactionAtRelativeDepth(CBlockIndex* pindexBlock,
 }
 
 int GetCertTxHashHeight(const uint256 txHash) {
-	CDiskTxPos postx;
+    CDiskTxPos postx;
 	pblocktree->ReadTxIndex(txHash, postx);
 	return GetNameTxPosHeight(postx);
 }
@@ -520,8 +520,6 @@ bool IsCertMine(const CTransaction& tx, const CTxOut& txout,
 
     bool good = DecodeCertTx(tx, op, nOut, vvch, -1);
     if (!good) {
-        error( "IsCertMine() : no output out script in cert tx %s\n",
-                tx.ToString().c_str());
         return false;
     }
     if(!IsCertOp(op))
@@ -1912,7 +1910,7 @@ Value certissuerinfo(const Array& params, bool fHelp) {
         if (vtxPos.size() < 1)
             throw JSONRPCError(RPC_WALLET_ERROR, "no result returned");
 
-        // get transaction pointed to by alias
+        // get transaction pointed to by cert
         CTransaction tx;
         uint256 blockHash;
         uint256 txHash = vtxPos.back().txHash;
@@ -2068,7 +2066,7 @@ Value certissuerlist(const Array& params, bool fHelp) {
             if (tx.nVersion != SYSCOIN_TX_VERSION)
                 continue;
 
-            // decode txn, skip non-alias txns
+            // decode txn, skip non-cert txns
             vector<vector<unsigned char> > vvch;
             int op, nOut;
             if (!DecodeCertTx(tx, op, nOut, vvch, -1) || !IsCertOp(op)) 
@@ -2080,15 +2078,15 @@ Value certissuerlist(const Array& params, bool fHelp) {
             // get the txn height
             nHeight = GetCertTxHashHeight(hash);
 
-            // get the txn alias name
+            // get the txn cert name
             if(!GetNameOfCertIssuerTx(tx, vchName))
                 continue;
 
-            // skip this alias if it doesn't match the given filter value
+            // skip this cert if it doesn't match the given filter value
             if(vchNameUniq.size() > 0 && vchNameUniq != vchName)
                 continue;
 
-            // get the value of the alias txn
+            // get the value of the cert txn
             if(!GetValueOfCertIssuerTx(tx, vchValue))
                 continue;
 

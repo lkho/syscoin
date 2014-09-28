@@ -1,5 +1,11 @@
-#ifndef  SYSCOIN_H
-#define SYSCOIN_H
+/*
+ * syscoin.h
+ *
+ *  Created on: Sep 25, 2014
+ *      Author: 
+ */
+#ifndef  SYSCOIN_H_
+#define SYSCOIN_H_
 
 std::string stringFromVch(const std::vector<unsigned char> &vch);
 std::vector<unsigned char> vchFromValue(const json_spirit::Value& value);
@@ -14,4 +20,5 @@ static const unsigned int MIN_ACTIVATE_DEPTH = 120;
 static const unsigned int MIN_ACTIVATE_DEPTH_CAKENET = 1;
 
 
-#endif // SYSCOIN_H
+#endif // SYSCOIN_H_
+

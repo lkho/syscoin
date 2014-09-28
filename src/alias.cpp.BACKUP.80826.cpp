@@ -34,10 +34,10 @@ extern std::map<uint160, std::vector<unsigned char> > mapMyNameHashes;
 template<typename T> void ConvertTo(Value& value, bool fAllowNull = false);
 
 extern uint256 SignatureHash(CScript scriptCode, const CTransaction& txTo,
-		unsigned int nIn, int nHashType);
+        unsigned int nIn, int nHashType);
 
 bool GetValueOfAliasTxHash(const uint256 &txHash,
-		vector<unsigned char>& vchValue, uint256& hash, int& nHeight);
+        vector<unsigned char>& vchValue, uint256& hash, int& nHeight);
 
 //static const bool NAME_DEBUG = false;
 //extern int64 AmountFromValue(const Value& value);
@@ -51,15 +51,15 @@ extern map<uint256, CTransaction> mapTransactions;
 
 // forward decls
 extern bool DecodeAliasScript(const CScript& script, int& op,
-		vector<vector<unsigned char> > &vvch, CScript::const_iterator& pc);
+        vector<vector<unsigned char> > &vvch, CScript::const_iterator& pc);
 extern bool Solver(const CKeyStore& keystore, const CScript& scriptPubKey,
-		uint256 hash, int nHashType, CScript& scriptSigRet,
-		txnouttype& whichTypeRet);
+        uint256 hash, int nHashType, CScript& scriptSigRet,
+        txnouttype& whichTypeRet);
 extern bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey,
-		const CTransaction& txTo, unsigned int nIn, unsigned int flags,
-		int nHashType);
+        const CTransaction& txTo, unsigned int nIn, unsigned int flags,
+        int nHashType);
 extern bool IsConflictedAliasTx(CBlockTreeDB& txdb, const CTransaction& tx,
-		vector<unsigned char>& name);
+        vector<unsigned char>& name);
 extern void rescanforaliases(CBlockIndex *pindexRescan);
 extern void rescanforoffers(CBlockIndex *pindexRescan);
 //extern Value sendtoaddress(const Array& params, bool fHelp);
@@ -70,19 +70,19 @@ int64 GetAliasNetFee(const CTransaction& tx);
 bool CheckAliasTxPos(const vector<CAliasIndex> &vtxPos, const int txPos);
 
 void RemoveAliasTxnFromMemoryPool(const CTransaction& tx) {
-	if (tx.nVersion != SYSCOIN_TX_VERSION)
-		return;
+    if (tx.nVersion != SYSCOIN_TX_VERSION)
+        return;
 
-	if (tx.vout.size() < 1)
-		return;
+    if (tx.vout.size() < 1)
+        return;
 
-	vector<vector<unsigned char> > vvch;
+    vector<vector<unsigned char> > vvch;
 
-	int op;
-	int nOut;
+    int op;
+    int nOut;
 
-	if (!DecodeAliasTx(tx, op, nOut, vvch, -1))
-		return;
+    if (!DecodeAliasTx(tx, op, nOut, vvch, -1))
+        return;
 
 	if (op != OP_ALIAS_NEW) {
 		{
@@ -96,15 +96,15 @@ void RemoveAliasTxnFromMemoryPool(const CTransaction& tx) {
 }
 
 int GetMinActivateDepth() {
-	if (fCakeNet)
-		return MIN_ACTIVATE_DEPTH_CAKENET;
-	else
-		return MIN_ACTIVATE_DEPTH;
+    if (fCakeNet)
+        return MIN_ACTIVATE_DEPTH_CAKENET;
+    else
+        return MIN_ACTIVATE_DEPTH;
 }
 
 bool IsAliasOp(int op) {
-	return op == OP_ALIAS_NEW || op == OP_ALIAS_ACTIVATE
-			|| op == OP_ALIAS_UPDATE;
+    return op == OP_ALIAS_NEW || op == OP_ALIAS_ACTIVATE
+            || op == OP_ALIAS_UPDATE;
 }
 
 bool InsertAliasFee(CBlockIndex *pindex, uint256 hash, uint64 vValue) {

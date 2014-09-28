@@ -215,10 +215,19 @@ const char* GetOpName(opcodetype opcode)
     case OP_NOP9                   : return "OP_NOP9";
     case OP_NOP10                  : return "OP_NOP10";
     case OP_ALIAS_NEW              : return "OP_ALIAS_NEW";
-    case OP_ALIAS_ACTIVATE      : return "OP_ALIAS_ACTIVATE";
+    case OP_ALIAS_ACTIVATE         : return "OP_ALIAS_ACTIVATE";
     case OP_ALIAS_UPDATE           : return "OP_ALIAS_UPDATE";
     case OP_OFFER_NEW              : return "OP_OFFER_NEW";
+    case OP_OFFER_ACTIVATE         : return "OP_OFFER_ACTIVATE";
     case OP_OFFER_UPDATE           : return "OP_OFFER_UPDATE";
+    case OP_OFFER_ACCEPT           : return "OP_OFFER_ACCEPT";
+    case OP_OFFER_PAY              : return "OP_OFFER_PAY";
+    case OP_CERTISSUER_NEW         : return "OP_CERTISSUER_NEW";
+    case OP_CERTISSUER_ACTIVATE    : return "OP_CERTISSUER_ACTIVATE";
+    case OP_CERTISSUER_UPDATE      : return "OP_CERTISSUER_UPDATE";
+    case OP_CERT_NEW               : return "OP_CERT_NEW";
+    case OP_CERT_TRANSFER          : return "OP_CERT_TRANSFER";
+    case OP_ASSET                  : return "OP_ASSET";
 
     // template matching params
     case OP_PUBKEYHASH             : return "OP_PUBKEYHASH";

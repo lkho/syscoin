@@ -85,11 +85,16 @@ OBJS= \
     obj/util.o \
     obj/wallet.o \
     obj/walletdb.o \
-    obj/noui.o \
     obj/hash.o \
     obj/bloom.o \
+    obj/noui.o \
     obj/leveldb.o \
-    obj/txdb.o
+    obj/txdb.o \
+    obj/alias.o \
+    obj/offer.o \
+    obj/cert.o \
+    obj/asset.o
+
 
 ifdef USE_SSE2
 DEFS += -DUSE_SSE2

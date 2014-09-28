@@ -6,6 +6,7 @@
 #include "txdb.h"
 #include "walletdb.h"
 #include "bitcoinrpc.h"
+#include "bitcoinhttp.h"
 #include "net.h"
 #include "init.h"
 #include "util.h"
@@ -28,10 +29,12 @@ using namespace boost;
 extern CAliasDB *paliasdb;
 extern COfferDB *pofferdb;
 extern CCertDB *pcertdb;
+extern CAssetDB *passetdb;
 
 void rescanforaliases(CBlockIndex *pindexRescan);
 void rescanforoffers(CBlockIndex *pindexRescan);
 void rescanforcertissuers(CBlockIndex *pindexRescan);
+void rescanforassets(CBlockIndex *pindexRescan);
 
 CWallet* pwalletMain;
 CClientUIInterface uiInterface;
@@ -106,6 +109,7 @@ void Shutdown()
     RenameThread("bitcoin-shutoff");
     nTransactionsUpdated++;
     StopRPCThreads();
+    StopHTTPThreads();
     ShutdownRPCMining();
     if (pwalletMain)
         bitdb.Flush(false);
@@ -124,13 +128,16 @@ void Shutdown()
         if (pofferdb)
             pofferdb->Flush(); 
         if (pcertdb)
-            pcertdb->Flush();   
+            pcertdb->Flush();  
+        if (passetdb)
+            passetdb->Flush();  
         delete pcoinsTip; pcoinsTip = NULL;
         delete pcoinsdbview; pcoinsdbview = NULL;
         delete pblocktree; pblocktree = NULL;
         delete paliasdb; paliasdb = NULL;
         delete pofferdb; pofferdb = NULL;
         delete pcertdb; pcertdb = NULL;
+        delete passetdb; passetdb = NULL;
     }
     if (pwalletMain)
         bitdb.Flush(true);
@@ -595,6 +602,8 @@ bool AppInit2(boost::thread_group& threadGroup)
     else
         fServer = GetBoolArg("-server");
 
+    fHTTPClient = GetBoolArg("-http");
+
     /* force fServer when running without GUI */
 #if !defined(QT_GUI)
     fServer = true;
@@ -900,6 +909,7 @@ bool AppInit2(boost::thread_group& threadGroup)
                 delete paliasdb;
                 delete pofferdb;
                 delete pcertdb;
+                delete passetdb;
 
                 pblocktree = new CBlockTreeDB(nBlockTreeDBCache, false, fReindex);
                 pcoinsdbview = new CCoinsViewDB(nCoinDBCache, false, fReindex);
@@ -907,6 +917,7 @@ bool AppInit2(boost::thread_group& threadGroup)
                 paliasdb = new CAliasDB(nNameDBCache, false, fReindex);
                 pofferdb = new COfferDB(nNameDBCache*2, false, fReindex);
                 pcertdb = new CCertDB(nNameDBCache*2, false, fReindex);
+                passetdb = new CAssetDB(nNameDBCache*2, false, fReindex);
 
                 if (fReindex) pblocktree->WriteReindexing(true);
 
@@ -1094,6 +1105,7 @@ bool AppInit2(boost::thread_group& threadGroup)
     		rescanforaliases(pindexRescan);
     		rescanforoffers(pindexRescan);
     		rescanforcertissuers(pindexRescan);
+            rescanforassets(pindexRescan);
             nWalletDBUpdated++;
         }
     } // (!fDisableWallet)
@@ -1151,6 +1163,9 @@ bool AppInit2(boost::thread_group& threadGroup)
     InitRPCMining();
     if (fServer)
         StartRPCThreads();
+
+    if (fHTTPClient)
+        StartHTTPThreads();
 
     // Generate coins in the background
     if (pwalletMain)

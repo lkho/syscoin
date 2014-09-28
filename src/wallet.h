@@ -20,6 +20,7 @@
 #include "alias.h"
 #include "offer.h"
 #include "cert.h"
+#include "asset.h"
 
 class CAccountingEntry;
 class CWalletTx;
@@ -129,6 +130,7 @@ public:
     bool CanSupportFeature(enum WalletFeature wf) { return nWalletMaxVersion >= wf; }
 
     void AvailableCoins(std::vector<COutput>& vCoins, bool fOnlyConfirmed=true, const CCoinControl *coinControl=NULL) const;
+    void LotsOfCoins(std::vector<COutput>& vCoins, bool fOnlyConfirmed=true, const CCoinControl *coinControl=NULL) const;
     bool SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfTheirs, std::vector<COutput> vCoins, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet) const;
     bool IsLockedCoin(uint256 hash, unsigned int n) const;
     void LockCoin(COutPoint& output);
@@ -172,16 +174,21 @@ public:
     TxItems OrderedTxItems(std::list<CAccountingEntry>& acentries, std::string strAccount = "");
 
     void MarkDirty();
+    
     bool AddToWallet(const CWalletTx& wtxIn);
     bool AddToWalletIfInvolvingMe(const uint256 &hash, const CTransaction& tx, const CBlock* pblock, bool fUpdate = false, bool fFindBlock = false);
     bool EraseFromWallet(uint256 hash);
+    
     void WalletUpdateSpent(const CTransaction& prevout);
+
     int ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate = false);
     void ReacceptWalletTransactions();
     void ResendWalletTransactions();
+    
     int64 GetBalance() const;
     int64 GetUnconfirmedBalance() const;
     int64 GetImmatureBalance() const;
+
     bool CreateTransaction(const std::vector<std::pair<CScript, int64> >& vecSend,
                            CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, std::string& strFailReason, 
 						   const CCoinControl *coinControl=NULL, const std::string &txData="");
@@ -189,6 +196,7 @@ public:
                            CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, std::string& strFailReason, 
 						   const CCoinControl *coinControl=NULL, const std::string &txData="");
     bool CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey);
+
     std::string SendMoney(CScript scriptPubKey, int64 nValue, CWalletTx& wtxNew, bool fAskFee=false, const std::string &txData="");
     std::string SendMoneyToDestination(const CTxDestination &address, int64 nValue, CWalletTx& wtxNew, bool fAskFee=false, const std::string &txData="");
     std::string SendData(CWalletTx& wtxNew, bool fAskFee, const std::string& txData);
@@ -232,8 +240,8 @@ public:
         BOOST_FOREACH(const CTxOut& txout, tx.vout) {
             if (IsMine(txout) && txout.nValue >= nMinimumInputValue)
                 return true;
-            
-            if (tx.nVersion != SYSCOIN_TX_VERSION)
+
+            if (tx.nVersion != SYSCOIN_TX_VERSION || !IsCrypted())
                 continue;
 
             CTxDestination address;
@@ -244,9 +252,17 @@ public:
                     return true;
             }
         }
-        if (IsAliasMine(tx) || IsOfferMine(tx) || IsCertMine(tx)) return true;
+        if (IsAliasMine(tx))
+        	return true;
+        else if (IsOfferMine(tx))
+        	return true;
+        else if (IsCertMine(tx))
+        	return true;
+        else if (IsAssetMine(tx))
+        	return true;
         return false;
     }
+
     bool IsFromMe(const CTransaction& tx) const
     {
         return (GetDebitInclName(tx) > 0);
@@ -291,6 +307,8 @@ public:
     bool SetAddressBookName(const CTxDestination& address, const std::string& strName);
 
     bool DelAddressBookName(const CTxDestination& address);
+
+    void InsertedTransaction(const uint256 &hashTx);
 
     void UpdatedTransaction(const uint256 &hashTx);
 
@@ -343,6 +361,11 @@ public:
      * @note called with lock cs_wallet held.
      */
     boost::signals2::signal<void (CWallet *wallet, const CTransaction *txn,  CCertIssuer &certi, ChangeType status)> NotifyCertIssuerListChanged;
+
+    /** Cert list entry changed.
+     * @note called with lock cs_wallet held.
+     */
+    boost::signals2::signal<void (CWallet *wallet, const CTransaction *txn,  CAsset &asset, ChangeType status)> NotifyAssetListChanged;
 
     /** Wallet transaction added, removed or updated.
      * @note called with lock cs_wallet held.

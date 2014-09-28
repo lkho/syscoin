@@ -13,6 +13,7 @@
 #include "alias.h"
 #include "offer.h"
 #include "cert.h"
+#include "asset.h"
 #include "txdb.h"
 #include "script.h"
 
@@ -1056,7 +1057,7 @@ void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDe
     string strSentAccount;
     list<pair<CTxDestination, int64> > listReceived;
     list<pair<CTxDestination, int64> > listSent;
-    bool fNameTx;
+    bool fNameTx, fFound = false;
     wtx.GetAmounts(listReceived, listSent, nFee, strSentAccount, fNameTx);
 
     bool fAllAccounts = (strAccount == string("*"));
@@ -1083,6 +1084,10 @@ void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDe
                     else if(IsCertOp(op)) {
                         nTxOut = IndexOfCertIssuerOutput(wtx);
                         ExtractCertIssuerAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
+                    } 
+                    else if(IsAssetOp(op)) {
+                        nTxOut = IndexOfAssetOutput(wtx);
+                        ExtractAssetAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
                     } 
                 }
             }

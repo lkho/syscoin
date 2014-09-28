@@ -360,6 +360,7 @@ CBlockTreeDB *pblocktree = NULL;
 CAliasDB *paliasdb = NULL;
 COfferDB *pofferdb = NULL;
 CCertDB *pcertdb = NULL;
+CAssetDB *passetdb = NULL;
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -669,6 +670,7 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
     int op;
     int nOut;
 
+    // TODO CB this is a holdover from a namecoin bug fix. we really got to clean this up soon
     bool ret[2];
     for (int iter = 0; iter < 2; iter++) {
         ret[iter] = true;
@@ -778,6 +780,52 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
 	                ret[iter] = error("cert transaction has unknown op");
 	        }
         }        
+
+        // TODO CB refactor this stuff into assets.cpp as a function call made from here
+        good = DecodeAssetTx(*this, op, nOut, vvch, iter == 0 ? 0 : -1);
+        if(good && IsAssetOp(op)) {
+
+        	// make sure asset script has the correct number of parameters
+	        if (vvch.size() != 3) {
+	            ret[iter] = error("incorrect number of asset script params");
+	            continue;
+	        }
+
+	        // asset name size sanity check
+	        if (vvch[0].size() > MAX_NAME_LENGTH) {
+	            ret[iter] = error("asset transaction with asset symbol too long");
+	            continue;
+	        }
+
+        	// asset hash size sanity check
+            if (vvch[1].size() > 20) {
+                ret[iter] = error("asset tx with rand too big");
+                continue;
+            }
+
+            // asset value size sanity
+            if (vvch[2].size() > MAX_VALUE_LENGTH) {
+                ret[iter] = error("asset tx with value too long");
+                continue;
+            }
+
+	        // unserialize asset object from txn, check for valid
+        	CAsset theAsset;
+        	theAsset.UnserializeFromTx(*this);
+        	if (theAsset.IsNull()) {
+            	ret[iter] = error("asset transaction with null asset object");
+            	continue;
+        	}
+        	string serAsset = theAsset.SerializeToString();
+        	uint160 theHash  = Hash160(vchFromString(serAsset));
+
+        	uint160 scriptAssetHash = uint160(vvch[1]);
+        	if(theHash !=scriptAssetHash) {
+            	ret[iter] = error("asset transaction invalid asset hash");
+            	continue;
+        	}
+
+        }
     }
     return ret[0] || ret[1];
 }
@@ -838,7 +886,8 @@ void CTxMemPool::pruneSpent(const uint256 &hashTx, CCoins &coins) {
 
 bool CTxMemPool::accept(CValidationState &state, CTransaction &tx,
 		bool fCheckInputs, bool fLimitFree, bool* pfMissingInputs) {
-	printf( "*** ACCEPTTOMEMORYPOOL %s %s\n", fCheckInputs ? "CHECKINPUTS" : "", tx.GetHash().ToString().c_str() );
+
+	//printf( "*** ACCEPTTOMEMORYPOOL %s %s\n", fCheckInputs ? "CHECKINPUTS" : "", tx.GetHash().ToString().c_str() );
 
 	if (pfMissingInputs)
 		*pfMissingInputs = false;
@@ -996,6 +1045,7 @@ bool CTxMemPool::accept(CValidationState &state, CTransaction &tx,
 		addUnchecked(hash, tx);
 	}
 
+	// this is a syscoin service transaction
 	if (tx.nVersion == SYSCOIN_TX_VERSION) {
 	    if (tx.vout.size() < 1) {
 	        error("AcceptToMemoryPool() : no output in syscoin tx %s\n", tx.ToString().c_str());
@@ -1004,6 +1054,7 @@ bool CTxMemPool::accept(CValidationState &state, CTransaction &tx,
         vector<vector<unsigned char> > vvch;
 	    int op, nOut;
 
+<<<<<<< HEAD
 	    if(DecodeAliasTx(tx, op, nOut, vvch, -1)) {
 	    	string soptype;
 		    if(IsAliasOp(op)) {
@@ -1028,6 +1079,12 @@ bool CTxMemPool::accept(CValidationState &state, CTransaction &tx,
 	                mapCertIssuerPending[op == OP_CERTISSUER_NEW ? vchFromString(HexStr(vvch[0]))
 	                    : vvch[0]].insert(tx.GetHash());
 	           	soptype = "cert";
+		    }
+		    else if(IsAssetOp(op)) {
+		        LOCK(cs_aliasmap);
+                mapAssetPending[op == OP_ASSET_NEW ? vchFromString(HexStr(vvch[0])) 
+                	: vvch[0]].insert(tx.GetHash());
+	           	soptype = "asset";
 		    }
 	    	printf("AcceptToMemoryPool() : Added %s transaction '%s' to memory pool.\n",
 	    		soptype.c_str(),
@@ -1184,8 +1241,7 @@ bool CWalletTx::AcceptWalletTransaction(bool fCheckInputs) {
 }
 
 // Return transaction in tx, and if it was found inside a block, its hash is placed in hashBlock
-bool GetTransaction(const uint256 &hash, CTransaction &txOut,
-		uint256 &hashBlock, bool fAllowSlow) {
+bool GetTransaction(const uint256 &hash, CTransaction &txOut, uint256 &hashBlock, bool fAllowSlow) {
 	CBlockIndex *pindexSlow = NULL;
 	{
 		TRY_LOCK(cs_main, cs_trymain);
@@ -1302,12 +1358,12 @@ uint256 static GetOrphanRoot(const CBlockHeader* pblock) {
  * @return
  */
 int64 static GetBlockValue(int nHeight, int64 nFees, uint256 prevHash) {
-    int64 a,b,c,d,e,s;
+    int64 a,b,c,d,e,f,s;
     int64 nSubsidy = 128 * COIN;
     if(nHeight == 0)
         nSubsidy = 1024 * COIN; // genesis amount
     else if(nHeight == 1)
-        nSubsidy = 364222858 * COIN; // pre-mine amount
+        nSubsidy = ( fCakeNet ? 1100000 : 364222858 ) * COIN; // pre-mine amount
     else if(nHeight > 259440 && nHeight <= 777840)
         nSubsidy = 96 * COIN;
     else if(nHeight > 777840 && nHeight <= 1814640)
@@ -1325,19 +1381,25 @@ int64 static GetBlockValue(int nHeight, int64 nFees, uint256 prevHash) {
     else if( ( fTestNet || fCakeNet ) && ( nHeight > 35913640 ) )
         nSubsidy = 0;
 
-    a = nSubsidy;
-    b = GetAliasFeeSubsidy(nHeight);
-    c = GetOfferFeeSubsidy(nHeight);
-    d = GetCertFeeSubsidy(nHeight);
-    e = nFees;
-    s = a+e;
+    a  = nSubsidy;
+    b  = GetAliasFeeSubsidy(nHeight);
+    c  = GetOfferFeeSubsidy(nHeight);
+    d  = GetCertFeeSubsidy(nHeight);
+    e  = GetAssetFeeSubsidy(nHeight);
+    f  = nFees;
+    s  = a + f;
 
     if (nHeight < hardforkLaunch 
         || nHeight >= MM_FEEREGEN_HARDFORK
-        || (fCakeNet || fTestNet)) s += b+c+d;
+        || (fCakeNet || fTestNet)) s += b + c + d + e;
 
-    if (fDebug)
-	printf ("GetBlockvalue of Block %d: subsidy=%"PRI64d", fees=%"PRI64d", aliasSubsidy=%"PRI64d", offerSubsidy=%"PRI64d", certSubidy=%"PRI64d", sum=%"PRI64d". \n", nHeight, a,e,b,c,d,s);
+    //if (fDebug)
+	//printf ("GetBlockvalue of Block %d: subsidy=%"PRI64d", fees=%"PRI64d", aliasSubsidy=%"PRI64d", offerSubsidy=%"PRI64d", certSubidy=%"PRI64d", assetSubidy=%"PRI64d", sum=%"PRI64d". \n", nHeight, a, f, b, c, d, e, s);
+    
+    if(fCakeNet) {
+    	if(nHeight==1) return s;
+    	else return 0;
+    }
     return s;
 }
 
@@ -1546,7 +1608,6 @@ void static InvalidBlockFound(CBlockIndex *pindex) {
 }
 
 bool LoadSyscoinFees() {
-    // read alias and offer indexes
 
     // read alias network fees
     lstAliasFees.clear();
@@ -1576,6 +1637,16 @@ bool LoadSyscoinFees() {
     lstCertIssuerFees = lCF;
 	BOOST_FOREACH(CCertFee& fee, lstCertIssuerFees) {
 		printf("Cert Fee - height: %llu \t value: %llu\n", fee.nHeight, fee.nFee);
+	}
+
+    // read cert issuer network fees
+    lstAssetFees.clear();
+    vector<CAssetFee> vac;
+    passetdb->ReadAssetFees(vac);
+    list<CAssetFee> lAAF(vac.begin(), vac.end());
+    lstAssetFees = lAAF;
+	BOOST_FOREACH(CAssetFee& fee, lstAssetFees) {
+		printf("asset Fee - height: %llu \t value: %llu\n", fee.nHeight, fee.nFee);
 	}
 
     return true;
@@ -1773,6 +1844,7 @@ bool CTransaction::CheckInputs(CBlockIndex *pindex, CValidationState &state, CCo
 		}
 
 		vector<vector<unsigned char> > vvchArgs;
+		bool fFound = false;
 		int op;
 		int nOut;
 
@@ -1787,6 +1859,10 @@ bool CTransaction::CheckInputs(CBlockIndex *pindex, CValidationState &state, CCo
 			} 
 			else if (IsCertOp(op)) {
 				if (!CheckCertInputs(pindex, *this, state, inputs, mapTestPool, fBlock, fMiner, bJustCheck))
+					return false;
+			}
+			else if (IsAssetOp(op)) {
+				if (!CheckAssetInputs(pindex, *this, state, inputs, mapTestPool, fBlock, fMiner, bJustCheck))
 					return false;
 			}
 		}
@@ -1901,7 +1977,6 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 	    if (tx.nVersion == SYSCOIN_TX_VERSION) {
 		    vector<vector<unsigned char> > vvchArgs;
 		    int op, nOut;
-		    bool bProcessed = false;
 
 		    if(DecodeAliasTx(tx, op, nOut, vvchArgs, pindex->nHeight)) {
 			    // alias, data
@@ -1948,8 +2023,7 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 	            else if (IsOfferOp(op)) {
 
 	                string opName = offerFromOp(op);
-					COffer theOffer;
-					theOffer.UnserializeFromTx(tx);
+					COffer theOffer(tx);
 					if (theOffer.IsNull())
 						error("CheckOfferInputs() : null offer object");
 
@@ -2008,11 +2082,10 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 		                pindex->nHeight);				
 				}
 	            else if (IsCertOp(op)) {
-	            	bProcessed = true;
-	                string opName = certissuerFromOp(op);
 
-	                CCertIssuer theIssuer;
-	                theIssuer.UnserializeFromTx(tx);
+	                string opName = certissuerFromOp(op);
+	                CCertIssuer theIssuer(tx);
+
 	                if (theIssuer.IsNull())
 	                    error("CheckOfferInputs() : null issuer object");
 
@@ -2071,6 +2144,56 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 		                tx.GetHash().ToString().c_str(),
 		                pindex->nHeight);
 	            }		    
+	            else if (IsAssetOp(op)) {
+	                string opName = assetFromOp(op);
+	                CAsset theAsset(tx), serializedAsset;
+	                uint64 xOp = theAsset.nOp;
+
+	                if (theAsset.IsNull())
+	                    error("DisconnectBlock() : null asset object");
+
+	                if(xOp != XOP_ASSET_NEW) {
+
+	                    // make sure a DB record exists for this asset
+	                    vector<CAsset> vtxPos;
+	                    if (!passetdb->ReadAsset(vvchArgs[0], vtxPos))
+	                        return error("DisconnectBlock() : failed to read from asset DB for %s %s\n",
+	                                opName.c_str(), stringFromVch(vvchArgs[0]).c_str());
+
+	                    // vtxPos might be empty if we pruned expired transactions.  However, it should normally still not
+	                    // be empty, since a reorg cannot go that far back.  Be safe anyway and do not try to pop if empty.
+	                    if (vtxPos.size()) {
+	                        CDiskTxPos txindex;
+	                        if (!pblocktree->ReadTxIndex(tx.GetHash(), txindex))
+	                            return error("DisconnectBlock() : failed to read tx index for asset %s %s %s\n",
+	                                    opName.c_str(), stringFromVch(vvchArgs[0]).c_str(), tx.GetHash().ToString().c_str());
+
+	                        while(vtxPos.back().txHash == tx.GetHash())
+	                            vtxPos.pop_back();
+
+	                        // TODO validate that the first pos is the current tx pos
+	                    }             	
+
+	                    // write new asset state to db
+	                    if(!passetdb->WriteAsset(vvchArgs[0], vtxPos))
+	                        return error("DisconnectBlock() : failed to write to asset DB");
+
+	                    // compute verify and write fee data to DB
+	                    int64 nTheFee = GetAssetNetFee(tx);
+	                    InsertAssetFee(pindex, tx.GetHash(), theAsset.nOp, nTheFee);
+	                    if(nTheFee > 0) printf("DisconnectBlock(): Added %lf in asset fees to track for regeneration.\n", (double) nTheFee / COIN);
+	                    vector<CAssetFee> vAssetFees(lstAssetFees.begin(), lstAssetFees.end());
+	                    if (!passetdb->WriteAssetFees(vAssetFees))
+	                        return error( "DisconnectBlock() : failed to write fees to asset DB");
+	                }
+	                else {
+	                    passetdb->EraseAsset(theAsset.vchRand);
+	                }
+	        		printf("DISCONNECTED ASSET TXN: title=%s hash=%s height=%d\n",
+	                    op == OP_ASSET ? HexStr(vvchArgs[0]).c_str() : stringFromVch(vvchArgs[0]).c_str(),
+		                tx.GetHash().ToString().c_str(),
+		                pindex->nHeight);
+	        	}
 	        }
 	    }
 
@@ -2379,11 +2502,10 @@ bool SetBestChain(CValidationState &state, CBlockIndex* pindexNew) {
 
 	// List of what to disconnect (typically nothing)
 	vector<CBlockIndex*> vDisconnect;
-	CBlockIndex *pindex, *pinToRescan;
+	CBlockIndex *pindex;
 	for (pindex = view.GetBestBlock(); pindex != pfork; pindex =
 			pindex->pprev)
 		vDisconnect.push_back(pindex);
-	pinToRescan = pindex;
 
 	// List of what to connect (typically only pindexNew)
 	vector<CBlockIndex*> vConnect;
@@ -2452,6 +2574,7 @@ bool SetBestChain(CValidationState &state, CBlockIndex* pindexNew) {
 	assert(paliasdb->Flush());
 	assert(pofferdb->Flush());
 	assert(pcertdb->Flush());
+	assert(passetdb->Flush());
 	int64 nTime = GetTimeMicros() - nStart;
 	if (fBenchmark)
 		printf("- Flush %i transactions: %.2fms (%.4fms/tx)\n", nModified,
@@ -3443,7 +3566,7 @@ bool LoadBlockIndex() {
         pchMessageStart[2] = 0xf1;
         pchMessageStart[3] = 0xf9;
 		hashGenesisBlock =
-				uint256("0xa86ee2d873489d24564405287c18807f369f0c82d54dfe756f2d8c3d2af15908");
+				uint256("0x5db85560bace75e9f4cae7d1771962af0557c4745618cbcfd00f9df69fdff8f0");
 	}	
 
 	//
@@ -3496,8 +3619,8 @@ bool InitBlockIndex() {
 		
 		if (fCakeNet) {
 			block.nTime = 1405483900;
-			block.nBits = 0x20008ff0;
-			block.nNonce = 214;
+			block.nBits = 0x2000fff0;
+			block.nNonce = 115;
 		}
 		
 		//// debug print
@@ -5336,7 +5459,7 @@ void static ScryptMiner(CWallet *pwallet) {
 							static int64 nLogTime;
 							if (GetTime() - nLogTime > 30 * 60) {
 								nLogTime = GetTime();
-								printf("hashmeter %6.0f khash/s\n",
+								printf("hash-o-meter %6.0f khash/s\n", // i changed this because i felt like it.
 										dHashesPerSec / 1000.0);
 							}
 						}

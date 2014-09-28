@@ -32,6 +32,7 @@ extern uint256 SignatureHash(CScript scriptCode, const CTransaction& txTo,
 		unsigned int nIn, int nHashType);
 
 CScript RemoveOfferScriptPrefix(const CScript& scriptIn);
+
 bool DecodeOfferScript(const CScript& script, int& op,
 		std::vector<std::vector<unsigned char> > &vvch,
 		CScript::const_iterator& pc);
@@ -39,6 +40,7 @@ bool DecodeOfferScript(const CScript& script, int& op,
 extern bool Solver(const CKeyStore& keystore, const CScript& scriptPubKey,
 		uint256 hash, int nHashType, CScript& scriptSigRet,
 		txnouttype& whichTypeRet);
+
 extern bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey,
 		const CTransaction& txTo, unsigned int nIn, unsigned int flags,
 		int nHashType);
@@ -361,7 +363,6 @@ uint64 GetOfferFeeSubsidy(unsigned int nHeight) {
 }
 
 bool InsertOfferFee(CBlockIndex *pindex, uint256 hash, uint64 nValue) {
-
 	list<COfferFee> txnDup;
 	COfferFee oFee;
 	oFee.nTime = pindex->nTime;
@@ -1459,7 +1460,7 @@ Value offernew(const Array& params, bool fHelp) {
 	else {
 	    BOOST_FOREACH(const PAIRTYPE(CTxDestination, string)& entry, pwalletMain->mapAddressBook) {
 	        if (IsMine(*pwalletMain, entry.first)) {
-	            // sign the data and store it as the alias value
+	            // sign the data and store it as the offer value
 	            CKeyID keyID;
 	            payAddr.Set(entry.first);
 	            if (payAddr.GetKeyID(keyID) && payAddr.IsValid()) {
@@ -1474,7 +1475,7 @@ Value offernew(const Array& params, bool fHelp) {
 	vector<unsigned char> vchTitle = vchFromValue(params[nParamIdx++]);
 	vector<unsigned char> vchDesc;
 
-	nQty = atoi(params[nParamIdx++].get_str().c_str());
+	nQty = atoi64(params[nParamIdx++].get_str().c_str());
 	nPrice = atoi64(params[nParamIdx++].get_str().c_str());
 
 	if(nParamIdx < params.size()) vchDesc = vchFromValue(params[nParamIdx++]);
@@ -1676,6 +1677,7 @@ Value offerupdate(const Array& params, bool fHelp) {
 	uint64 price;
 	if (params.size() == 6) vchDesc = vchFromValue(params[5]);
 	try {
+		// TODO CB convert to uint64
 		qty = atoi(params[3].get_str().c_str());
 		price = atoi64(params[4].get_str().c_str());
 	} catch (std::exception &e) {
@@ -2099,7 +2101,7 @@ Value offerlist(const Array& params, bool fHelp) {
             if (tx.nVersion != SYSCOIN_TX_VERSION)
                 continue;
 
-            // decode txn, skip non-alias txns
+            // decode txn, skip non-offer txns
             vector<vector<unsigned char> > vvch;
             int op, nOut;
             if (!DecodeOfferTx(tx, op, nOut, vvch, -1) 
@@ -2202,15 +2204,15 @@ Value offeracceptlist(const Array& params, bool fHelp) {
             // get the txn height
             nHeight = GetOfferTxHashHeight(hash);
 
-            // get the txn alias name
+            // get the txn offer name
             if(!GetNameOfOfferTx(tx, vchName))
                 continue;
 
-            // skip this alias if it doesn't match the given filter value
+            // skip this offer if it doesn't match the given filter value
             if(vchNameUniq.size() > 0 && vchNameUniq != vchName)
                 continue;
 
-            // get the value of the alias txn
+            // get the value of the offer txn
             if(!GetValueOfOfferTx(tx, vchValue))
                 continue;
 
