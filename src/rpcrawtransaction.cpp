@@ -254,16 +254,16 @@ Value listunspent(const Array& params, bool fHelp)
     return results;
 }
 
-Value listabunch(const Array& params, bool fHelp)
+Value listassetunspent(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() > 3)
         throw runtime_error(
-            "listabunch [minconf=1] [maxconf=9999999]  [\"address\",...]\n"
-            "Returns array of a bunch of transaction outputs\n"
+            "listunspent [minconf=1] [maxconf=9999999]  [\"address\",...]\n"
+            "Returns array of unspent asset transaction outputs\n"
             "with between minconf and maxconf (inclusive) confirmations.\n"
             "Optionally filtered to only include txouts paid to specified addresses.\n"
             "Results are an array of Objects, each of which has:\n"
-            "{txid, vout, scriptPubKey, amount, confirmations}");
+            "{txid, vout, scriptPubKey, asset symbol, amount, confirmations}");
 
     RPCTypeCheck(params, list_of(int_type)(int_type)(array_type));
 
@@ -293,7 +293,7 @@ Value listabunch(const Array& params, bool fHelp)
     Array results;
     vector<COutput> vecOutputs;
     assert(pwalletMain != NULL);
-    pwalletMain->LotsOfCoins(vecOutputs, false);
+    pwalletMain->AssetCoins(vecOutputs, true, NULL, NULL);
     BOOST_FOREACH(const COutput& out, vecOutputs)
     {
         if (out.nDepth < nMinDepth || out.nDepth > nMaxDepth)
@@ -309,11 +309,20 @@ Value listabunch(const Array& params, bool fHelp)
                 continue;
         }
 
+        CTransaction tx;
+        uint256 txHash, blockHash;
+        if(!GetTransaction(txHash, tx, blockHash, true))
+        	continue;
+        CAsset theAsset(tx);
+
+        // get the asset from DB
+        vector<unsigned char> vchAsset;
         int64 nValue = out.tx->vout[out.i].nValue;
         const CScript& pk = out.tx->vout[out.i].scriptPubKey;
         Object entry;
         entry.push_back(Pair("txid", out.tx->GetHash().GetHex()));
         entry.push_back(Pair("vout", out.i));
+        entry.push_back(Pair("symbol", stringFromVch(theAsset.vchSymbol).c_str()));
         CTxDestination address;
         if (ExtractDestination(out.tx->vout[out.i].scriptPubKey, address))
         {

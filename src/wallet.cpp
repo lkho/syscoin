@@ -297,7 +297,7 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
 
         Lock();
         Unlock(strWalletPassphrase);
-        NewKeyPool();
+        //NewKeyPool(); CB Commented this out so that encrypted wallets will still work
         Lock();
 
         // Need to completely rewrite the wallet file; if we don't, bdb might keep
@@ -497,9 +497,6 @@ bool CWallet::AddToWallet(const CWalletTx& wtxIn)
         // since AddToWallet is called directly for self-originating transactions, check for consumption of own coins
         WalletUpdateSpent(wtx);
 
-        // Notify UI of new or updated transaction
-        NotifyTransactionChanged(this, hash, fInsertedNew ? CT_NEW : CT_UPDATED);
-
         if(fInsertedNew) InsertedTransaction(hash);
         else UpdatedTransaction(hash);
 
@@ -520,7 +517,6 @@ bool CWallet::AddToWallet(const CWalletTx& wtxIn)
 // If fUpdate is true, existing transactions will be updated.
 bool CWallet::AddToWalletIfInvolvingMe(const uint256 &hash, const CTransaction& tx, const CBlock* pblock, bool fUpdate, bool fFindBlock)
 {
-
     {
         LOCK(cs_wallet);
         bool fExisted = mapWallet.count(hash);
@@ -750,6 +746,12 @@ void CWalletTx::GetAmounts(list<pair<CTxDestination, int64> >& listReceived,
                     continue;
             }
             else if (IsAssetOp(op)) {
+                nCarriedOverCoin -= txout.nValue;
+                continue;
+            }
+        }
+        else if(DecodeAssetScript(txout.scriptPubKey, op, vvch)) {
+            if (IsAssetOp(op)) {
                 nCarriedOverCoin -= txout.nValue;
                 continue;
             }
@@ -1061,6 +1063,41 @@ int64 CWallet::GetBalance() const
     return nTotal;
 }
 
+int64 CWallet::GetAssetBalance(const vector<unsigned char> &vchSymbol) const
+{
+    int64 nTotal = 0;
+
+    LOCK(cs_wallet);
+    for (map<uint256, CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it)
+    {
+        const CWalletTx* pcoin = &(*it).second;
+
+        if (!pcoin->IsConfirmed()
+        		|| pcoin->IsCoinBase()
+        		|| pcoin->nVersion != SYSCOIN_TX_VERSION)
+            continue;
+
+        for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
+            vector<vector<unsigned char> > vvch;
+            int op, nOut;
+
+            if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1)||!IsAssetOp(op))
+                continue;
+
+            CAsset asset(*pcoin);
+
+            if(asset.nOp==XOP_ASSET_SEND && !pcoin->IsSpent(i) && IsMyAsset(*pcoin, pcoin->vout[i])) {
+                if(vchSymbol.size() > 0) {
+                    if(asset.vchSymbol != vchSymbol)
+                        continue;
+                }
+            	nTotal += pcoin->vout[i].nValue;
+            }
+        }
+    }
+    return nTotal;
+}
+
 int64 CWallet::GetUnconfirmedBalance() const
 {
     int64 nTotal = 0;
@@ -1121,6 +1158,80 @@ void CWallet::AvailableCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const
 }
 
 // populate vCoins with vector of spendable COutputs
+void CWallet::AssetCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCoinControl *coinControl, const vector<unsigned char> *passetSymbol) const
+{
+    vCoins.clear();
+    {
+        LOCK(cs_wallet);
+        for (map<uint256, CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it)
+        {
+            const CWalletTx* pcoin = &(*it).second;
+
+            if ( (fOnlyConfirmed && !pcoin->IsConfirmed())
+            		|| pcoin->IsCoinBase()
+            		|| pcoin->nVersion != SYSCOIN_TX_VERSION )
+                continue;
+
+            for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
+                vector<vector<unsigned char> > vvch;
+                int op, nOut;
+
+                if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1)
+                	||!IsAssetOp(op))
+                    continue;
+
+                CAsset asset(*pcoin);
+
+                if(passetSymbol!=NULL && *passetSymbol!=asset.vchSymbol)
+                    continue;
+
+                if(asset.nOp==XOP_ASSET_SEND && !pcoin->IsSpent(i) && IsMyAsset(*pcoin, pcoin->vout[i]) &&
+                	(!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, i))) {
+                    vCoins.push_back(COutput(pcoin, i, pcoin->GetDepthInMainChain()));
+                }
+            }
+        }
+    }
+}
+
+// populate vCoins with vector of spendable COutputs
+void CWallet::AssetControlCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCoinControl *coinControl, const vector<unsigned char> *passetSymbol) const
+{
+    vCoins.clear();
+    {
+        LOCK(cs_wallet);
+        for (map<uint256, CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it)
+        {
+            const CWalletTx* pcoin = &(*it).second;
+
+            if ( (fOnlyConfirmed && !pcoin->IsConfirmed())
+            		|| pcoin->IsCoinBase()
+            		|| pcoin->nVersion != SYSCOIN_TX_VERSION )
+                continue;
+
+            for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
+                vector<vector<unsigned char> > vvch;
+                int op, nOut;
+
+                if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1)
+                	|| !IsAssetOp(op))
+                    continue;
+
+                CAsset asset(*pcoin);
+
+                if(passetSymbol!=NULL && *passetSymbol!=asset.vchSymbol)
+                    continue;
+
+                if(asset.nOp!=XOP_ASSET_SEND && !pcoin->IsSpent(i) && IsMyAsset(*pcoin, pcoin->vout[i]) &&
+                	(!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, i))) {
+                    vCoins.push_back(COutput(pcoin, i, pcoin->GetDepthInMainChain()));
+                }
+            }
+        }
+    }
+}
+
+// populate vCoins with vector of spendable COutputs
 void CWallet::LotsOfCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCoinControl *coinControl) const
 {
     vCoins.clear();
@@ -1141,7 +1252,7 @@ void CWallet::LotsOfCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CC
                 continue;
 
             for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
-                if (!(pcoin->IsSpent(i)) && IsMine(pcoin->vout[i]) ) 
+                if (IsMine(pcoin->vout[i]) ) 
                         vCoins.push_back(COutput(pcoin, i, pcoin->GetDepthInMainChain()));
             }
         }
@@ -1221,7 +1332,11 @@ bool CWallet::SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfThe
 
         pair<int64,pair<const CWalletTx*,unsigned int> > coin = make_pair(n,make_pair(pcoin, i));
 
-        if (n == nTargetValue)
+        if (-1 == nTargetValue) {
+            setCoinsRet.insert(coin.second);
+            nValueRet += coin.first;
+        }
+        else if (n == nTargetValue)
         {
             setCoinsRet.insert(coin.second);
             nValueRet += coin.first;
@@ -1238,24 +1353,27 @@ bool CWallet::SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfThe
         }
     }
 
-    if (nTotalLower == nTargetValue)
-    {
-        for (unsigned int i = 0; i < vValue.size(); ++i)
+    if(-1 != nTargetValue) {
+        if (nTotalLower == nTargetValue)
         {
-            setCoinsRet.insert(vValue[i].second);
-            nValueRet += vValue[i].first;
+            for (unsigned int i = 0; i < vValue.size(); ++i)
+            {
+                setCoinsRet.insert(vValue[i].second);
+                nValueRet += vValue[i].first;
+            }
+            return true;
         }
-        return true;
-    }
 
-    if (nTotalLower < nTargetValue)
-    {
-        if (coinLowestLarger.second.first == NULL)
-            return false;
-        setCoinsRet.insert(coinLowestLarger.second);
-        nValueRet += coinLowestLarger.first;
-        return true;
+        if (nTotalLower < nTargetValue)
+        {
+            if (coinLowestLarger.second.first == NULL)
+                return false;
+            setCoinsRet.insert(coinLowestLarger.second);
+            nValueRet += coinLowestLarger.first;
+            return true;
+        }
     }
+    else return true;
 
     // Solve subset sum by stochastic approximation
     sort(vValue.rbegin(), vValue.rend(), CompareValueOnly());
@@ -1314,6 +1432,27 @@ bool CWallet::SelectCoins(int64 nTargetValue, set<pair<const CWalletTx*,unsigned
             SelectCoinsMinConf(nTargetValue, 0, 1, vCoins, setCoinsRet, nValueRet));
 }
 
+bool CWallet::SelectAssetCoins(const vector<unsigned char> &vchSymbol, int64 nTargetValue, set<pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl) const
+{
+    vector<COutput> vCoins;
+    AssetCoins(vCoins, true, coinControl, &vchSymbol);
+    
+    // coin control -> return all selected outputs (we want all selected to go into the transaction for sure)
+    if (coinControl && coinControl->HasSelected())
+    {
+        BOOST_FOREACH(const COutput& out, vCoins)
+        {
+            nValueRet += out.tx->vout[out.i].nValue;
+            setCoinsRet.insert(make_pair(out.tx, out.i));
+        }
+        if(nTargetValue < 0) return true;
+        else return (nValueRet >= nTargetValue);
+    }
+
+    return (SelectCoinsMinConf(nTargetValue, 1, 6, vCoins, setCoinsRet, nValueRet) ||
+            SelectCoinsMinConf(nTargetValue, 1, 1, vCoins, setCoinsRet, nValueRet) ||
+            SelectCoinsMinConf(nTargetValue, 0, 1, vCoins, setCoinsRet, nValueRet));
+}
 
 
 
@@ -2114,8 +2253,17 @@ void CWallet::InsertedTransaction(const uint256 &hashTx)
                 NotifyAssetListChanged(this, &wtx, theAsset, CT_NEW);
                 typestr = "asset";
             }
-            printf("inserting %s txn %s into wallet", typestr.c_str(), hashTx.GetHex().c_str());
-		} else {
+            if(typestr!="")
+                printf("inserting %s txn %s into wallet\n", typestr.c_str(), hashTx.GetHex().c_str());
+		}
+        else if( DecodeAssetTx(wtx, op, nOut, vvchArgs, -1) ) {
+            if (IsAssetOp(op)) {
+                CAsset theAsset(wtx);
+                NotifyAssetListChanged(this, &wtx, theAsset, CT_NEW);
+                printf("inserting asset txn %s into wallet\n", hashTx.GetHex().c_str());
+            }
+        }
+        else {
 			printf("unknown transaction type for txid %s", hashTx.GetHex().c_str());
 		}
     }
@@ -2125,7 +2273,6 @@ void CWallet::UpdatedTransaction(const uint256 &hashTx)
 {
     {
         LOCK(cs_wallet);
-		printf("updating txn %s into wallet", hashTx.GetHex().c_str());
 
         // Only notify UI if this transaction is in this wallet
         map<uint256, CWalletTx>::const_iterator mi = mapWallet.find(hashTx);
@@ -2137,7 +2284,7 @@ void CWallet::UpdatedTransaction(const uint256 &hashTx)
                 return;
 
             if(wtx.nVersion != SYSCOIN_TX_VERSION) {
-                printf("inserting txn %s into wallet", hashTx.GetHex().c_str());
+                printf("updating txn %s into wallet\n", hashTx.GetHex().c_str());
                 return;
             }
         
@@ -2165,14 +2312,18 @@ void CWallet::UpdatedTransaction(const uint256 &hashTx)
                     typestr = "cert";
                 }
                 // asset
-                else if (IsAssetOp(op)) {
+                if(typestr != "")
+                    printf("inserting %s txn %s into wallet\n", typestr.c_str(), hashTx.GetHex().c_str());
+            }
+            else if(DecodeAssetTx(wtx, op, nOut, vvchArgs, -1)) {
+                if (IsAssetOp(op)) {
                     CAsset theA(wtx);
                     NotifyAssetListChanged(this, &wtx, theA, CT_UPDATED);
-                    typestr = "asset";
+                    printf("inserting asset txn %s into wallet\n", hashTx.GetHex().c_str());
                 }
-                printf("inserting %s txn %s into wallet", typestr.c_str(), hashTx.GetHex().c_str());
-            } else {
-                printf("unknown transaction type for txid %s", hashTx.GetHex().c_str());
+            } 
+            else {
+                printf("unknown transaction type for txid %s\n", hashTx.GetHex().c_str());
             }
         }
     }

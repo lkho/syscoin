@@ -122,6 +122,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
                 }
                 else
                 {
+                    // TODO SC THIS is not complete work
                     //Check if tx is a valid aliasnew (name alias for the moment).
                     if (isValidAlias) {
                         /*DecodeAliasTx does not return a decode name for aliasnew txs,

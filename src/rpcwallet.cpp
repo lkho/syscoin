@@ -579,6 +579,17 @@ int64 GetAccountBalance(const string& strAccount, int nMinDepth)
     return GetAccountBalance(walletdb, strAccount, nMinDepth);
 }
 
+int64 GetAssetBalance(CWalletDB& walletdb, const string& strAsset, int nMinDepth)
+{
+    vector<unsigned char> vchSymbol = vchFromString(strAsset);
+    return pwalletMain->GetAssetBalance(vchSymbol);
+}
+
+int64 GetAssetBalance(const string& strAsset, int nMinDepth)
+{
+    CWalletDB walletdb(pwalletMain->strWalletFile);
+    return GetAssetBalance(walletdb, strAsset, nMinDepth);
+}
 
 Value getbalance(const Array& params, bool fHelp)
 {
@@ -629,6 +640,29 @@ Value getbalance(const Array& params, bool fHelp)
     int64 nBalance = GetAccountBalance(strAccount, nMinDepth);
 
     return ValueFromAmount(nBalance);
+}
+
+Value getassetbalance(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() > 2)
+        throw runtime_error(
+            "getassetbalance [asset] [minconf=1]\n"
+            "If [asset] is not specified, returns the server's total available asset balance.\n"
+            "If [asset] is specified, returns the balance of the asset in the account.");
+
+    if (params.size() == 0)
+        return ValueFromAmount(GetAssetBalance("", 1));
+
+    int nMinDepth = 1;
+    if (params.size() > 1)
+        nMinDepth = params[1].get_int();
+
+    int64 nBalance = GetAssetBalance(params[0].get_str(), nMinDepth);
+
+    Object o;
+    o.push_back(Pair(params[0].get_str(), ValueFromAmount(nBalance)));
+
+    return o;
 }
 
 
@@ -1086,6 +1120,12 @@ void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDe
                         ExtractCertIssuerAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
                     } 
                     else if(IsAssetOp(op)) {
+                        nTxOut = IndexOfAssetOutput(wtx);
+                        ExtractAssetAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
+                    } 
+                }
+                else if(DecodeAssetTx(wtx, op, nOut, vvchArgs, -1)) {
+                    if(IsAssetOp(op)) {
                         nTxOut = IndexOfAssetOutput(wtx);
                         ExtractAssetAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
                     } 

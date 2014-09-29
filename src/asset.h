@@ -16,6 +16,7 @@ class CCoins;
 class CScript;
 class CWalletTx;
 class CDiskTxPos;
+class CAsset;
 
 bool CheckAssetInputs(CBlockIndex *pindex, const CTransaction &tx, CValidationState &state, CCoinsViewCache &inputs,
                      std::map<std::vector<unsigned char>,uint256> &mapTestPool, bool fBlock, bool fMiner, bool fJustCheck);
@@ -24,10 +25,10 @@ bool IsAssetMine(const CTransaction& tx, const CTxOut& txout, bool ignore_assetn
 bool IsMyAsset(const CTransaction& tx, const CTxOut& txout);
 CScript RemoveAssetScriptPrefix(const CScript& scriptIn);
 
-std::string SendAssetWithInputTx(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxIn, CWalletTx& wtxNew, bool fAskFee, const std::string& txData = "");
-bool CreateAssetTransactionWithInputTx(const std::vector<std::pair<CScript, int64> >& vecSend, CWalletTx& wtxIn, int nTxOut, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, const std::string& txData);
+std::string SendAssetToDestination(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxNew, bool fAskFee, bool bIsFromMe, CAsset &asset);
+bool CreateAssetTransaction(const std::vector<std::pair<CScript, int64> >& vecSend, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, bool bIsFromMe, CAsset &asset);
 
-std::string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, const std::vector<CWalletTx*>& vecWtxIns, CWalletTx& wtxNew, bool fAskFee, bool bIsFromMe, const std::string& txData = "" );
+std::string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, const std::vector<unsigned char>& vchSymbol,  CWalletTx& wtxNew, bool fAskFee, bool bIsFromMe, const std::string& txData = "" );
 bool CreateAssetTransactionWithInputTxs(const std::vector<std::pair<CScript, int64> >& vecSend, const std::vector<CWalletTx*>& vecWtxIns, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, bool bIsFromMe, const std::string& txData = "");
 
 int CheckAssetTransactionAtRelativeDepth(CBlockIndex* pindexBlock, int target, int maxDepth = -1);
@@ -66,11 +67,14 @@ public:
     uint64 nCoinsPerShare;
 
     bool isChange;
-    uint256 changeTxHash;
-    uint256 prevTxHash;
-    uint64 prevTxQty;
+    bool isGenerate;
+
+    std::vector<uint256> prevTxHashes;
 
     uint256 txHash;
+    uint256 changeTxHash;
+    uint256 genTxHash;
+    
     uint64 nHeight;
     uint64 nTime;
     uint256 hash;
@@ -100,10 +104,11 @@ public:
         READWRITE(nCoinsPerShare);
         READWRITE(nQty);
         READWRITE(isChange);
-        READWRITE(changeTxHash);
-        READWRITE(prevTxHash);
-        READWRITE(prevTxQty);
+        READWRITE(isGenerate);
         READWRITE(txHash);
+        READWRITE(changeTxHash);
+        READWRITE(genTxHash);       
+        READWRITE(prevTxHashes);
         READWRITE(nHeight);
         READWRITE(nTime);
         READWRITE(hash);
@@ -157,9 +162,7 @@ public:
         if(assetList.size() == 0) return false;
         unsigned int i = assetList.size()-1;
         BOOST_REVERSE_FOREACH(CAsset o, assetList) {
-            if(o.nOp == XOP_ASSET_SEND 
-                || o.nOp == XOP_ASSET_GENERATE 
-                || o.nOp == XOP_ASSET_DISSOLVE) {
+            if(o.nOp == XOP_ASSET_SEND) {
                 if(nHeight != 0) {
                     if(o.nHeight == nHeight) {
                         *this = assetList[i];
@@ -184,9 +187,7 @@ public:
         if(assetList.size() == 0) return false;
         unsigned int i = assetList.size()-1;
         BOOST_REVERSE_FOREACH(CAsset o, assetList) {
-            if(o.nOp == XOP_ASSET_ACTIVATE 
-                || o.nOp == XOP_ASSET_PEG 
-                || o.nOp == XOP_ASSET_UPDATE) {
+            if(o.nOp != XOP_ASSET_SEND) {
                 if(nHeight != 0) {
                     if(o.nHeight == nHeight) {
                         *this = assetList[i];
@@ -209,7 +210,7 @@ public:
 
     friend bool operator==(const CAsset &a, const CAsset &b) {
         return (
-        a.vchTitle == b.vchTitle
+           a.vchTitle == b.vchTitle
         && a.vchSymbol == b.vchSymbol
         && a.vchDescription == b.vchDescription
         && a.nTotalQty == b.nTotalQty
@@ -217,8 +218,9 @@ public:
         && a.nCoinsPerShare == b.nCoinsPerShare
         && a.changeTxHash == b.changeTxHash
         && a.isChange == b.isChange
-        && a.prevTxHash == b.prevTxHash
-        && a.prevTxQty == b.prevTxQty
+        && a.genTxHash == b.genTxHash
+        && a.isGenerate == b.isGenerate
+        && a.prevTxHashes == b.prevTxHashes
         && a.nFee == b.nFee
         && a.n == b.n
         && a.hash == b.hash
@@ -238,8 +240,9 @@ public:
         nQty = b.nQty;
         isChange = b.isChange;
         changeTxHash = b.changeTxHash;
-        prevTxHash = b.prevTxHash;
-        prevTxQty = b.prevTxQty;
+        prevTxHashes = b.prevTxHashes;
+        isGenerate = b.isGenerate;
+        genTxHash = b.genTxHash;
         nFee = b.nFee;
         n = b.n;
         hash = b.hash;
@@ -256,14 +259,28 @@ public:
 
     void SetNull() { 
         nHeight = n = nOp = 0; 
-        txHash = changeTxHash = prevTxHash = hash = 0; 
-        nTotalQty = nQty = nCoinsPerShare = prevTxQty = 0;
+        txHash = changeTxHash = genTxHash = hash = 0;
+        nTotalQty = nQty = nCoinsPerShare = 0;
         isChange = false;
+        isGenerate = false;
         vchSymbol.clear(); 
         vchTitle.clear(); 
         vchDescription.clear(); 
+        prevTxHashes.clear();
     }
-    bool IsNull() const { return (n == 0 && txHash == 0  && changeTxHash == 0 && prevTxHash == 0 && prevTxQty == 0 && hash == 0 && nHeight == 0 && nOp == 0 && vchSymbol.size() == 0); }
+    bool IsNull() const { 
+        return (
+            txHash == 0  && 
+            changeTxHash == 0 && 
+            genTxHash == 0 && 
+            hash == 0 && 
+            nHeight == 0 && 
+            nOp == 0 &&
+            vchSymbol.size() == 0 &&
+            vchTitle.size() == 0 &&
+            vchDescription.size() == 0 &&
+            prevTxHashes.size() == 0);
+    }
 
     std::string toString();
     bool UnserializeFromTx(const CTransaction &tx);

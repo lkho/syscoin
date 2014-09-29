@@ -675,157 +675,154 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
     for (int iter = 0; iter < 2; iter++) {
         ret[iter] = true;
 
-        // this is a  misnomer - this method decodes all Syscoin transactions
-        bool good = DecodeAliasTx(*this, op, nOut, vvch, iter == 0 ? 0 : -1);
-        if(!good) continue;
-
-        // alias
-        if(IsAliasOp(op)) {
-	        if (vvch[0].size() > MAX_NAME_LENGTH) {
-	            ret[iter] = error("alias transaction with alias too long");
-	            continue;
+        if(DecodeAliasTx(*this, op, nOut, vvch, iter == 0 ? 0 : -1)) {
+	        // alias
+	        if(IsAliasOp(op)) {
+		        if (vvch[0].size() > MAX_NAME_LENGTH) {
+		            ret[iter] = error("alias transaction with alias too long");
+		            continue;
+		        }
+		        switch (op) {
+		            case OP_ALIAS_NEW:
+		                if (vvch[0].size() != 20)
+		                    ret[iter] = error("aliasnew tx with incorrect hash length");
+		                break;
+		            case OP_ALIAS_ACTIVATE:
+		                if (vvch[1].size() > 20)
+		                    ret[iter] = error("aliasactivate tx with rand too big");
+		                if (vvch[2].size() > MAX_VALUE_LENGTH)
+		                    ret[iter] = error("aliasactivate tx with value too long");
+		                break;
+		            case OP_ALIAS_UPDATE:
+		                if (vvch[1].size() > MAX_VALUE_LENGTH)
+		                    ret[iter] = error("aliasupdate tx with value too long");
+		                break;
+		            default:
+		                ret[iter] = error("alias transaction has unknown op");
+		        }
 	        }
-	        switch (op) {
-	            case OP_ALIAS_NEW:
-	                if (vvch[0].size() != 20)
-	                    ret[iter] = error("aliasnew tx with incorrect hash length");
-	                break;
-	            case OP_ALIAS_ACTIVATE:
-	                if (vvch[1].size() > 20)
-	                    ret[iter] = error("aliasactivate tx with rand too big");
-	                if (vvch[2].size() > MAX_VALUE_LENGTH)
-	                    ret[iter] = error("aliasactivate tx with value too long");
-	                break;
-	            case OP_ALIAS_UPDATE:
-	                if (vvch[1].size() > MAX_VALUE_LENGTH)
-	                    ret[iter] = error("aliasupdate tx with value too long");
-	                break;
-	            default:
-	                ret[iter] = error("alias transaction has unknown op");
+	        else if(IsOfferOp(op)) {
+		        if (vvch[0].size() > MAX_NAME_LENGTH) {
+		            ret[iter] = error("offer transaction with offer title too long");
+		            continue;
+		        }
+		        switch (op) {
+		            case OP_OFFER_NEW:
+		                if (vvch[0].size() != 20)
+		                    ret[iter] = error("offernew tx with incorrect hash length");
+		                break;
+		            case OP_OFFER_ACTIVATE:
+		                if (vvch[1].size() > 20)
+		                    ret[iter] = error("offeractivate tx with rand too big");
+		                if (vvch[2].size() > MAX_VALUE_LENGTH)
+		                    ret[iter] = error("offeractivate tx with value too long");
+		                break;
+		            case OP_OFFER_UPDATE:
+	                    if (vvch[1].size() > MAX_VALUE_LENGTH)
+		                    ret[iter] = error("offerupdate tx with value too long");
+		                break;
+		            case OP_OFFER_ACCEPT: 
+		            	if (vvch[0].size() > 20)
+		                    ret[iter] = error("offeraccept tx with offer rand too big");
+		                if (vvch[2].size() > 20)
+		                    ret[iter] = error("offeraccept tx with invalid hash length");
+		                if (vvch[1].size() > 20)
+		                    ret[iter] = error("offeraccept tx with alias rand too big");
+		                break;
+		            case OP_OFFER_PAY:
+		            	if (vvch[0].size() > 20)
+		                    ret[iter] = error("offerpay tx with offer rand too big");
+		                if (vvch[1].size() > 20)
+		                    ret[iter] = error("offeraccept tx with alias rand too big");
+		                break;
+		            default:
+		                ret[iter] = error("offer transaction has unknown op");
+		        }
 	        }
-        }
-        else if(IsOfferOp(op)) {
-	        if (vvch[0].size() > MAX_NAME_LENGTH) {
-	            ret[iter] = error("offer transaction with offer title too long");
-	            continue;
+	        else if(IsCertOp(op)) {
+		        if (vvch[0].size() > MAX_NAME_LENGTH) {
+		            ret[iter] = error("cert transaction with cert title too long");
+		            continue;
+		        }
+		        switch (op) {
+		            case OP_CERTISSUER_NEW:
+		                if (vvch[0].size() != 20)
+		                    ret[iter] = error("cert tx with incorrect hash length");
+		                break;
+		            case OP_CERTISSUER_ACTIVATE:
+		                if (vvch[1].size() > 20)
+		                    ret[iter] = error("cert tx with rand too big");
+		                if (vvch[2].size() > MAX_VALUE_LENGTH)
+		                    ret[iter] = error("cert tx with value too long");
+		                break;
+		            case OP_CERTISSUER_UPDATE:
+		                if (vvch[1].size() > MAX_VALUE_LENGTH)
+		                    ret[iter] = error("cert tx with value too long");
+		                break;
+		            case OP_CERT_NEW: 
+		            	if (vvch[0].size() > 20)
+		                    ret[iter] = error("cert tx with cert rand too big");
+		                if (vvch[2].size() > 20)
+		                    ret[iter] = error("cert tx with invalid hash length");
+		                if (vvch[1].size() > 20)
+		                    ret[iter] = error("cert tx with cert rand too big");
+		                break;
+		            case OP_CERT_TRANSFER:
+		            	if (vvch[0].size() > 20)
+		                    ret[iter] = error("cert tx with offer rand too big");
+		                if (vvch[1].size() > 20)
+		                    ret[iter] = error("cert tx with alias rand too big");
+		                break;
+		            default:
+		                ret[iter] = error("cert transaction has unknown op");
+		        }
+	        }  
+        } 
+        else if(DecodeAssetTx(*this, op, nOut, vvch, iter == 0 ? 0 : -1)) {
+	        // TODO CB refactor this stuff into assets.cpp as a function call made from here
+	        if(DecodeAssetTx(*this, op, nOut, vvch, iter == 0 ? 0 : -1) && IsAssetOp(op)) {
+
+	        	// make sure asset script has the correct number of parameters
+		        if (vvch.size() != 3) {
+		            ret[iter] = error("incorrect number of asset script params");
+		            continue;
+		        }
+
+		        // asset name size sanity check
+		        if (vvch[0].size() > MAX_NAME_LENGTH) {
+		            ret[iter] = error("asset transaction with asset symbol too long");
+		            continue;
+		        }
+
+	        	// asset hash size sanity check
+	            if (vvch[1].size() > 20) {
+	                ret[iter] = error("asset tx with rand too big");
+	                continue;
+	            }
+
+	            // asset value size sanity
+	            if (vvch[2].size() > MAX_VALUE_LENGTH) {
+	                ret[iter] = error("asset tx with value too long");
+	                continue;
+	            }
+
+		        // unserialize asset object from txn, check for valid
+	        	CAsset theAsset;
+	        	theAsset.UnserializeFromTx(*this);
+	        	if (theAsset.IsNull()) {
+	            	ret[iter] = error("asset transaction with null asset object");
+	            	continue;
+	        	}
+	        	string serAsset = theAsset.SerializeToString();
+	        	uint160 theHash  = Hash160(vchFromString(serAsset));
+
+	        	uint160 scriptAssetHash = uint160(vvch[1]);
+	        	if(theHash !=scriptAssetHash) {
+	            	ret[iter] = error("asset transaction invalid asset hash");
+	            	continue;
+	        	}
 	        }
-	        switch (op) {
-	            case OP_OFFER_NEW:
-	                if (vvch[0].size() != 20)
-	                    ret[iter] = error("offernew tx with incorrect hash length");
-	                break;
-	            case OP_OFFER_ACTIVATE:
-	                if (vvch[1].size() > 20)
-	                    ret[iter] = error("offeractivate tx with rand too big");
-	                if (vvch[2].size() > MAX_VALUE_LENGTH)
-	                    ret[iter] = error("offeractivate tx with value too long");
-	                break;
-	            case OP_OFFER_UPDATE:
-                    if (vvch[1].size() > MAX_VALUE_LENGTH)
-	                    ret[iter] = error("offerupdate tx with value too long");
-	                break;
-	            case OP_OFFER_ACCEPT: 
-	            	if (vvch[0].size() > 20)
-	                    ret[iter] = error("offeraccept tx with offer rand too big");
-	                if (vvch[2].size() > 20)
-	                    ret[iter] = error("offeraccept tx with invalid hash length");
-	                if (vvch[1].size() > 20)
-	                    ret[iter] = error("offeraccept tx with alias rand too big");
-	                break;
-	            case OP_OFFER_PAY:
-	            	if (vvch[0].size() > 20)
-	                    ret[iter] = error("offerpay tx with offer rand too big");
-	                if (vvch[1].size() > 20)
-	                    ret[iter] = error("offeraccept tx with alias rand too big");
-	                break;
-	            default:
-	                ret[iter] = error("offer transaction has unknown op");
-	        }
-        }
-        else if(IsCertOp(op)) {
-	        if (vvch[0].size() > MAX_NAME_LENGTH) {
-	            ret[iter] = error("cert transaction with cert title too long");
-	            continue;
-	        }
-	        switch (op) {
-	            case OP_CERTISSUER_NEW:
-	                if (vvch[0].size() != 20)
-	                    ret[iter] = error("cert tx with incorrect hash length");
-	                break;
-	            case OP_CERTISSUER_ACTIVATE:
-	                if (vvch[1].size() > 20)
-	                    ret[iter] = error("cert tx with rand too big");
-	                if (vvch[2].size() > MAX_VALUE_LENGTH)
-	                    ret[iter] = error("cert tx with value too long");
-	                break;
-	            case OP_CERTISSUER_UPDATE:
-	                if (vvch[1].size() > MAX_VALUE_LENGTH)
-	                    ret[iter] = error("cert tx with value too long");
-	                break;
-	            case OP_CERT_NEW: 
-	            	if (vvch[0].size() > 20)
-	                    ret[iter] = error("cert tx with cert rand too big");
-	                if (vvch[2].size() > 20)
-	                    ret[iter] = error("cert tx with invalid hash length");
-	                if (vvch[1].size() > 20)
-	                    ret[iter] = error("cert tx with cert rand too big");
-	                break;
-	            case OP_CERT_TRANSFER:
-	            	if (vvch[0].size() > 20)
-	                    ret[iter] = error("cert tx with offer rand too big");
-	                if (vvch[1].size() > 20)
-	                    ret[iter] = error("cert tx with alias rand too big");
-	                break;
-	            default:
-	                ret[iter] = error("cert transaction has unknown op");
-	        }
-        }        
-
-        // TODO CB refactor this stuff into assets.cpp as a function call made from here
-        good = DecodeAssetTx(*this, op, nOut, vvch, iter == 0 ? 0 : -1);
-        if(good && IsAssetOp(op)) {
-
-        	// make sure asset script has the correct number of parameters
-	        if (vvch.size() != 3) {
-	            ret[iter] = error("incorrect number of asset script params");
-	            continue;
-	        }
-
-	        // asset name size sanity check
-	        if (vvch[0].size() > MAX_NAME_LENGTH) {
-	            ret[iter] = error("asset transaction with asset symbol too long");
-	            continue;
-	        }
-
-        	// asset hash size sanity check
-            if (vvch[1].size() > 20) {
-                ret[iter] = error("asset tx with rand too big");
-                continue;
-            }
-
-            // asset value size sanity
-            if (vvch[2].size() > MAX_VALUE_LENGTH) {
-                ret[iter] = error("asset tx with value too long");
-                continue;
-            }
-
-	        // unserialize asset object from txn, check for valid
-        	CAsset theAsset;
-        	theAsset.UnserializeFromTx(*this);
-        	if (theAsset.IsNull()) {
-            	ret[iter] = error("asset transaction with null asset object");
-            	continue;
-        	}
-        	string serAsset = theAsset.SerializeToString();
-        	uint160 theHash  = Hash160(vchFromString(serAsset));
-
-        	uint160 scriptAssetHash = uint160(vvch[1]);
-        	if(theHash !=scriptAssetHash) {
-            	ret[iter] = error("asset transaction invalid asset hash");
-            	continue;
-        	}
-
-        }
+	    }      
     }
     return ret[0] || ret[1];
 }
@@ -1053,8 +1050,8 @@ bool CTxMemPool::accept(CValidationState &state, CTransaction &tx,
 
         vector<vector<unsigned char> > vvch;
 	    int op, nOut;
+	    string soptype = "";
 
-<<<<<<< HEAD
 	    if(DecodeAliasTx(tx, op, nOut, vvch, -1)) {
 	    	string soptype;
 		    if(IsAliasOp(op)) {
@@ -1080,16 +1077,18 @@ bool CTxMemPool::accept(CValidationState &state, CTransaction &tx,
 	                    : vvch[0]].insert(tx.GetHash());
 	           	soptype = "cert";
 		    }
-		    else if(IsAssetOp(op)) {
+	    }
+	    else if(DecodeAssetTx(tx, op, nOut, vvch, -1)) {
+			if(IsAssetOp(op)) {
 		        LOCK(cs_aliasmap);
-                mapAssetPending[op == OP_ASSET_NEW ? vchFromString(HexStr(vvch[0])) 
+                mapAssetPending[op == XOP_ASSET_NEW ? vchFromString(HexStr(vvch[0])) 
                 	: vvch[0]].insert(tx.GetHash());
 	           	soptype = "asset";
 		    }
-	    	printf("AcceptToMemoryPool() : Added %s transaction '%s' to memory pool.\n",
-	    		soptype.c_str(),
-                stringFromVch(vvch[0]).c_str());
-	    } 
+	    }
+    	printf("AcceptToMemoryPool() : Added %s transaction '%s' to memory pool.\n",
+    		soptype.c_str(),
+            stringFromVch(vvch[0]).c_str());
 	}
 
 	///// are we sure this is ok when loading transactions or restoring block txes
@@ -1844,9 +1843,7 @@ bool CTransaction::CheckInputs(CBlockIndex *pindex, CValidationState &state, CCo
 		}
 
 		vector<vector<unsigned char> > vvchArgs;
-		bool fFound = false;
-		int op;
-		int nOut;
+		int op, nOut;
 
 		if(DecodeAliasTx(*this, op, nOut, vvchArgs, pindex->nHeight)) {
 			if(IsAliasOp(op)) {
@@ -1861,7 +1858,9 @@ bool CTransaction::CheckInputs(CBlockIndex *pindex, CValidationState &state, CCo
 				if (!CheckCertInputs(pindex, *this, state, inputs, mapTestPool, fBlock, fMiner, bJustCheck))
 					return false;
 			}
-			else if (IsAssetOp(op)) {
+		} 
+		else if(DecodeAssetTx(*this, op, nOut, vvchArgs, pindex->nHeight)) {
+			if (IsAssetOp(op)) {
 				if (!CheckAssetInputs(pindex, *this, state, inputs, mapTestPool, fBlock, fMiner, bJustCheck))
 					return false;
 			}
@@ -2144,7 +2143,9 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 		                tx.GetHash().ToString().c_str(),
 		                pindex->nHeight);
 	            }		    
-	            else if (IsAssetOp(op)) {
+	        }
+	        else if(DecodeAssetTx(tx, op, nOut, vvchArgs, pindex->nHeight)) {
+	        	if (IsAssetOp(op)) {
 	                string opName = assetFromOp(op);
 	                CAsset theAsset(tx), serializedAsset;
 	                uint64 xOp = theAsset.nOp;
@@ -2187,14 +2188,14 @@ bool CBlock::DisconnectBlock(CValidationState &state, CBlockIndex *pindex, CCoin
 	                        return error( "DisconnectBlock() : failed to write fees to asset DB");
 	                }
 	                else {
-	                    passetdb->EraseAsset(theAsset.vchRand);
+	                    passetdb->EraseAsset(theAsset.vchSymbol);
 	                }
 	        		printf("DISCONNECTED ASSET TXN: title=%s hash=%s height=%d\n",
-	                    op == OP_ASSET ? HexStr(vvchArgs[0]).c_str() : stringFromVch(vvchArgs[0]).c_str(),
+	                    xOp == XOP_ASSET_NEW ? HexStr(vvchArgs[0]).c_str() : stringFromVch(vvchArgs[0]).c_str(),
 		                tx.GetHash().ToString().c_str(),
 		                pindex->nHeight);
 	        	}
-	        }
+			}
 	    }
 
 		// restore inputs
@@ -4044,9 +4045,9 @@ void static ProcessGetData(CNode* pfrom) {
 bool static ProcessMessage(CNode* pfrom, string strCommand,
 		CDataStream& vRecv) {
 	RandAddSeedPerfmon();
-	if (fDebug)
-		printf("received: %s (%"PRIszu" bytes)\n", strCommand.c_str(),
-				vRecv.size());
+	// if (fDebug)
+	// 	printf("received: %s (%"PRIszu" bytes)\n", strCommand.c_str(),
+	// 			vRecv.size());
 	if (mapArgs.count("-dropmessagestest")
 			&& GetRand(atoi(mapArgs["-dropmessagestest"])) == 0) {
 		printf("dropmessagestest DROPPING RECV MESSAGE\n");
