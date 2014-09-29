@@ -55,6 +55,8 @@ bool IsAssetOp(int op) {
 // expiration starts at 87360, increases by 1 per block starting at
 // block 174721 until block 349440
 int64 GetAssetNetworkFee(int seed, int nHeight) {
+	return 0;
+
     if (fCakeNet) return CENT;
     int64 nRes = 48 * COIN;
     int64 nDif = 34 * COIN;
@@ -1279,14 +1281,13 @@ bool CheckAssetInputs(
         nNetFee = GetAssetNetFee(tx);
         if (nNetFee < GetAssetNetworkFee(1, pindexBlock->nHeight))
             return error(
-                    "CheckAssetInputs() : got tx %s with fee too low %llu - fee should be %llu",
+                    "CheckAssetInputs() : got tx %s with fee too low %llu - fee should be %llu\n",
                     tx.GetHash().GetHex().c_str(),
                     nNetFee,
                     GetAssetNetworkFee(1, pindexBlock->nHeight));
     }
 
-    bool isAssetSend       = ( theAsset.nOp == XOP_ASSET_SEND ),
-    	 isGeneratingBlock = ( fBlock || fMiner );
+    bool isGeneratingBlock = ( fBlock || fMiner );
 
     switch (theAsset.nOp) {
 
@@ -1310,15 +1311,56 @@ bool CheckAssetInputs(
         case XOP_ASSET_UPDATE:
         case XOP_ASSET_DISSOLVE:
         case XOP_ASSET_GENERATE:
+        	break;
+
         case XOP_ASSET_SEND:
 
-//            // disallow transaction on a nonexistant asset
-//            nPrevCoinsHeight = GetAssetHeight(vchAsset);
-//            if (nPrevCoinsHeight < 0) {
-//            	if( !isAssetSend || ( isAssetSend && theAsset.changeTxHash == 0) ) {
-//					return error("CheckAssetInputs() : asset does not exist or invalid asset send.");
-//            	}
-//            }
+            // disallow transaction on a nonexistant asset
+            nPrevCoinsHeight = GetAssetHeight(vchAsset);
+            if (nPrevCoinsHeight < 0 && !theAsset.isGenerate) {
+				return error("CheckAssetInputs() : asset does not exist or invalid asset send.");
+            }
+
+            if(!fJustCheck) {
+            	if(isGeneratingBlock) {
+
+            		// if this asset has an asset input, make sure there is at least a single
+            		// confirmation of the input tx before accepting this block to be mined
+            		if(hasAssetPrevout) {
+    					 nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, prevCoins.nHeight);
+    					if ( nDepth >= 0 && (unsigned int) nDepth < 1) {
+    						printf("CheckAssetInputs() : waiting to mine %s transaction %s until its prevout is mined\n",
+    							assetFromOp(theAsset.nOp).c_str(), tx.GetHash().GetHex().c_str());
+    						return false;
+    					}
+    				}
+
+            		// if this asset send is a generate (it has no
+                    if(theAsset.isGenerate) {
+                        CTransaction genTx;
+                        uint256 genBlockHash = 0;
+                        bool genTxnFound = GetTransaction(theAsset.genTxHash, genTx, genBlockHash, true);
+                        if(genTxnFound) {
+                        	CBlockLocator locator(genBlockHash);
+                        	CBlockIndex *pindexGenBlk = locator.GetBlockIndex();
+                        	if(pindexGenBlk) {
+                        		nDepth = CheckAssetTransactionAtRelativeDepth(pindexBlock, pindexGenBlk->nHeight);
+                        		nDepth = pindexBlock->nHeight - nDepth;
+                                if(nDepth > -1 && nDepth < 1) {
+                                	genTxnFound = false;
+                                }
+                        	}
+                        }
+                        if(!genTxnFound) {
+							printf("CheckAssetInputs() : waiting to accept this %s transaction %s until its prevtx %s is mined\n",
+								assetFromOp(theAsset.nOp).c_str(), tx.GetHash().GetHex().c_str(),
+								theAsset.changeTxHash.GetHex().c_str());
+							return false;
+                        }
+                    }
+
+            	}
+            }
 //
 //            if(!fJustCheck) {
 //                if(!isAssetSend) {
@@ -1591,7 +1633,7 @@ bool AssetTransactionExists(const vector<unsigned char> &vchSymbol) {
 /**
  * send shares of an asset to the given destination, or to oneself if no destination given
  */
-string AssetSendToDestination(CAsset &theAsset, CWalletTx &wtx, const CTxDestination *dest = NULL) {
+string AssetSendToDestination(CAsset &theAsset, CWalletTx &wtx, const CTxDestination *dest = NULL, const bool generate = false) {
 
     if (theAsset.nOp != XOP_ASSET_SEND)
         throw runtime_error("Asset transaction is not a send");
@@ -1635,7 +1677,7 @@ string AssetSendToDestination(CAsset &theAsset, CWalletTx &wtx, const CTxDestina
     bool bIsFromMe = (dest == NULL);
 
     // send the transaction and return error message info
-    if(isGenerated || theAsset.isChange)
+    if(generate)
         return pwalletMain->SendMoney(
             assetSendScript, 
             theAsset.nQty, 
@@ -1643,7 +1685,7 @@ string AssetSendToDestination(CAsset &theAsset, CWalletTx &wtx, const CTxDestina
             false, 
             serAsset);
 
-	return SendAssetToDestination(
+	else return SendAssetToDestination(
 		assetSendScript,
 		theAsset.nQty,
 		theAsset.nFee,
@@ -1835,16 +1877,16 @@ Value assetnew(const Array& params, bool fHelp) {
         string strError = AssetControlToDestination(newAsset, wtx);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
+        mapMyAssets[vchSymbol] = wtx.GetHash();
+
         newAsset.nOp 		 = XOP_ASSET_SEND;
         newAsset.txHash		 = wtxDest.GetHash();
         newAsset.isGenerate	 = true;
         newAsset.genTxHash   = wtx.GetHash();
         newAsset.nQty		 = newAsset.nTotalQty;
 
-        strError = AssetSendToDestination(newAsset, wtxDest);
+        strError = AssetSendToDestination(newAsset, wtxDest, NULL, true);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
-
-        mapMyAssets[vchSymbol] = wtx.GetHash();
     }
 
     return wtx.GetHash().GetHex();
@@ -1907,7 +1949,7 @@ Value assetsend(const Array& params, bool fHelp) {
         nQty *= theAsset.nCoinsPerShare;
 
         // calculate network fees
-        uint64 nNetFee = 0; //GetAssetNetworkFee(2, pindexBest->nHeight);
+        uint64 nNetFee = GetAssetNetworkFee(2, pindexBest->nHeight);
 
         // make sure we have enough quantity to perform the send
         if(nAssetBalance == 0 || nQty == 0 || nAssetBalance < nQty + nNetFee )

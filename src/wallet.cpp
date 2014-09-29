@@ -1081,7 +1081,7 @@ int64 CWallet::GetAssetBalance(const vector<unsigned char> &vchSymbol) const
             vector<vector<unsigned char> > vvch;
             int op, nOut;
 
-            if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1)||!IsAssetOp(op))
+            if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1) || !IsAssetOp(op))
                 continue;
 
             CAsset asset(*pcoin);
@@ -1682,7 +1682,7 @@ bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey)
         if (!wtxNew.AcceptToMemoryPool(true, false))
         {
             // This must not fail. The transaction has already been signed and recorded.
-            printf("CommitTransaction() : Error: Transaction not valid");
+            printf("CommitTransaction() : Error: Transaction not valid\n");
             return false;
         }
         wtxNew.RelayWalletTransaction();

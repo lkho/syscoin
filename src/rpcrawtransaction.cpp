@@ -299,15 +299,15 @@ Value listassetunspent(const Array& params, bool fHelp)
         if (out.nDepth < nMinDepth || out.nDepth > nMaxDepth)
             continue;
 
-        if (setAddress.size())
-        {
-            CTxDestination address;
-            if (!ExtractDestination(out.tx->vout[out.i].scriptPubKey, address))
-                continue;
+        // if (setAddress.size())
+        // {
+        //     CTxDestination address;
+        //     if (!ExtractDestination(out.tx->vout[out.i].scriptPubKey, address))
+        //         continue;
 
-            if (!setAddress.count(address))
-                continue;
-        }
+        //     if (!setAddress.count(address))
+        //         continue;
+        // }
 
         CTransaction tx;
         uint256 txHash, blockHash;
@@ -323,13 +323,13 @@ Value listassetunspent(const Array& params, bool fHelp)
         entry.push_back(Pair("txid", out.tx->GetHash().GetHex()));
         entry.push_back(Pair("vout", out.i));
         entry.push_back(Pair("symbol", stringFromVch(theAsset.vchSymbol).c_str()));
-        CTxDestination address;
-        if (ExtractDestination(out.tx->vout[out.i].scriptPubKey, address))
-        {
-            entry.push_back(Pair("address", CBitcoinAddress(address).ToString()));
-            if (pwalletMain->mapAddressBook.count(address))
-                entry.push_back(Pair("account", pwalletMain->mapAddressBook[address]));
-        }
+        // CTxDestination address;
+        // if (ExtractDestination(out.tx->vout[out.i].scriptPubKey, address))
+        // {
+        //     entry.push_back(Pair("address", CBitcoinAddress(address).ToString()));
+        //     if (pwalletMain->mapAddressBook.count(address))
+        //         entry.push_back(Pair("account", pwalletMain->mapAddressBook[address]));
+        // }
         entry.push_back(Pair("scriptPubKey", HexStr(pk.begin(), pk.end())));
         if (pk.IsPayToScriptHash())
         {
