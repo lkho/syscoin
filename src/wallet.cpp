@@ -1073,8 +1073,9 @@ int64 CWallet::GetAssetBalance(const vector<unsigned char> &vchSymbol) const
         const CWalletTx* pcoin = &(*it).second;
 
         if (!pcoin->IsConfirmed()
-        		|| pcoin->IsCoinBase()
-        		|| pcoin->nVersion != SYSCOIN_TX_VERSION)
+			|| pcoin->IsCoinBase()
+			|| !pcoin->IsFinal()
+			|| pcoin->nVersion != SYSCOIN_TX_VERSION)
             continue;
 
         for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
@@ -1094,6 +1095,42 @@ int64 CWallet::GetAssetBalance(const vector<unsigned char> &vchSymbol) const
             	nTotal += pcoin->vout[i].nValue;
             }
         }
+    }
+    return nTotal;
+}
+
+int64 CWallet::GetAssetControlBalance(const vector<unsigned char> &vchSymbol) const
+{
+    int64 nTotal = 0;
+
+    LOCK(cs_wallet);
+    for (map<uint256, CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it)
+    {
+        const CWalletTx* pcoin = &(*it).second;
+
+        if (!pcoin->IsConfirmed()
+    			|| !pcoin->IsFinal()
+				|| pcoin->IsCoinBase()
+				|| pcoin->nVersion != SYSCOIN_TX_VERSION)
+            continue;
+
+        vector<vector<unsigned char> > vvch;
+        int op, nOut;
+        if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1)
+        		|| !IsAssetOp(op))
+            			continue;
+
+        CAsset asset(*pcoin);
+        if(vchSymbol.size() > 0) {
+            if(asset.vchSymbol != vchSymbol)
+                continue;
+        }
+
+        if(asset.nOp != XOP_ASSET_SEND
+			&& !pcoin->IsSpent(nOut)
+			&& IsMyAsset(*pcoin, pcoin->vout[nOut]))
+        		nTotal += pcoin->vout[nOut].nValue;
+
     }
     return nTotal;
 }
@@ -1167,28 +1204,29 @@ void CWallet::AssetCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCo
         {
             const CWalletTx* pcoin = &(*it).second;
 
-            if ( (fOnlyConfirmed && !pcoin->IsConfirmed())
-            		|| pcoin->IsCoinBase()
-            		|| pcoin->nVersion != SYSCOIN_TX_VERSION )
+            if ((fOnlyConfirmed && !pcoin->IsConfirmed())
+        			|| !pcoin->IsFinal()
+    				|| pcoin->IsCoinBase()
+    				|| pcoin->nVersion != SYSCOIN_TX_VERSION)
                 continue;
 
-            for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
-                vector<vector<unsigned char> > vvch;
-                int op, nOut;
+            vector<vector<unsigned char> > vvch;
+            int op, nOut;
+            if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1)
+            		|| !IsAssetOp(op))
+                			continue;
 
-                if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1)
-                	||!IsAssetOp(op))
+            CAsset asset(*pcoin);
+            if(passetSymbol != NULL) {
+                if(asset.vchSymbol != *passetSymbol)
                     continue;
+            }
 
-                CAsset asset(*pcoin);
-
-                if(passetSymbol!=NULL && *passetSymbol!=asset.vchSymbol)
-                    continue;
-
-                if(asset.nOp==XOP_ASSET_SEND && !pcoin->IsSpent(i) && IsMyAsset(*pcoin, pcoin->vout[i]) &&
-                	(!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, i))) {
-                    vCoins.push_back(COutput(pcoin, i, pcoin->GetDepthInMainChain()));
-                }
+            if(asset.nOp == XOP_ASSET_SEND
+    			&& !pcoin->IsSpent(nOut)
+    			&& IsMyAsset(*pcoin, pcoin->vout[nOut])
+    			&& (!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, nOut))) {
+            	vCoins.push_back(COutput(pcoin, nOut, pcoin->GetDepthInMainChain()));
             }
         }
     }
@@ -1204,28 +1242,29 @@ void CWallet::AssetControlCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, co
         {
             const CWalletTx* pcoin = &(*it).second;
 
-            if ( (fOnlyConfirmed && !pcoin->IsConfirmed())
-            		|| pcoin->IsCoinBase()
-            		|| pcoin->nVersion != SYSCOIN_TX_VERSION )
+            if ((fOnlyConfirmed && !pcoin->IsConfirmed())
+        			|| !pcoin->IsFinal()
+    				|| pcoin->IsCoinBase()
+    				|| pcoin->nVersion != SYSCOIN_TX_VERSION)
                 continue;
 
-            for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
-                vector<vector<unsigned char> > vvch;
-                int op, nOut;
+            vector<vector<unsigned char> > vvch;
+            int op, nOut;
+            if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1)
+            		|| !IsAssetOp(op))
+                			continue;
 
-                if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1)
-                	|| !IsAssetOp(op))
+            CAsset asset(*pcoin);
+            if(passetSymbol != NULL) {
+                if(asset.vchSymbol != *passetSymbol)
                     continue;
+            }
 
-                CAsset asset(*pcoin);
-
-                if(passetSymbol!=NULL && *passetSymbol!=asset.vchSymbol)
-                    continue;
-
-                if(asset.nOp!=XOP_ASSET_SEND && !pcoin->IsSpent(i) && IsMyAsset(*pcoin, pcoin->vout[i]) &&
-                	(!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, i))) {
-                    vCoins.push_back(COutput(pcoin, i, pcoin->GetDepthInMainChain()));
-                }
+            if(asset.nOp != XOP_ASSET_SEND
+    			&& !pcoin->IsSpent(nOut)
+    			&& IsMyAsset(*pcoin, pcoin->vout[nOut])
+    			&& (!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, nOut))) {
+            	vCoins.push_back(COutput(pcoin, nOut, pcoin->GetDepthInMainChain()));
             }
         }
     }
@@ -1437,6 +1476,28 @@ bool CWallet::SelectAssetCoins(const vector<unsigned char> &vchSymbol, int64 nTa
     vector<COutput> vCoins;
     AssetCoins(vCoins, true, coinControl, &vchSymbol);
     
+    // coin control -> return all selected outputs (we want all selected to go into the transaction for sure)
+    if (coinControl && coinControl->HasSelected())
+    {
+        BOOST_FOREACH(const COutput& out, vCoins)
+        {
+            nValueRet += out.tx->vout[out.i].nValue;
+            setCoinsRet.insert(make_pair(out.tx, out.i));
+        }
+        if(nTargetValue < 0) return true;
+        else return (nValueRet >= nTargetValue);
+    }
+
+    return (SelectCoinsMinConf(nTargetValue, 1, 6, vCoins, setCoinsRet, nValueRet) ||
+            SelectCoinsMinConf(nTargetValue, 1, 1, vCoins, setCoinsRet, nValueRet) ||
+            SelectCoinsMinConf(nTargetValue, 0, 1, vCoins, setCoinsRet, nValueRet));
+}
+
+bool CWallet::SelectAssetControlCoins(const vector<unsigned char> &vchSymbol, int64 nTargetValue, set<pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl) const
+{
+    vector<COutput> vCoins;
+    AssetControlCoins(vCoins, true, coinControl, &vchSymbol);
+
     // coin control -> return all selected outputs (we want all selected to go into the transaction for sure)
     if (coinControl && coinControl->HasSelected())
     {

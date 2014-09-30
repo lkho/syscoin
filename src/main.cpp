@@ -813,6 +813,7 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
 	            	ret[iter] = error("asset transaction with null asset object");
 	            	continue;
 	        	}
+
 	        	string serAsset = theAsset.SerializeToString();
 	        	uint160 theHash  = Hash160(vchFromString(serAsset));
 

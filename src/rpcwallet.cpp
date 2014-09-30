@@ -591,6 +591,18 @@ int64 GetAssetBalance(const string& strAsset, int nMinDepth)
     return GetAssetBalance(walletdb, strAsset, nMinDepth);
 }
 
+int64 GetAssetControlBalance(CWalletDB& walletdb, const string& strAsset, int nMinDepth)
+{
+    vector<unsigned char> vchSymbol = vchFromString(strAsset);
+    return pwalletMain->GetAssetControlBalance(vchSymbol);
+}
+
+int64 GetAssetControlBalance(const string& strAsset, int nMinDepth)
+{
+    CWalletDB walletdb(pwalletMain->strWalletFile);
+    return GetAssetControlBalance(walletdb, strAsset, nMinDepth);
+}
+
 Value getbalance(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() > 2)
@@ -665,6 +677,28 @@ Value getassetbalance(const Array& params, bool fHelp)
     return o;
 }
 
+Value getassetcontrolbalance(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() > 2)
+        throw runtime_error(
+            "getassetcontrolbalance [asset] [minconf=1]\n"
+            "If [asset] is not specified, returns the server's total available asset balance.\n"
+            "If [asset] is specified, returns the balance of the asset in the account.");
+
+    if (params.size() == 0)
+        return ValueFromAmount(GetAssetControlBalance("", 1));
+
+    int nMinDepth = 1;
+    if (params.size() > 1)
+        nMinDepth = params[1].get_int();
+
+    int64 nBalance = GetAssetControlBalance(params[0].get_str(), nMinDepth);
+
+    Object o;
+    o.push_back(Pair(params[0].get_str(), ValueFromAmount(nBalance)));
+
+    return o;
+}
 
 Value movecmd(const Array& params, bool fHelp)
 {

@@ -236,6 +236,7 @@ static const CRPCCommand vRPCCommands[] =
     { "validateaddress",        &validateaddress,        true,      false,      false },
     { "getbalance",             &getbalance,             false,     false,      true },
     { "getassetbalance",        &getassetbalance,        false,     false,      true },
+    { "getassetcontrolbalance", &getassetcontrolbalance, false,     false,      true },
     { "move",                   &movecmd,                false,     false,      true },
     { "sendfrom",               &sendfrom,               false,     false,      true },
     { "sendmany",               &sendmany,               false,     false,      true },
@@ -263,6 +264,7 @@ static const CRPCCommand vRPCCommands[] =
     { "importprivkey",          &importprivkey,          false,     false,      true },
     { "listunspent",            &listunspent,            false,     false,      true },
     { "listassetunspent",       &listassetunspent,       false,     false,      true },
+    { "listassetcontrolunspent",&listassetcontrolunspent,false,     false,      true },
     { "getrawtransaction",      &getrawtransaction,      false,     false,      false },
     { "createrawtransaction",   &createrawtransaction,   false,     false,      false },
     { "decoderawtransaction",   &decoderawtransaction,   false,     false,      false },
@@ -1256,6 +1258,7 @@ Array RPCConvertValues(const std::string &strMethod, const std::vector<std::stri
     if (strMethod == "listreceivedbyaccount"  && n > 1) ConvertTo<bool>(params[1]);
     if (strMethod == "getbalance"             && n > 1) ConvertTo<boost::int64_t>(params[1]);
     if (strMethod == "getassetbalance"        && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getassetcontrolbalance" && n > 1) ConvertTo<boost::int64_t>(params[1]);
     if (strMethod == "getblockhash"           && n > 0) ConvertTo<boost::int64_t>(params[0]);
     if (strMethod == "move"                   && n > 2) ConvertTo<double>(params[2]);
     if (strMethod == "move"                   && n > 3) ConvertTo<boost::int64_t>(params[3]);
@@ -1280,6 +1283,9 @@ Array RPCConvertValues(const std::string &strMethod, const std::vector<std::stri
     if (strMethod == "listassetunspent"       && n > 0) ConvertTo<boost::int64_t>(params[0]);
     if (strMethod == "listassetunspent"       && n > 1) ConvertTo<boost::int64_t>(params[1]);
     if (strMethod == "listassetunspent"       && n > 2) ConvertTo<Array>(params[2]);    
+    if (strMethod == "listassetcontrolunspent"&& n > 0) ConvertTo<boost::int64_t>(params[0]);
+    if (strMethod == "listassetcontrolunspent"&& n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "listassetcontrolunspent"&& n > 2) ConvertTo<Array>(params[2]);
     if (strMethod == "getrawtransaction"      && n > 1) ConvertTo<boost::int64_t>(params[1]);
     if (strMethod == "createrawtransaction"   && n > 0) ConvertTo<Array>(params[0]);
     if (strMethod == "createrawtransaction"   && n > 1) ConvertTo<Object>(params[1]);

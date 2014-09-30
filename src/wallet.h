@@ -84,6 +84,7 @@ private:
 public:
     bool SelectCoins(int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL) const;
     bool SelectAssetCoins(const std::vector<unsigned char> &vchSymbol, int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL) const;
+    bool SelectAssetControlCoins(const std::vector<unsigned char> &vchSymbol, int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL) const;
 
     mutable CCriticalSection cs_wallet;
 
@@ -192,6 +193,7 @@ public:
     int64 GetUnconfirmedBalance() const;
     int64 GetImmatureBalance() const;
     int64 GetAssetBalance(const std::vector<unsigned char> &vchSymbol) const;
+    int64 GetAssetControlBalance(const std::vector<unsigned char> &vchSymbol) const;
 
     bool CreateTransaction(const std::vector<std::pair<CScript, int64> >& vecSend,
                            CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, std::string& strFailReason, 
