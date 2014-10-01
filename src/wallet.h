@@ -247,17 +247,17 @@ public:
         BOOST_FOREACH(const CTxOut& txout, tx.vout) {
             if (IsMine(txout) && txout.nValue >= nMinimumInputValue)
                 return true;
-
-            if (tx.nVersion != SYSCOIN_TX_VERSION || !IsCrypted())
-                continue;
-
-            CTxDestination address;
-            if (ExtractDestination(txout.scriptPubKey, address) && ::IsMine(*this, address))
-            {
-                LOCK(cs_wallet);
-                if (!mapAddressBook.count(address))
-                    return true;
-            }
+//
+//            if (tx.nVersion != SYSCOIN_TX_VERSION || !IsCrypted())
+//                continue;
+//
+//            CTxDestination address;
+//            if (ExtractDestination(txout.scriptPubKey, address) && ::IsMine(*this, address))
+//            {
+//                LOCK(cs_wallet);
+//                if (!mapAddressBook.count(address))
+//                    return true;
+//            }
         }
         if (IsAliasMine(tx))
         	return true;

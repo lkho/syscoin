@@ -1254,7 +1254,7 @@ bool Sign1(const CKeyID& address, const CKeyStore& keystore, uint256 hash, int n
     if (!keystore.GetKey(address, key))
         return false;
 
-    vector<unsigned char> vchSig;
+	 vector<unsigned char> vchSig;
     if (!key.Sign(hash, vchSig))
         return false;
     vchSig.push_back((unsigned char)nHashType);
@@ -1299,9 +1299,25 @@ bool Solver(const CKeyStore& keystore, const CScript& scriptPubKey, uint256 hash
         return false;
     case TX_PUBKEY:
         keyID = CPubKey(vSolutions[0]).GetID();
+        if(hash == 0) {
+        	  CTxDestination add;
+        	  ExtractDestination(scriptPubKey, add);
+        	  bool bIsMine = IsMine(keystore, add);
+        	  printf("CUSTOM TX_PUBKEY Solver: %s\n", bIsMine ? "true" : "false");
+        	  return bIsMine;
+        }
+
         return Sign1(keyID, keystore, hash, nHashType, scriptSigRet);
     case TX_PUBKEYHASH:
         keyID = CKeyID(uint160(vSolutions[0]));
+        if(hash == 0) {
+        	  CTxDestination add;
+        	  ExtractDestination(scriptPubKey, add);
+        	  bool bIsMine = IsMine(keystore, add);
+        	  printf("CUSTOM TX_PUBKEYHASH Solver: %s\n", bIsMine ? "true" : "false");
+        	  return bIsMine;
+        }
+
         if (!Sign1(keyID, keystore, hash, nHashType, scriptSigRet))
             return false;
         else
@@ -1318,7 +1334,8 @@ bool Solver(const CKeyStore& keystore, const CScript& scriptPubKey, uint256 hash
         scriptSigRet << OP_0; // workaround CHECKMULTISIG bug
         return (SignN(vSolutions, keystore, hash, nHashType, scriptSigRet));
     }
-    return false;
+
+    return true;
 }
 
 int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned char> >& vSolutions)
@@ -1343,26 +1360,24 @@ int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned c
 
 bool IsStandard(const CScript& scriptPubKey)
 {
-	//TODO this is indiscriminate. need better check here.
     return true;
+    // vector<valtype> vSolutions;
+    // txnouttype whichType;
+    // if (!Solver(scriptPubKey, whichType, vSolutions))
+    //     return false;
 
-    vector<valtype> vSolutions;
-    txnouttype whichType;
-    if (!Solver(scriptPubKey, whichType, vSolutions))
-        return false;
+    // if (whichType == TX_MULTISIG)
+    // {
+    //     unsigned char m = vSolutions.front()[0];
+    //     unsigned char n = vSolutions.back()[0];
+    //     // Support up to x-of-3 multisig txns as standard
+    //     if (n < 1 || n > 3)
+    //         return false;
+    //     if (m < 1 || m > n)
+    //         return false;
+    // }
 
-    if (whichType == TX_MULTISIG)
-    {
-        unsigned char m = vSolutions.front()[0];
-        unsigned char n = vSolutions.back()[0];
-        // Support up to x-of-3 multisig txns as standard
-        if (n < 1 || n > 3)
-            return false;
-        if (m < 1 || m > n)
-            return false;
-    }
-
-    return whichType != TX_NONSTANDARD;
+    // return whichType != TX_NONSTANDARD;
 }
 
 
@@ -1387,7 +1402,6 @@ public:
     CKeyStoreIsMineVisitor(const CKeyStore *keystoreIn) : keystore(keystoreIn) { }
     bool operator()(const CNoDestination &dest) const { return false; }
     bool operator()(const CKeyID &keyID) const { return keystore->HaveKey(keyID); }
-    bool operator()(const CScriptID &scriptID) const { return keystore->HaveCScript(scriptID); }
 };
 
 bool IsMine(const CKeyStore &keystore, const CTxDestination &dest)
@@ -1397,41 +1411,57 @@ bool IsMine(const CKeyStore &keystore, const CTxDestination &dest)
 
 bool IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
 {
-    vector<valtype> vSolutions;
-    txnouttype whichType;
-    if (!Solver(scriptPubKey, whichType, vSolutions))
-        return false;
+     vector<valtype> vSolutions;
+     txnouttype whichType;
+     if (!Solver(scriptPubKey, whichType, vSolutions))
+         return false;
 
-    CKeyID keyID;
-    switch (whichType)
-    {
-    case TX_NONSTANDARD:
-        return false;
-    case TX_PUBKEY:
-        keyID = CPubKey(vSolutions[0]).GetID();
-        return keystore.HaveKey(keyID);
-    case TX_PUBKEYHASH:
-        keyID = CKeyID(uint160(vSolutions[0]));
-        return keystore.HaveKey(keyID);
-    case TX_SCRIPTHASH:
-    {
-        CScript subscript;
-        if (!keystore.GetCScript(CScriptID(uint160(vSolutions[0])), subscript))
-            return false;
-        return IsMine(keystore, subscript);
-    }
-    case TX_MULTISIG:
-    {
-        // Only consider transactions "mine" if we own ALL the
-        // keys involved. multi-signature transactions that are
-        // partially owned (somebody else has a key that can spend
-        // them) enable spend-out-from-under-you attacks, especially
-        // in shared-wallet situations.
-        vector<valtype> keys(vSolutions.begin()+1, vSolutions.begin()+vSolutions.size()-1);
-        return HaveKeys(keys, keystore) == keys.size();
-    }
-    }
-    return false;
+     CKeyID keyID;
+	  CTxDestination add;
+	  bool bIsMine = false;
+
+     switch (whichType)
+     {
+     case TX_NONSTANDARD:
+         return false;
+
+     case TX_PUBKEY:
+		   ExtractDestination(scriptPubKey, add);
+		   bIsMine = IsMine(keystore, add);
+		   printf("CUSTOM TX_PUBKEY Sign1: %s\n", bIsMine ? "true" : "false");
+		   return bIsMine;
+
+		   //keyID = CPubKey(vSolutions[0]).GetID();
+		   //return keystore.HaveKey(keyID);
+
+     case TX_PUBKEYHASH:
+
+		  ExtractDestination(scriptPubKey, add);
+		  bIsMine = IsMine(keystore, add);
+		  printf("CUSTOM TX_PUBKEYHASH Sign1: %s\n", bIsMine ? "true" : "false");
+		  return bIsMine;
+
+	      //keyID = CKeyID(uint160(vSolutions[0]));
+         //return keystore.HaveKey(keyID);
+     case TX_SCRIPTHASH:
+     {
+         CScript subscript;
+         if (!keystore.GetCScript(CScriptID(uint160(vSolutions[0])), subscript))
+             return false;
+         return IsMine(keystore, subscript);
+     }
+     case TX_MULTISIG:
+     {
+         // Only consider transactions "mine" if we own ALL the
+         // keys involved. multi-signature transactions that are
+         // partially owned (somebody else has a key that can spend
+         // them) enable spend-out-from-under-you attacks, especially
+         // in shared-wallet situations.
+         vector<valtype> keys(vSolutions.begin()+1, vSolutions.begin()+vSolutions.size()-1);
+         return HaveKeys(keys, keystore) == keys.size();
+     }
+     }
+     return true;
 }
 
 bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
@@ -1646,10 +1676,6 @@ static CScript CombineSignatures(CScript scriptPubKey, const CTransaction& txTo,
     switch (txType)
     {
     case TX_NONSTANDARD:
-        // Don't know anything about this, assume bigger one is correct:
-        if (sigs1.size() >= sigs2.size())
-            return PushAll(sigs1);
-        return PushAll(sigs2);
     case TX_PUBKEY:
     case TX_PUBKEYHASH:
         // Signatures are bigger than placeholders or empty scripts:

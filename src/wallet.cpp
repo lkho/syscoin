@@ -297,7 +297,7 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
 
         Lock();
         Unlock(strWalletPassphrase);
-        //NewKeyPool(); CB Commented this out so that encrypted wallets will still work
+        NewKeyPool();
         Lock();
 
         // Need to completely rewrite the wallet file; if we don't, bdb might keep
