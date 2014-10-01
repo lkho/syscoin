@@ -82,9 +82,9 @@ private:
     int nWalletMaxVersion;
 
 public:
-    bool SelectCoins(int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL) const;
-    bool SelectAssetCoins(const std::vector<unsigned char> &vchSymbol, int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL) const;
-    bool SelectAssetControlCoins(const std::vector<unsigned char> &vchSymbol, int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL) const;
+    bool SelectCoins(int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL, bool bIsFinalOnly = true) const;
+    bool SelectAssetCoins(const std::vector<unsigned char> &vchSymbol, int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL, bool bFinalOnly = true) const;
+    bool SelectAssetControlCoins(const std::vector<unsigned char> &vchSymbol, int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL, bool bFinalOnly = true) const;
 
     mutable CCriticalSection cs_wallet;
 
@@ -132,6 +132,7 @@ public:
     bool CanSupportFeature(enum WalletFeature wf) { return nWalletMaxVersion >= wf; }
 
     void AvailableCoins(std::vector<COutput>& vCoins, bool fOnlyConfirmed=true, const CCoinControl *coinControl=NULL) const;
+    void AllSpendableCoins(std::vector<COutput>& vCoins, bool fOnlyConfirmed=true, const CCoinControl *coinControl=NULL) const;
     void AssetCoins(std::vector<COutput>& vCoins, bool fOnlyConfirmed=true, const CCoinControl *coinControl=NULL, const std::vector<unsigned char> *passetSymbol=NULL) const;
     void AssetControlCoins(std::vector<COutput>& vCoins, bool fOnlyConfirmed=true, const CCoinControl *coinControl=NULL, const std::vector<unsigned char> *passetSymbol=NULL) const;
     void LotsOfCoins(std::vector<COutput>& vCoins, bool fOnlyConfirmed=true, const CCoinControl *coinControl=NULL) const;

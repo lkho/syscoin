@@ -990,7 +990,7 @@ std::string SendAssetToDestination(
     bool fAskFee, 
     bool bIsFromMe, CAsset &asset) {
 
-    CReserveKey reservekey(pwalletMain);
+	CReserveKey reserveKey(pwalletMain);
     int64 nFeeRequired;
 
     vector<pair<CScript, int64> > vecSend;
@@ -1002,7 +1002,7 @@ std::string SendAssetToDestination(
         vecSend.push_back(make_pair(scriptFee, nNetFee));
     }
 
-    if (!CreateAssetTransaction(vecSend, wtxNew, reservekey, nFeeRequired, bIsFromMe, asset)) {
+    if (!CreateAssetTransaction(vecSend, wtxNew, reserveKey, nFeeRequired, bIsFromMe, asset)) {
         string strError;
         if (nValue + nFeeRequired > pwalletMain->GetBalance())
             strError = strprintf(_("Error: This transaction requires a transaction fee of at least %s because of its amount, complexity, or use of recently received funds "),
@@ -1021,9 +1021,10 @@ std::string SendAssetToDestination(
         return "ABORTED";
 #endif
 
-    if (!pwalletMain->CommitTransaction(wtxNew, reservekey))
-        return _(
-                "Error: The transaction was rejected.  This might happen if some of the coins in your wallet were already spent, such as if you used a copy of wallet.dat and coins were spent in the copy but not marked as spent here.");
+
+	if (!pwalletMain->CommitTransaction(wtxNew, reserveKey))
+		return _(
+				"Error: The transaction was rejected.  This might happen if some of the coins in your wallet were already spent, such as if you used a copy of wallet.dat and coins were spent in the copy but not marked as spent here.");
 
     return "";
 }
@@ -1047,8 +1048,6 @@ bool CreateAssetTransaction(
     wtxNew.BindWallet(pwalletMain);
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
-        wtxNew.vin.clear();
-        wtxNew.vout.clear();
         wtxNew.fFromMe = bIsFromMe;
 
         nFeeRet = nTransactionFee;
@@ -1057,33 +1056,43 @@ bool CreateAssetTransaction(
             printf("CreateAssetTransaction: total value = %s\n", FormatMoney(nTotalValue).c_str());
             double dPriority = 0;
 
+            wtxNew.vin.clear();
+            wtxNew.vout.clear();
+
             // vouts to the payees
             BOOST_FOREACH(const PAIRTYPE(CScript, int64)& s, vecSend)
                 wtxNew.vout.push_back(CTxOut(s.second, s.first));
 
             // create input coins vector and insert input txns first with latest at the head
             vector<pair<const CWalletTx*,unsigned int> > vecCoins;
-            vector<const CWalletTx*> vecAssetCoinsIn;
-
             set<pair<const CWalletTx*, unsigned int> > setCoins;
+            vector<const CWalletTx*> vecAssetCoins;
             int64 nValueIn = 0;
+
             bool isControlOp = asset.nOp != XOP_ASSET_SEND;
 
             if (nTotalValue > 0) {
 
             	bool bRet;
-            	if(!isControlOp)
-            		bRet = pwalletMain->SelectAssetCoins(asset.vchSymbol, nValue, setCoins, nValueIn);
+            	if(asset.nOp == XOP_ASSET_NEW)
+            		bRet = pwalletMain->SelectCoins(nValue, setCoins, nValueIn, NULL, false);
+            	else if(isControlOp)
+            		bRet = pwalletMain->SelectAssetControlCoins(asset.vchSymbol, nValue, setCoins, nValueIn, NULL, false);
             	else
-            		bRet = pwalletMain->SelectAssetControlCoins(asset.vchSymbol, nValue, setCoins, nValueIn);
+            		bRet = pwalletMain->SelectAssetCoins(asset.vchSymbol, nValue, setCoins, nValueIn, NULL, false);
+
             	if(!bRet) return false;
+
+            	if(asset.nOp != XOP_ASSET_NEW) {
+            		BOOST_FOREACH(const PAIRTYPE(const CWalletTx *, unsigned int)& coin, setCoins)
+            			vecAssetCoins.push_back(coin.first);
+            	}
 
                 // gather a list of the previous asset coins we need to
                 // successfully send this asset send transaction
                 vecCoins.insert(vecCoins.end(), setCoins.begin(), setCoins.end());
                 asset.prevTxHashes.clear();
                 BOOST_FOREACH(const PAIRTYPE(const CWalletTx *, unsigned int)& coin, setCoins) {
-                    vecAssetCoinsIn.push_back(coin.first);
                     asset.prevTxHashes.push_back(coin.first->GetHash());
                     printf( "CreateAssetTransaction: selected %s %s %s\n",
                     		stringFromVch(asset.vchSymbol).c_str(),
@@ -1119,7 +1128,7 @@ bool CreateAssetTransaction(
             }
 
             // Fill a vout back to self with any change
-            int64 nChange = nValueIn - nTotalValue;
+            int64 nChange = nTotalValue - nValueIn;
             if (nChange >= CENT) {
                 // Reserve a new key pair from key pool
                 CPubKey pubkey;
@@ -1149,7 +1158,8 @@ bool CreateAssetTransaction(
             // Sign
             int nIn = 0;
             BOOST_FOREACH(PAIRTYPE(const CWalletTx*, unsigned int)& coin, vecCoins) {
-                if (std::find(vecAssetCoinsIn.begin(), vecAssetCoinsIn.end(), coin.first) != vecAssetCoinsIn.end()) {
+            	if (std::find(vecAssetCoins.begin(), vecAssetCoins.end(), coin.first) != vecAssetCoins.end()) {
+            	//if(coin.first->nVersion == SYSCOIN_TX_VERSION) {
                     if (!SignAssetSignature(*coin.first, wtxNew, nIn++))
                         throw runtime_error("could not sign asset coin output");
                     printf( "CreateAssetTransaction: signed asset vin (%s), pos = %d\n",
@@ -1335,10 +1345,8 @@ bool CheckAssetInputs(
 
         case XOP_ASSET_SEND:
 
-
             if(!fJustCheck) {
             	if(isGeneratingBlock) {
-
             		// if this asset has an asset input, make sure there is at least a single
             		// confirmation of the input tx before accepting this block to be mined
             		if(hasAssetPrevout) {
@@ -1349,7 +1357,6 @@ bool CheckAssetInputs(
     						return false;
     					}
     				}
-
             		// if this asset send is a generate (it has no previous asset coins as inputs
             		// but another transaction is paired with it as its generator) then wait until
             		// the generating transaction has been accepted and mined before accepting it
@@ -1380,7 +1387,7 @@ bool CheckAssetInputs(
                     }
             	}
             }
-//
+
 //            if(!fJustCheck) {
 //                if(!isAssetSend) {
 //                    if(prevOp != OP_ASSET)
@@ -1452,8 +1459,6 @@ bool CheckAssetInputs(
 //                        }
 //                    }
 //                }
-//
-//
 //            }
 
             break;
@@ -1802,7 +1807,7 @@ Value assetnew(const Array& params, bool fHelp) {
     vector<unsigned char> vchSymbol = vchFromValue(params[0]);
     vector<unsigned char> vchTitle = vchFromValue(params[1]);
     vector<unsigned char> vchDescription = vchFromValue(params[2]);
-    uint64 nTotalQty = atoi64(params[3].get_str().c_str()); // TODO CB better translation for total quantityof
+    uint64 nTotalQty = atoi64(params[3].get_str().c_str()); // TODO CB better translation for total quantit yof
 
     if(vchSymbol.size() < 1)
         throw runtime_error("asset symbol < 1 bytes!\n");
@@ -1835,7 +1840,7 @@ Value assetnew(const Array& params, bool fHelp) {
 
     // TODO CB make sure the wallet is getting locked properly in the other commands
     {
-        LOCK(cs_main);
+        LOCK2(cs_main, pwalletMain->cs_wallet);
 
         // make sure no pending transactions for this asset
         if(IsAssetTransactionPending(vchSymbol)) {
@@ -1858,6 +1863,8 @@ Value assetnew(const Array& params, bool fHelp) {
         newAsset.vchDescription = vchDescription;
         newAsset.nFee           = nTransactionFee;
         newAsset.nCoinsPerShare = COIN;
+        newAsset.isChange		= false;
+        newAsset.changeTxHash	= 0;
 
         // values for asset_new txn
         newAsset.nOp            = XOP_ASSET_NEW;
@@ -1878,7 +1885,7 @@ Value assetnew(const Array& params, bool fHelp) {
         newAsset.genTxHash   = wtx.GetHash();
         newAsset.nQty		 = newAsset.nTotalQty;
 
-        strError = AssetSendToDestination(newAsset, wtxDest, NULL, true);
+        strError = AssetSendToDestination(newAsset, wtxDest,  NULL, true);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
 
@@ -1980,6 +1987,7 @@ Value assetsend(const Array& params, bool fHelp) {
         theAsset.isChange 	  = false;
         theAsset.nQty         = nQty;
 
+        CReserveKey reserveKey(pwalletMain);
         CTxDestination txDest = sendAddr.Get();
         string strError = AssetSendToDestination(theAsset, wtxDest, &txDest, bSendChange);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
@@ -1994,7 +2002,7 @@ Value assetpeg(const Array& params, bool fHelp) {
                 "assetpeg <symbol>\n"
                 "Peg the asset's SYS-per-share value to the given amount.\n"
                         "<symbol> asset symbol.\n"
-                        "<amount> asset share value, in Satoshi.\n"
+                        "<amount> asset share value.\n"
                         + HelpRequiringPassphrase());
 
     // gather & validate inputs
@@ -2003,8 +2011,7 @@ Value assetpeg(const Array& params, bool fHelp) {
     if (vchAsset.size() > 10)
         throw runtime_error("asset symbol > 10 bytes!\n");
 
-    // TODO CB better translation for total quantity
-    uint64 nCoinsPerShare = atoi64(params[1].get_str().c_str());
+    uint64 nCoinsPerShare = params[1].get_real() * COIN;
     if(nCoinsPerShare < 1) throw runtime_error("Invalid asset share value.");
 
     // this is a syscoin txn
@@ -2140,10 +2147,6 @@ Value assetupdate(const Array& params, bool fHelp) {
         theAsset.vchDescription = vchDesc;
         theAsset.nFee           = nNetFee;
         
-        // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to the txn for the destination or the original asset creator will be unable to update it
-        // TODO Currently anyone holding this asset can split it. Fix that.
-
-        // TODO CB Make sure to correctly set isFromMe in tx
         string strError = AssetControlToDestination(theAsset, wtx);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
@@ -2226,7 +2229,7 @@ Value assetgenerate(const Array& params, bool fHelp) {
         theAsset.nFee         = nNetFee;
         theAsset.nQty         = nGenQty * theAsset.nCoinsPerShare;
 
-        string strError = AssetSendToDestination(theAsset, wtx);
+        string strError = AssetControlToDestination(theAsset, wtx);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
 
@@ -2299,11 +2302,9 @@ Value assetdissolve(const Array& params, bool fHelp) {
         theAsset.changeTxHash = 0;
         theAsset.nOp          = XOP_ASSET_DISSOLVE;
         theAsset.nFee         = nNetFee;
-        theAsset.nQty         = theAsset.nQty - ( nGenQty * theAsset.nCoinsPerShare );
-        
-        string strError = AssetSendToDestination(theAsset, wtx);
-        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
+        string strError = AssetControlToDestination(theAsset, wtx);
+        if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
 
     return wtx.GetHash().GetHex();

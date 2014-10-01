@@ -1304,6 +1304,7 @@ Array RPCConvertValues(const std::string &strMethod, const std::vector<std::stri
     if (strMethod == "aliasfilter"            && n > 2) ConvertTo<boost::int64_t>(params[2]);
     if (strMethod == "aliasfilter"            && n > 3) ConvertTo<boost::int64_t>(params[3]);
 
+    if (strMethod == "assetpeg"               && n > 1) ConvertTo<double>(params[1]);
     return params;
 }
 

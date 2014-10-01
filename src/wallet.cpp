@@ -745,10 +745,6 @@ void CWalletTx::GetAmounts(list<pair<CTxDestination, int64> >& listReceived,
                 if (op != OP_CERTISSUER_NEW)
                     continue;
             }
-            else if (IsAssetOp(op)) {
-                nCarriedOverCoin -= txout.nValue;
-                continue;
-            }
         }
         else if(DecodeAssetScript(txout.scriptPubKey, op, vvch)) {
             if (IsAssetOp(op)) {
@@ -1074,7 +1070,7 @@ int64 CWallet::GetAssetBalance(const vector<unsigned char> &vchSymbol) const
 
         if (!pcoin->IsConfirmed()
 			|| pcoin->IsCoinBase()
-			|| !pcoin->IsFinal()
+			//|| !pcoin->IsFinal()
 			|| pcoin->nVersion != SYSCOIN_TX_VERSION)
             continue;
 
@@ -1084,6 +1080,9 @@ int64 CWallet::GetAssetBalance(const vector<unsigned char> &vchSymbol) const
 
             if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1) || !IsAssetOp(op))
                 continue;
+
+    		if(IsLockedCoin(pcoin->GetHash(), nOut))
+    			continue;
 
             CAsset asset(*pcoin);
 
@@ -1109,7 +1108,7 @@ int64 CWallet::GetAssetControlBalance(const vector<unsigned char> &vchSymbol) co
         const CWalletTx* pcoin = &(*it).second;
 
         if (!pcoin->IsConfirmed()
-    			|| !pcoin->IsFinal()
+    			//|| !pcoin->IsFinal()
 				|| pcoin->IsCoinBase()
 				|| pcoin->nVersion != SYSCOIN_TX_VERSION)
             continue;
@@ -1119,6 +1118,9 @@ int64 CWallet::GetAssetControlBalance(const vector<unsigned char> &vchSymbol) co
         if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1)
         		|| !IsAssetOp(op))
             			continue;
+
+		if(IsLockedCoin(pcoin->GetHash(), nOut))
+			continue;
 
         CAsset asset(*pcoin);
         if(vchSymbol.size() > 0) {
@@ -1186,8 +1188,35 @@ void CWallet::AvailableCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const
 
             for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
                 if (!(pcoin->IsSpent(i)) && IsMine(pcoin->vout[i]) &&
-                    !IsLockedCoin((*it).first, i) && pcoin->vout[i].nValue >= nMinimumInputValue &&
+                    /*!IsLockedCoin((*it).first, i) &&  */ pcoin->vout[i].nValue >= nMinimumInputValue &&
                     (!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, i))) 
+                        vCoins.push_back(COutput(pcoin, i, pcoin->GetDepthInMainChain()));
+            }
+        }
+    }
+}
+
+// populate vCoins with vector of spendable COutputs
+void CWallet::AllSpendableCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCoinControl *coinControl) const
+{
+    vCoins.clear();
+
+    {
+        LOCK(cs_wallet);
+        for (map<uint256, CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it)
+        {
+            const CWalletTx* pcoin = &(*it).second;
+
+            if (fOnlyConfirmed && !pcoin->IsConfirmed())
+                continue;
+
+            if (pcoin->IsCoinBase() && pcoin->GetBlocksToMaturity() > 0)
+                continue;
+
+            for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
+                if (!(pcoin->IsSpent(i)) && IsMine(pcoin->vout[i]) &&
+                    /*!IsLockedCoin((*it).first, i) && */pcoin->vout[i].nValue >= nMinimumInputValue &&
+                    (!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, i)))
                         vCoins.push_back(COutput(pcoin, i, pcoin->GetDepthInMainChain()));
             }
         }
@@ -1205,7 +1234,7 @@ void CWallet::AssetCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCo
             const CWalletTx* pcoin = &(*it).second;
 
             if ((fOnlyConfirmed && !pcoin->IsConfirmed())
-        			|| !pcoin->IsFinal()
+        			//|| !pcoin->IsFinal()
     				|| pcoin->IsCoinBase()
     				|| pcoin->nVersion != SYSCOIN_TX_VERSION)
                 continue;
@@ -1223,8 +1252,10 @@ void CWallet::AssetCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCo
             }
 
             if(asset.nOp == XOP_ASSET_SEND
+            	&& pcoin->vout[nOut].nValue >= nMinimumInputValue
     			&& !pcoin->IsSpent(nOut)
     			&& IsMyAsset(*pcoin, pcoin->vout[nOut])
+    			/* && !IsLockedCoin(pcoin->GetHash(), nOut) */
     			&& (!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, nOut))) {
             	vCoins.push_back(COutput(pcoin, nOut, pcoin->GetDepthInMainChain()));
             }
@@ -1243,7 +1274,7 @@ void CWallet::AssetControlCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, co
             const CWalletTx* pcoin = &(*it).second;
 
             if ((fOnlyConfirmed && !pcoin->IsConfirmed())
-        			|| !pcoin->IsFinal()
+        			//|| !pcoin->IsFinal()
     				|| pcoin->IsCoinBase()
     				|| pcoin->nVersion != SYSCOIN_TX_VERSION)
                 continue;
@@ -1263,6 +1294,7 @@ void CWallet::AssetControlCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, co
             if(asset.nOp != XOP_ASSET_SEND
     			&& !pcoin->IsSpent(nOut)
     			&& IsMyAsset(*pcoin, pcoin->vout[nOut])
+    			&& !IsLockedCoin(pcoin->GetHash(), nOut)
     			&& (!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, nOut))) {
             	vCoins.push_back(COutput(pcoin, nOut, pcoin->GetDepthInMainChain()));
             }
@@ -1450,10 +1482,14 @@ bool CWallet::SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfThe
     return true;
 }
 
-bool CWallet::SelectCoins(int64 nTargetValue, set<pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl) const
+bool CWallet::SelectCoins(int64 nTargetValue, set<pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl, bool bFinalOnly) const
 {
     vector<COutput> vCoins;
-    AvailableCoins(vCoins, true, coinControl);
+    if(bFinalOnly)
+    	AvailableCoins(vCoins,  true, coinControl);
+    else
+    	AllSpendableCoins(vCoins,  false, coinControl);
+
     
     // coin control -> return all selected outputs (we want all selected to go into the transaction for sure)
     if (coinControl && coinControl->HasSelected())
@@ -1468,13 +1504,14 @@ bool CWallet::SelectCoins(int64 nTargetValue, set<pair<const CWalletTx*,unsigned
 
     return (SelectCoinsMinConf(nTargetValue, 1, 6, vCoins, setCoinsRet, nValueRet) ||
             SelectCoinsMinConf(nTargetValue, 1, 1, vCoins, setCoinsRet, nValueRet) ||
-            SelectCoinsMinConf(nTargetValue, 0, 1, vCoins, setCoinsRet, nValueRet));
+            SelectCoinsMinConf(nTargetValue, 0, bFinalOnly ? 1 : 0, vCoins, setCoinsRet, nValueRet));
 }
 
-bool CWallet::SelectAssetCoins(const vector<unsigned char> &vchSymbol, int64 nTargetValue, set<pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl) const
+bool CWallet::SelectAssetCoins(const vector<unsigned char> &vchSymbol, int64 nTargetValue, set<pair<const CWalletTx*,
+		unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl, bool bConfirmedOnly) const
 {
     vector<COutput> vCoins;
-    AssetCoins(vCoins, true, coinControl, &vchSymbol);
+    AssetCoins(vCoins, bConfirmedOnly, coinControl, &vchSymbol);
     
     // coin control -> return all selected outputs (we want all selected to go into the transaction for sure)
     if (coinControl && coinControl->HasSelected())
@@ -1487,16 +1524,16 @@ bool CWallet::SelectAssetCoins(const vector<unsigned char> &vchSymbol, int64 nTa
         if(nTargetValue < 0) return true;
         else return (nValueRet >= nTargetValue);
     }
-
     return (SelectCoinsMinConf(nTargetValue, 1, 6, vCoins, setCoinsRet, nValueRet) ||
             SelectCoinsMinConf(nTargetValue, 1, 1, vCoins, setCoinsRet, nValueRet) ||
             SelectCoinsMinConf(nTargetValue, 0, 1, vCoins, setCoinsRet, nValueRet));
 }
 
-bool CWallet::SelectAssetControlCoins(const vector<unsigned char> &vchSymbol, int64 nTargetValue, set<pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl) const
+bool CWallet::SelectAssetControlCoins(const vector<unsigned char> &vchSymbol, int64 nTargetValue, set<pair<const CWalletTx*,
+		unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl, bool bConfirmedOnly) const
 {
     vector<COutput> vCoins;
-    AssetControlCoins(vCoins, true, coinControl, &vchSymbol);
+    AssetControlCoins(vCoins, bConfirmedOnly, coinControl, &vchSymbol);
 
     // coin control -> return all selected outputs (we want all selected to go into the transaction for sure)
     if (coinControl && coinControl->HasSelected())
@@ -1509,7 +1546,6 @@ bool CWallet::SelectAssetControlCoins(const vector<unsigned char> &vchSymbol, in
         if(nTargetValue < 0) return true;
         else return (nValueRet >= nTargetValue);
     }
-
     return (SelectCoinsMinConf(nTargetValue, 1, 6, vCoins, setCoinsRet, nValueRet) ||
             SelectCoinsMinConf(nTargetValue, 1, 1, vCoins, setCoinsRet, nValueRet) ||
             SelectCoinsMinConf(nTargetValue, 0, 1, vCoins, setCoinsRet, nValueRet));
@@ -1769,16 +1805,22 @@ string CWallet::SendMoney(CScript scriptPubKey, int64 nValue, CWalletTx& wtxNew,
     if (!CreateTransaction(scriptPubKey, nValue, wtxNew, reservekey, nFeeRequired, strError, NULL, txData))
     {
         if (nValue + nFeeRequired > GetBalance())
-            strError = strprintf(_("Error: This transaction requires a transaction fee of at least %s because of its amount, complexity, or use of recently received funds!"), FormatMoney(nFeeRequired).c_str());
+            strError = strprintf(_(
+            		"Error: This transaction requires a transaction fee of at "
+            		"least %s because of its amount, complexity, or use of "
+            		"recently received funds!"),
+            		FormatMoney(nFeeRequired).c_str());
         printf("SendMoney() : %s\n", strError.c_str());
         return strError;
     }
-
     if (fAskFee && !uiInterface.ThreadSafeAskFee(nFeeRequired))
         return "ABORTED";
 
     if (!CommitTransaction(wtxNew, reservekey))
-        return _("Error: The transaction was rejected! This might happen if some of the coins in your wallet were already spent, such as if you used a copy of wallet.dat and coins were spent in the copy but not marked as spent here.");
+        return _("Error: The transaction was rejected! This might happen if some "
+        		"of the coins in your wallet were already spent, such as if you "
+        		"used a copy of wallet.dat and coins were spent in the copy but "
+        		"not marked as spent here.");
 
     return "";
 }
@@ -1823,19 +1865,23 @@ string CWallet::SendData(CWalletTx& wtxNew, bool fAskFee, const std::string& txD
     if (!CreateTransaction(scriptPubKey, 0, wtxNew, reservekey, nFeeRequired, strError, NULL, txData))
     {
         if (nFeeRequired > GetBalance())
-            strError = strprintf(_("Error: This transaction requires a transaction fee of at least %s because of its amount, complexity, or use of recently received funds!"), FormatMoney(nFeeRequired).c_str());
+            strError = strprintf(
+            		_("Error: This transaction requires a transaction fee of at least %s"
+            		  "because of its amount, complexity, or use of recently received "
+            		  "funds!"), FormatMoney(nFeeRequired).c_str());
         printf("SendData() : %s\n", strError.c_str());
         return strError;
     }
-
     printf("SendData(): nFeeRequired = %d\n", (int)nFeeRequired);
 
     if (fAskFee && !uiInterface.ThreadSafeAskFee(nFeeRequired))
         return "ABORTED";
 
     if (!CommitTransaction(wtxNew, reservekey))
-        return _("Error: The transaction was rejected! This might happen if some of the coins in your wallet were already spent, such as if you used a copy of wallet.dat and coins were spent in the copy but not marked as spent here.");
-
+        return _("Error: The transaction was rejected! This might happen if some "
+        		 "of the coins in your wallet were already spent, such as if you "
+        		 "used a copy of wallet.dat and coins were spent in the copy but "
+        		 "not marked as spent here.");
     return "";
 }
 
@@ -1857,7 +1903,6 @@ DBErrors CWallet::LoadWallet(bool& fFirstRunRet)
             // the requires a new key.
         }
     }
-
     if (nLoadWalletRet != DB_LOAD_OK)
         return nLoadWalletRet;
     fFirstRunRet = !vchDefaultKey.IsValid();
@@ -1884,7 +1929,6 @@ bool CWallet::DelAddressBookName(const CTxDestination& address)
         return false;
     return CWalletDB(strWalletFile).EraseName(CBitcoinAddress(address).ToString());
 }
-
 
 void CWallet::PrintWallet(const CBlock& block)
 {

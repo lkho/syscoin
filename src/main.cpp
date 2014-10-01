@@ -814,6 +814,7 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
 	            	continue;
 	        	}
 
+	        	theAsset.prevTxHashes.clear();
 	        	string serAsset = theAsset.SerializeToString();
 	        	uint160 theHash  = Hash160(vchFromString(serAsset));
 
