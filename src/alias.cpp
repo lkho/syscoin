@@ -1519,7 +1519,6 @@ Value aliasupdate(const Array& params, bool fHelp) {
 					wtxInHash.GetHex().c_str());
 			throw runtime_error("this alias is not in your wallet");
 		}
-        //---Disabling transfer capability of aliasupdate until we fix the issues with encrypted wallets.
         if(!IsAliasMine(tx)) {
 			throw runtime_error("Cannot modify a transferred alias");
         }
@@ -1561,8 +1560,8 @@ Value aliaslist(const Array& params, bool fHelp) {
 
 		uint256 blockHash;
 		uint256 hash;
-		CTransaction tx;
-
+		CTransaction tx, dbtx;
+	
 		vector<unsigned char> vchValue;
 		int nHeight;
 		BOOST_FOREACH(PAIRTYPE(const uint256, CWalletTx)& item, pwalletMain->mapWallet) {
@@ -1574,6 +1573,11 @@ Value aliaslist(const Array& params, bool fHelp) {
 			// skip non-syscoin txns
 			if (tx.nVersion != SYSCOIN_TX_VERSION)
 				continue;
+
+			// don't show aliases that are transferred. Sanity check, wallet tx's are always "yours" by definition anyways.
+			if(!IsAliasMine(tx)) {
+				continue;
+			}
 
 			// decode txn, skip non-alias txns
 			vector<vector<unsigned char> > vvch;
@@ -1591,30 +1595,58 @@ Value aliaslist(const Array& params, bool fHelp) {
 			// skip this alias if it doesn't match the given filter value
 			if (vchNameUniq.size() > 0 && vchNameUniq != vchName)
 				continue;
-
-			// get the value of the alias txn
-			if (!GetValueOfAliasTx(tx, vchValue))
+			// get last active name only
+			if (vNamesI.find(vchName) != vNamesI.end() && (nHeight < vNamesI[vchName] || vNamesI[vchName] < 0))
 				continue;
 
+			// Read the database for the latest alias (vtxPos.back()) and ensure it is not transferred (isaliasmine).. 
+			// if it IS transferred then skip over this alias whenever it is found(above vNamesI check) in your mapwallet
+			// check for alias existence in DB
+			// will only read the alias from the db once per name to ensure that it is not mine.
+			vector<CAliasIndex> vtxPos;
+			if (paliasdb->ReadAlias(vchName, vtxPos) && vNamesI.find(vchName) == vNamesI.end())
+			{
+				if (vtxPos.size() > 0)
+				{
+					// get transaction pointed to by alias
+					uint256 txHash = vtxPos.back().txHash;
+					if (GetTransaction(txHash, dbtx, blockHash, true))
+					{
+						nHeight = GetAliasTxHashHeight(txHash);
+						// Is the latest alais in the db transferred?
+						if(!IsAliasMine(dbtx))
+						{	
+							// by setting this to -1, subsequent aliases with the same name won't be read from disk (optimization) 
+							// because the latest alias tx doesn't belong to us anymore
+							vNamesI[vchName] = -1;
+							continue;
+						}
+						else
+						{
+							// get the value of the alias txn of the latest alias (from db)
+							GetValueOfAliasTx(dbtx, vchValue);
+						}
+					}
+				}
+			}
+			else
+			{
+				GetValueOfAliasTx(tx, vchValue);
+			}
 			// build the output object
 			Object oName;
 			oName.push_back(Pair("name", stringFromVch(vchName)));
 			oName.push_back(Pair("value", stringFromVch(vchValue)));
-            oName.push_back(Pair("lastupdate_height", nHeight));
-            oName.push_back(Pair("expires_on", nHeight + GetAliasDisplayExpirationDepth(nHeight)));
-            oName.push_back(Pair("expires_in", nHeight + GetAliasDisplayExpirationDepth(nHeight)- pindexBest->nHeight ));
+			oName.push_back(Pair("lastupdate_height", nHeight));
+			oName.push_back(Pair("expires_on", nHeight + GetAliasDisplayExpirationDepth(nHeight)));
+			oName.push_back(Pair("expires_in", nHeight + GetAliasDisplayExpirationDepth(nHeight)- pindexBest->nHeight ));
 
 			if (nHeight + GetAliasDisplayExpirationDepth(nHeight)
 					- pindexBest->nHeight <= 0)
 				oName.push_back(Pair("expired", 1));
-
-			// get last active name only
-			if (vNamesI.find(vchName) != vNamesI.end()
-					&& vNamesI[vchName] > nHeight)
-				continue;
-
 			vNamesI[vchName] = nHeight;
-			vNamesO[vchName] = oName;
+			vNamesO[vchName] = oName;					
+
 		}
 	}
 
