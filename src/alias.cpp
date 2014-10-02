@@ -2087,7 +2087,6 @@ Value getaliasfees(const Array& params, bool fHelp) {
 		throw runtime_error(
 				"getaliasfees\n"
 						"get current service fees for alias transactions\n");
-	EnsureWalletIsUnlocked();
 	Object oRes;
 	oRes.push_back(Pair("height", nBestHeight ));
 	oRes.push_back(Pair("subsidy", ValueFromAmount(GetAliasFeeSubsidy(nBestHeight) )));
