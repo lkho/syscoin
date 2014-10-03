@@ -205,6 +205,7 @@ public:
     bool CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey);
 
     std::string SendMoney(CScript scriptPubKey, int64 nValue, CWalletTx& wtxNew, bool fAskFee=false, const std::string &txData="");
+    std::string SendCoins(const std::vector<std::pair<CScript, int64> >& vecSend, CWalletTx& wtxNew, bool fAskFee=false, const std::string &txData="");
     std::string SendMoneyToDestination(const CTxDestination &address, int64 nValue, CWalletTx& wtxNew, bool fAskFee=false, const std::string &txData="");
     std::string SendData(CWalletTx& wtxNew, bool fAskFee, const std::string& txData);
 

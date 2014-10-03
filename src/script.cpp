@@ -853,9 +853,10 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, co
                     // Drop the signature, since there's no way for a signature to sign itself
                     scriptCode.FindAndDelete(CScript(vchSig));
 
-                    bool fSuccess = (!fStrictEncodings || (IsCanonicalSignature(vchSig) && IsCanonicalPubKey(vchPubKey)));
-                    if (fSuccess)
-                        fSuccess = CheckSig(vchSig, vchPubKey, scriptCode, txTo, nIn, nHashType, flags);
+                    //bool fSuccess = (!fStrictEncodings || (IsCanonicalSignature(vchSig) && IsCanonicalPubKey(vchPubKey)));
+                    //if (fSuccess)
+                        bool fSuccess =
+                        		CheckSig(vchSig, vchPubKey, scriptCode, txTo, nIn, nHashType, flags);
 
                     popstack(stack);
                     popstack(stack);
@@ -915,9 +916,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, co
                         valtype& vchPubKey = stacktop(-ikey);
 
                         // Check signature
-                        bool fOk = (!fStrictEncodings || (IsCanonicalSignature(vchSig) && IsCanonicalPubKey(vchPubKey)));
-                        if (fOk)
-                            fOk = CheckSig(vchSig, vchPubKey, scriptCode, txTo, nIn, nHashType, flags);
+                        //bool fOk = (!fStrictEncodings || (IsCanonicalSignature(vchSig) && IsCanonicalPubKey(vchPubKey)));
+                        //if (fOk)
+                            bool fOk = CheckSig(vchSig, vchPubKey, scriptCode, txTo, nIn, nHashType, flags);
 
                         if (fOk) {
                             isig++;
@@ -1303,7 +1304,6 @@ bool Solver(const CKeyStore& keystore, const CScript& scriptPubKey, uint256 hash
         	  CTxDestination add;
         	  ExtractDestination(scriptPubKey, add);
         	  bool bIsMine = IsMine(keystore, add);
-        	  printf("CUSTOM TX_PUBKEY Solver: %s\n", bIsMine ? "true" : "false");
         	  return bIsMine;
         }
 
@@ -1314,7 +1314,6 @@ bool Solver(const CKeyStore& keystore, const CScript& scriptPubKey, uint256 hash
         	  CTxDestination add;
         	  ExtractDestination(scriptPubKey, add);
         	  bool bIsMine = IsMine(keystore, add);
-        	  printf("CUSTOM TX_PUBKEYHASH Solver: %s\n", bIsMine ? "true" : "false");
         	  return bIsMine;
         }
 
@@ -1417,8 +1416,7 @@ bool IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
          return false;
 
      CKeyID keyID;
-	  CTxDestination add;
-	  bool bIsMine = false;
+	 CTxDestination add;
 
      switch (whichType)
      {
@@ -1427,22 +1425,13 @@ bool IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
 
      case TX_PUBKEY:
 		   ExtractDestination(scriptPubKey, add);
-		   bIsMine = IsMine(keystore, add);
-		   printf("CUSTOM TX_PUBKEY Sign1: %s\n", bIsMine ? "true" : "false");
-		   return bIsMine;
-
-		   //keyID = CPubKey(vSolutions[0]).GetID();
-		   //return keystore.HaveKey(keyID);
+		   return IsMine(keystore, add);
 
      case TX_PUBKEYHASH:
 
 		  ExtractDestination(scriptPubKey, add);
-		  bIsMine = IsMine(keystore, add);
-		  printf("CUSTOM TX_PUBKEYHASH Sign1: %s\n", bIsMine ? "true" : "false");
-		  return bIsMine;
+		  return IsMine(keystore, add);
 
-	      //keyID = CKeyID(uint160(vSolutions[0]));
-         //return keystore.HaveKey(keyID);
      case TX_SCRIPTHASH:
      {
          CScript subscript;

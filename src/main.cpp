@@ -814,12 +814,12 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
 	            	continue;
 	        	}
 
-	        	theAsset.prevTxHashes.clear();
-	        	string serAsset = theAsset.SerializeToString();
-	        	uint160 theHash  = Hash160(vchFromString(serAsset));
-
+	        	uint160 theHash = Hash160(vchFromString(theAsset.SerializeToString()));
 	        	uint160 scriptAssetHash = uint160(vvch[1]);
-	        	if(theHash !=scriptAssetHash) {
+
+	        	if(theHash != scriptAssetHash
+					&& !theAsset.IsAssetChange(scriptAssetHash)
+					&& !theAsset.IsGenesisAsset(scriptAssetHash)) {
 	            	ret[iter] = error("asset transaction invalid asset hash");
 	            	continue;
 	        	}

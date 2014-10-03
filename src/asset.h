@@ -24,18 +24,11 @@ bool IsAssetMine(const CTransaction& tx);
 bool IsAssetMine(const CTransaction& tx, const CTxOut& txout, bool ignore_assetnew = false);
 bool IsMyAsset(const CTransaction& tx, const CTxOut& txout);
 CScript RemoveAssetScriptPrefix(const CScript& scriptIn);
-
-std::string SendAssetToDestination(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxNew, bool fAskFee, bool bIsFromMe, CAsset &asset);
-bool CreateAssetTransaction(const std::vector<std::pair<CScript, int64> >& vecSend, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, bool bIsFromMe, CAsset &asset);
-
-std::string SendAssetWithInputTxs(CScript scriptPubKey, int64 nValue, int64 nNetFee, const std::vector<unsigned char>& vchSymbol,  CWalletTx& wtxNew, bool fAskFee, bool bIsFromMe, const std::string& txData = "" );
-bool CreateAssetTransactionWithInputTxs(const std::vector<std::pair<CScript, int64> >& vecSend, const std::vector<CWalletTx*>& vecWtxIns, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, bool bIsFromMe, const std::string& txData = "");
-
 int CheckAssetTransactionAtRelativeDepth(CBlockIndex* pindexBlock, int target, int maxDepth = -1);
-
 bool DecodeAssetTx(const CTransaction& tx, int& op, int& nOut, std::vector<std::vector<unsigned char> >& vvch, int nHeight);
 bool DecodeAssetTx(const CCoins& tx, int& op, int& nOut, std::vector<std::vector<unsigned char> >& vvch, int nHeight);
 bool DecodeAssetScript(const CScript& script, int& op, std::vector<std::vector<unsigned char> > &vvch);
+bool DecodeAssetTxExtraCoins(const CTransaction& tx, int& op, int& nOut, std::vector<std::vector<unsigned char> >& vvch, int nHeight);
 bool IsAssetOp(int op);
 int IndexOfAssetOutput(const CTransaction& tx);
 uint64 GetAssetFeeSubsidy(unsigned int nHeight);
@@ -48,6 +41,7 @@ int64 GetAssetNetworkFee(int seed, int nHeight);
 int64 GetAssetNetFee(const CTransaction& tx);
 bool InsertAssetFee(CBlockIndex *pindex, uint256 hash, int nOp, uint64 nValue);
 bool ExtractAssetAddress(const CScript& script, std::string& address);
+CScript CreateAssetScript(const std::vector<std::vector<unsigned char> >& vvchArgs, uint160 assetHash, CKeyID *dest = NULL, const CTxDestination *txd = NULL);
 std::string stringFromVch(const std::vector<unsigned char> &vch);
 
 std::string assetFromOp(int op);
@@ -68,8 +62,6 @@ public:
 
     bool isChange;
     bool isGenerate;
-
-    std::vector<uint256> prevTxHashes;
 
     uint256 txHash;
     uint256 changeTxHash;
@@ -108,7 +100,6 @@ public:
         READWRITE(txHash);
         READWRITE(changeTxHash);
         READWRITE(genTxHash);       
-        READWRITE(prevTxHashes);
         READWRITE(nHeight);
         READWRITE(nTime);
         READWRITE(hash);
@@ -121,14 +112,14 @@ public:
         assert(nHeight != 0 || txHash != 0);
         unsigned int i = assetList.size()-1;
         BOOST_REVERSE_FOREACH(CAsset o, assetList) {
-        	if(o.txHash != 0 && o.txHash == txHash) {
-				assetList[i] = *this;
-				return;
-        	}
-        	else if(o.nHeight != 0 && o.nHeight == nHeight) {
+        	if(o.nHeight != 0 && o.nHeight == nHeight) {
                 assetList[i] = *this;
                 return;
             }
+        	else if(o.txHash != 0 && o.txHash == txHash) {
+				assetList[i] = *this;
+				return;
+        	}
             i--;
         }
         assetList.push_back(*this);
@@ -137,15 +128,15 @@ public:
     bool GetAssetFromList(const std::vector<CAsset> &assetList) {
         if(assetList.size() == 0) return false;
         unsigned int i = assetList.size()-1;
-        BOOST_REVERSE_FOREACH(CAsset o, assetList) {
-        	if(o.txHash == txHash) {
-				*this = assetList[i];
-				return true;
-			}
+        BOOST_FOREACH(CAsset o, assetList) {
         	if(o.nHeight == nHeight) {
                 *this = assetList[i];
                 return true;
             }
+        	if(o.txHash == txHash) {
+				*this = assetList[i];
+				return true;
+			}
             i--;
         }
         *this = assetList.back();
@@ -161,7 +152,7 @@ public:
     bool GetAssetSendFromList(const std::vector<CAsset> &assetList) {
         if(assetList.size() == 0) return false;
         unsigned int i = assetList.size()-1;
-        BOOST_REVERSE_FOREACH(CAsset o, assetList) {
+        BOOST_FOREACH(CAsset o, assetList) {
             if(o.nOp == XOP_ASSET_SEND) {
                 if(nHeight != 0) {
                     if(o.nHeight == nHeight) {
@@ -186,7 +177,7 @@ public:
     bool GetAssetControlFromList(const std::vector<CAsset> &assetList) {
         if(assetList.size() == 0) return false;
         unsigned int i = assetList.size()-1;
-        BOOST_REVERSE_FOREACH(CAsset o, assetList) {
+        BOOST_FOREACH(CAsset o, assetList) {
             if(o.nOp != XOP_ASSET_SEND) {
                 if(nHeight != 0) {
                     if(o.nHeight == nHeight) {
@@ -220,7 +211,6 @@ public:
         && a.isChange == b.isChange
         && a.genTxHash == b.genTxHash
         && a.isGenerate == b.isGenerate
-        && a.prevTxHashes == b.prevTxHashes
         && a.nFee == b.nFee
         && a.n == b.n
         && a.hash == b.hash
@@ -236,11 +226,10 @@ public:
         vchSymbol = b.vchSymbol;
         vchDescription = b.vchDescription;
         nTotalQty = b.nTotalQty;
-        nCoinsPerShare = b.nCoinsPerShare;
         nQty = b.nQty;
+        nCoinsPerShare = b.nCoinsPerShare;
         isChange = b.isChange;
         changeTxHash = b.changeTxHash;
-        prevTxHashes = b.prevTxHashes;
         isGenerate = b.isGenerate;
         genTxHash = b.genTxHash;
         nFee = b.nFee;
@@ -266,8 +255,8 @@ public:
         vchSymbol.clear(); 
         vchTitle.clear(); 
         vchDescription.clear(); 
-        prevTxHashes.clear();
     }
+
     bool IsNull() const { 
         return (
             txHash == 0  && 
@@ -278,10 +267,38 @@ public:
             nOp == 0 &&
             vchSymbol.size() == 0 &&
             vchTitle.size() == 0 &&
-            vchDescription.size() == 0 &&
-            prevTxHashes.size() == 0);
+            vchDescription.size() == 0);
     }
 
+    bool IsAssetChange(uint160 compareHash);
+    bool IsGenesisAsset(uint160 compareHash);
+
+    // 10080 blocks = 1 week
+    // certificate issuer expiration time is ~ 6 months or 26 weeks
+    // expiration blocks is 262080 (final)
+    // expiration starts at 87360, increases by 1 per block starting at
+    // block 174721 until block 349440
+    int64 GetServiceFee(int seed, int height = -1) {
+        return 0;
+
+        if (fCakeNet) return CENT;
+        if(height == -1) height = nHeight;
+        int64 nRes = 48 * COIN;
+        int64 nDif = 34 * COIN;
+        if(seed==2) {
+            nRes = 175;
+            nDif = 111;
+        } else if(seed==4) {
+            nRes = 10;
+            nDif = 8;
+        }
+        int nTargetHeight = 130080;
+        if(height>nTargetHeight) return nRes - nDif;
+        else return nRes - ( (height/nTargetHeight) * nDif );
+    }
+
+    std::string SendToDestination(CWalletTx& wtxNew,  const std::vector<unsigned char> *pvchAddress = NULL);
+    bool CreateTransaction(const std::vector<std::pair<CScript, int64> >& vecSend, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, bool bIsFromMe = true);
     std::string toString();
     bool UnserializeFromTx(const CTransaction &tx);
     void SerializeToTx(CTransaction &tx);
@@ -330,6 +347,7 @@ public:
     friend bool operator!=(const CAssetFee &a, const CAssetFee &b) { return !(a == b); }
     void SetNull() { hash = nTime = nHeight = nOp = nFee = 0;}
     bool IsNull() const { return (nTime == 0 && nFee == 0 && hash == 0 && nOp == 0 && nHeight == 0); }
+
 };
 
 class CAssetDB : public CLevelDB {
