@@ -121,6 +121,13 @@ inline uint160 Hash160(const std::vector<unsigned char>& vch)
     return Hash160(vch.begin(), vch.end());
 }
 
+inline uint160 Hash160(const std::string &str)
+{
+	unsigned char *strbeg = (unsigned char*) str.c_str();
+	std::vector<unsigned char> vch(strbeg, strbeg + str.size());
+    return Hash160(vch.begin(), vch.end());
+}
+
 unsigned int MurmurHash3(unsigned int nHashSeed, const std::vector<unsigned char>& vDataToHash);
 
 #endif

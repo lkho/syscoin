@@ -28,6 +28,8 @@ CCriticalSection cs_setpwalletRegistered;
 set<CWallet*> setpwalletRegistered;
 
 CCriticalSection cs_main;
+extern CCriticalSection cs_assetmaps;
+
 
 CTxMemPool mempool;
 unsigned int nTransactionsUpdated = 0;
@@ -780,51 +782,99 @@ bool CTransaction::CheckTransaction(CValidationState &state) const {
         } 
         else if(DecodeAssetTx(*this, op, nOut, vvch, iter == 0 ? 0 : -1)) {
 	        // TODO CB refactor this stuff into assets.cpp as a function call made from here
-	        if(DecodeAssetTx(*this, op, nOut, vvch, iter == 0 ? 0 : -1) && IsAssetOp(op)) {
-
-	        	// make sure asset script has the correct number of parameters
-		        if (vvch.size() != 3) {
-		            ret[iter] = error("incorrect number of asset script params");
-		            continue;
-		        }
-
-		        // asset name size sanity check
-		        if (vvch[0].size() > MAX_NAME_LENGTH) {
-		            ret[iter] = error("asset transaction with asset symbol too long");
-		            continue;
-		        }
-
-	        	// asset hash size sanity check
-	            if (vvch[1].size() > 20) {
-	                ret[iter] = error("asset tx with rand too big");
-	                continue;
-	            }
-
-	            // asset value size sanity
-	            if (vvch[2].size() > MAX_VALUE_LENGTH) {
-	                ret[iter] = error("asset tx with value too long");
-	                continue;
-	            }
-
-		        // unserialize asset object from txn, check for valid
-	        	CAsset theAsset;
-	        	theAsset.UnserializeFromTx(*this);
-	        	if (theAsset.IsNull()) {
-	            	ret[iter] = error("asset transaction with null asset object");
-	            	continue;
-	        	}
-
-	        	uint160 theHash = Hash160(vchFromString(theAsset.SerializeToString()));
-	        	uint160 scriptAssetHash = uint160(vvch[1]);
-
-	        	if(theHash != scriptAssetHash
-					&& !theAsset.IsAssetChange(scriptAssetHash)
-					&& !theAsset.IsGenesisAsset(scriptAssetHash)) {
-	            	ret[iter] = error("asset transaction invalid asset hash");
-	            	continue;
-	        	}
+	        if(!IsAssetOp(op)) {
+	        	ret[iter] = error("invalid asset op type");
+	        	continue;
 	        }
-	    }      
+
+			// make sure asset script has the correct number of parameters
+			if (vvch.size() != 3) {
+				ret[iter] = error("incorrect number of asset script params");
+				continue;
+			}
+
+			// asset name size sanity check
+			if (vvch[0].size() > MAX_NAME_LENGTH) {
+				ret[iter] = error("asset transaction with asset symbol too long");
+				continue;
+			}
+
+			// asset hash size sanity check
+			if (vvch[1].size() > 20) {
+				ret[iter] = error("asset tx with rand too big");
+				continue;
+			}
+
+			// asset value size sanity
+			if (vvch[2].size() > MAX_VALUE_LENGTH) {
+				ret[iter] = error("asset tx with value too long");
+				continue;
+			}
+
+			// unserialize asset object from txn, check for valid
+			CAsset theAsset;
+			theAsset.UnserializeFromTx(*this);
+			if (theAsset.IsNull()) {
+				ret[iter] = error("asset transaction with null asset object");
+				continue;
+			}
+
+			uint160 theHash = Hash160(vchFromString(theAsset.SerializeToString()));
+			uint160 scriptAssetHash = uint160(vvch[1]);
+
+			if(theHash != scriptAssetHash
+				&& !theAsset.IsAssetChange(scriptAssetHash)
+				&& !theAsset.IsGenesisAsset(scriptAssetHash)) {
+				ret[iter] = error("asset transaction invalid asset hash");
+				continue;
+			}
+	    }
+        else if(DecodeAssetTxExtraCoins(*this, op, nOut, vvch, iter == 0 ? 0 : -1)) {
+	        // TODO CB refactor this stuff into assets.cpp as a function call made from here
+	        if(!IsAssetOp(op)) {
+	        	ret[iter] = error("invalid asset op type");
+	        	continue;
+	        }
+
+			// make sure asset script has the correct number of parameters
+			if (vvch.size() != 3) {
+				ret[iter] = error("incorrect number of asset script params");
+				continue;
+			}
+
+			// asset name size sanity check
+			if (vvch[0].size() > MAX_NAME_LENGTH) {
+				ret[iter] = error("asset transaction with asset symbol too long");
+				continue;
+			}
+
+			// asset hash size sanity check
+			if (vvch[1].size() > 20) {
+				ret[iter] = error("asset tx with rand too big");
+				continue;
+			}
+
+			// asset value size sanity
+			if (vvch[2].size() > MAX_VALUE_LENGTH) {
+				ret[iter] = error("asset tx with value too long");
+				continue;
+			}
+
+			// unserialize asset object from txn, check for valid
+			CAsset theAsset;
+			theAsset.UnserializeFromTx(*this);
+			if (theAsset.IsNull()) {
+				ret[iter] = error("asset transaction with null asset object");
+				continue;
+			}
+
+			uint160 scriptAssetHash = uint160(vvch[1]);
+			if(!theAsset.IsAssetChange(scriptAssetHash)
+			   && !theAsset.IsGenesisAsset(scriptAssetHash)) {
+				ret[iter] = error("asset extra coins transaction invalid asset hash");
+				continue;
+			}
+        }
     }
     return ret[0] || ret[1];
 }
@@ -1082,10 +1132,18 @@ bool CTxMemPool::accept(CValidationState &state, CTransaction &tx,
 	    }
 	    else if(DecodeAssetTx(tx, op, nOut, vvch, -1)) {
 			if(IsAssetOp(op)) {
-		        LOCK(cs_aliasmap);
-                mapAssetPending[op == XOP_ASSET_NEW ? vchFromString(HexStr(vvch[0])) 
+		        LOCK(cs_assetmaps);
+                mapAssetPending[op == XOP_ASSET_NEW ? vchFromString(HexStr(vvch[0]))
                 	: vvch[0]].insert(tx.GetHash());
 	           	soptype = "asset";
+		    }
+	    }
+	    else if(DecodeAssetTxExtraCoins(tx, op, nOut, vvch, -1)) {
+			if(IsAssetOp(op)) {
+		        LOCK(cs_assetmaps);
+                mapAssetPending[op == XOP_ASSET_NEW ? vchFromString(HexStr(vvch[0])) 
+                	: vvch[0]].insert(tx.GetHash());
+	           	soptype = "asset extra coins";
 		    }
 	    }
     	printf("AcceptToMemoryPool() : Added %s transaction '%s' to memory pool.\n",
@@ -1862,6 +1920,12 @@ bool CTransaction::CheckInputs(CBlockIndex *pindex, CValidationState &state, CCo
 			}
 		} 
 		else if(DecodeAssetTx(*this, op, nOut, vvchArgs, pindex->nHeight)) {
+			if (IsAssetOp(op)) {
+				if (!CheckAssetInputs(pindex, *this, state, inputs, mapTestPool, fBlock, fMiner, bJustCheck))
+					return false;
+			}
+		}
+		else if(DecodeAssetTxExtraCoins(*this, op, nOut, vvchArgs, pindex->nHeight)) {
 			if (IsAssetOp(op)) {
 				if (!CheckAssetInputs(pindex, *this, state, inputs, mapTestPool, fBlock, fMiner, bJustCheck))
 					return false;

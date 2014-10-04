@@ -1069,30 +1069,44 @@ int64 CWallet::GetAssetBalance(const vector<unsigned char> &vchSymbol) const
         const CWalletTx* pcoin = &(*it).second;
 
         if (!pcoin->IsConfirmed()
-			|| pcoin->IsCoinBase()
-			//|| !pcoin->IsFinal()
-			|| pcoin->nVersion != SYSCOIN_TX_VERSION)
+		  || pcoin->IsCoinBase()
+		  || !pcoin->IsFinal()
+		  || pcoin->nVersion != SYSCOIN_TX_VERSION)
             continue;
+
+        CAsset asset(*pcoin);
 
         for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
             vector<vector<unsigned char> > vvch;
             int op, nOut;
 
-            if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1) || !IsAssetOp(op))
-                continue;
-
-    		if(IsLockedCoin(pcoin->GetHash(), nOut))
+            // can't spend locked coins
+    		if(IsLockedCoin(pcoin->GetHash(), nOut)
+    			|| pcoin->IsSpent(i)
+    			|| !IsMyAsset(*pcoin, pcoin->vout[i]))
     			continue;
 
-            CAsset asset(*pcoin);
+    		// coins in pos 0 that aren't ASSET SEND
+    		// are control coins and we dont want to select them
+    		if(i == 0 && asset.nOp != XOP_ASSET_SEND)
+    			continue;
 
-            if(asset.nOp==XOP_ASSET_SEND && !pcoin->IsSpent(i) && IsMyAsset(*pcoin, pcoin->vout[i])) {
-                if(vchSymbol.size() > 0) {
-                    if(asset.vchSymbol != vchSymbol)
-                        continue;
-                }
-            	nTotal += pcoin->vout[i].nValue;
+    		// coins above pos 1 must be SEND or NEW
+    		// to potentially contain asset coins
+    		else if(i > 0 &&
+    				!(asset.nOp == XOP_ASSET_SEND
+    						|| asset.nOp == XOP_ASSET_NEW))
+    			continue;
+
+            if(vchSymbol.size() > 0) {
+                if(asset.vchSymbol != vchSymbol)
+                    continue;
             }
+
+            if(!DecodeAssetTx(*pcoin, op, nOut, vvch, -1, true))
+            	continue;
+
+            nTotal += pcoin->vout[i].nValue;
         }
     }
     return nTotal;
@@ -1249,13 +1263,15 @@ void CWallet::AssetCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCo
             int op, nOut;
             bool isAssetCoin = DecodeAssetTx(*pcoin, op, nOut, vvch, -1)
             		&& asset.nOp == XOP_ASSET_SEND;
-            bool isAssetGenOrChange = false;
+
+            bool isAssetExtraCoin = false;
             if(!isAssetCoin)
-            	isAssetGenOrChange = DecodeAssetTxExtraCoins(*pcoin, op, nOut, vvch, -1);
+            	isAssetExtraCoin = DecodeAssetTxExtraCoins(*pcoin, op, nOut, vvch, -1)
+            		&& ( asset.nOp == XOP_ASSET_SEND || asset.nOp == XOP_ASSET_NEW );
 
             if( pcoin->vout[nOut].nValue >= nMinimumInputValue
     			&& !pcoin->IsSpent(nOut)
-    			&& (isAssetCoin || isAssetGenOrChange)
+    			&& (isAssetCoin || isAssetExtraCoin)
     			&& IsMyAsset(*pcoin, pcoin->vout[nOut])
     			&& !IsLockedCoin(pcoin->GetHash(), nOut)
     			&& (!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, nOut))) {
@@ -2406,6 +2422,13 @@ void CWallet::InsertedTransaction(const uint256 &hashTx)
                 printf("inserting asset txn %s into wallet\n", hashTx.GetHex().c_str());
             }
         }
+        else if( DecodeAssetTxExtraCoins(wtx, op, nOut, vvchArgs, -1) ) {
+            if (IsAssetOp(op)) {
+//                CAsset theAsset(wtx);
+//                NotifyAssetListChanged(this, &wtx, theAsset, CT_NEW);
+                printf("inserting asset extra coins txn %s into wallet\n", hashTx.GetHex().c_str());
+            }
+        }
         else {
 			printf("unknown transaction type for txid %s", hashTx.GetHex().c_str());
 		}
@@ -2465,6 +2488,13 @@ void CWallet::UpdatedTransaction(const uint256 &hashTx)
                     printf("inserting asset txn %s into wallet\n", hashTx.GetHex().c_str());
                 }
             } 
+            else if(DecodeAssetTxExtraCoins(wtx, op, nOut, vvchArgs, -1)) {
+                if (IsAssetOp(op)) {
+//                    CAsset theA(wtx);
+//                    NotifyAssetListChanged(this, &wtx, theA, CT_UPDATED);
+                    printf("inserting asset txn %s into wallet\n", hashTx.GetHex().c_str());
+                }
+            }
             else {
                 printf("unknown transaction type for txid %s\n", hashTx.GetHex().c_str());
             }

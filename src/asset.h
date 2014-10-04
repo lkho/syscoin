@@ -17,6 +17,7 @@ class CScript;
 class CWalletTx;
 class CDiskTxPos;
 class CAsset;
+class CCoin;
 
 bool CheckAssetInputs(CBlockIndex *pindex, const CTransaction &tx, CValidationState &state, CCoinsViewCache &inputs,
                      std::map<std::vector<unsigned char>,uint256> &mapTestPool, bool fBlock, bool fMiner, bool fJustCheck);
@@ -25,12 +26,13 @@ bool IsAssetMine(const CTransaction& tx, const CTxOut& txout, bool ignore_assetn
 bool IsMyAsset(const CTransaction& tx, const CTxOut& txout);
 CScript RemoveAssetScriptPrefix(const CScript& scriptIn);
 int CheckAssetTransactionAtRelativeDepth(CBlockIndex* pindexBlock, int target, int maxDepth = -1);
-bool DecodeAssetTx(const CTransaction& tx, int& op, int& nOut, std::vector<std::vector<unsigned char> >& vvch, int nHeight);
-bool DecodeAssetTx(const CCoins& tx, int& op, int& nOut, std::vector<std::vector<unsigned char> >& vvch, int nHeight);
+bool DecodeAssetTx(const CTransaction& tx, int& op, int& nOut, std::vector<std::vector<unsigned char> >& vvch, int nHeight, bool bDecodeAll = false);
+bool DecodeAssetTx(CAsset theAsset, const CCoins& tx, int& op, int& nOut, std::vector<std::vector<unsigned char> >& vvch, int nHeight, bool bDecodeAll = false);
 bool DecodeAssetScript(const CScript& script, int& op, std::vector<std::vector<unsigned char> > &vvch);
 bool DecodeAssetTxExtraCoins(const CTransaction& tx, int& op, int& nOut, std::vector<std::vector<unsigned char> >& vvch, int nHeight);
 bool IsAssetOp(int op);
 int IndexOfAssetOutput(const CTransaction& tx);
+int IndexOfAssetExtraCoinsOutput(const CTransaction& tx);
 uint64 GetAssetFeeSubsidy(unsigned int nHeight);
 bool GetValueOfAssetTxHash(const uint256 &txHash, std::vector<unsigned char>& vchValue, uint256& hash, int& nHeight);
 int GetAssetTxHashHeight(const uint256 txHash);
@@ -83,7 +85,17 @@ public:
             SetNull();
     }
 
+    CAsset(const CWalletTx &tx) {
+        if(!UnserializeFromTx(tx))
+            SetNull();
+    }
+
     CAsset(std::vector<unsigned char> &vchSymbol) {
+        if(!GetAsset(vchSymbol))
+            SetNull();
+    }
+
+    CAsset(const std::string &sData) {
         if(!GetAsset(vchSymbol))
             SetNull();
     }
@@ -199,6 +211,26 @@ public:
         return false;
     }
 
+    uint160 GetHash() {
+    	return Hash160(SerializeToString());
+    }
+
+    uint160 GetGenesisHash() {
+    	CAsset theAsset = *this;
+    	theAsset.isGenerate = true;
+    	theAsset.txHash = theAsset.genTxHash;
+    	theAsset.nQty = theAsset.nTotalQty;
+    	return Hash160(theAsset.SerializeToString());
+    }
+
+    uint160 GetChangeHash() {
+    	CAsset theAsset = *this;
+    	theAsset.isChange = true;
+    	theAsset.txHash = theAsset.changeTxHash;
+    	return Hash160(theAsset.SerializeToString());
+    }
+
+
     friend bool operator==(const CAsset &a, const CAsset &b) {
         return (
            a.vchTitle == b.vchTitle
@@ -301,6 +333,8 @@ public:
     bool CreateTransaction(const std::vector<std::pair<CScript, int64> >& vecSend, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, bool bIsFromMe = true);
     std::string toString();
     bool UnserializeFromTx(const CTransaction &tx);
+    bool UnserializeFromTx(const CWalletTx &tx);
+    bool UnserializeFromString(const std::string &s);
     void SerializeToTx(CTransaction &tx);
     std::string SerializeToString();
 };
@@ -386,6 +420,39 @@ public:
     bool ReconstructAssetIndex(CBlockIndex *pindexRescan);
 };
 extern std::list<CAssetFee> lstAssetFees;
+
+class CAssetCoin
+{
+public:
+    CAsset asset;
+    int op;
+    int nOut;
+    std::vector<std::vector<unsigned char> > vvch;
+    int nHeight;
+    int64 nValue;
+
+
+    CAssetCoin(CAsset &aIn,  int o, int n, std::vector<std::vector<unsigned char> >& vv, int nh, int64 v)
+    {
+        asset = aIn;
+        op = o;
+        nOut = n;
+        vvch = vv;
+        nHeight = nh;
+        nValue = v;
+    }
+
+    std::string ToString() const
+    {
+       // return strprintf("COutput(%s, %d, %d) [%s]", tx->GetHash().ToString().c_str(), i, nDepth, FormatMoney(tx->vout[i].nValue).c_str());
+    	return "";
+    }
+
+    void print() const
+    {
+        printf("%s\n", ToString().c_str());
+    }
+};
 
 
 bool GetTxOfAsset(CAssetDB& dbAsset, const std::vector<unsigned char> &vchAsset, CTransaction& tx);

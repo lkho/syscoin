@@ -92,7 +92,27 @@ string assetFromOp(int op) {
     }
 }
 
+bool CAsset::UnserializeFromString(const string &s) {
+    try {
+        CDataStream dsAsset(vchFromString(DecodeBase64(s)), SER_NETWORK, PROTOCOL_VERSION);
+        dsAsset >> *this;
+    } catch (std::exception &e) {
+        return false;
+    }
+    return true;
+}
+
 bool CAsset::UnserializeFromTx(const CTransaction &tx) {
+    try {
+        CDataStream dsAsset(vchFromString(DecodeBase64(stringFromVch(tx.data))), SER_NETWORK, PROTOCOL_VERSION);
+        dsAsset >> *this;
+    } catch (std::exception &e) {
+        return false;
+    }
+    return true;
+}
+
+bool CAsset::UnserializeFromTx(const CWalletTx &tx) {
     try {
         CDataStream dsAsset(vchFromString(DecodeBase64(stringFromVch(tx.data))), SER_NETWORK, PROTOCOL_VERSION);
         dsAsset >> *this;
@@ -435,6 +455,17 @@ int IndexOfAssetOutput(const CTransaction& tx) {
     return nOut;
 }
 
+int IndexOfAssetExtraCoinsOutput(const CTransaction& tx) {
+    vector<vector<unsigned char> > vvch;
+    int op, nOut;
+
+    if (!DecodeAssetTxExtraCoins(tx, op, nOut, vvch, -1))
+        throw runtime_error("IndexOfAssetExtraCoinsOutput() : asset extra coins output not found");
+
+    return nOut;
+}
+
+
 bool GetNameOfAssetTx(const CTransaction& tx, vector<unsigned char>& asset) {
     if (tx.nVersion != SYSCOIN_TX_VERSION)
         return false;
@@ -459,7 +490,7 @@ bool GetValueOfAssetTx(const CTransaction& tx, vector<unsigned char>& value) {
     vector<vector<unsigned char> > vvch;
     int op, nOut;
 
-    if (!DecodeAssetTx(tx, op, nOut, vvch, -1))
+    if (!DecodeAssetTx(tx, op, nOut, vvch, -1, true))
         return false;
 
     if(!IsAssetOp(op)) return false;
@@ -467,7 +498,7 @@ bool GetValueOfAssetTx(const CTransaction& tx, vector<unsigned char>& value) {
     if(vvch.size()==0)
         return error("GetValueOfAssetTx() : no script values");
 
-    value = vvch[vvch.size()-1];
+    value = vvch[2];
     return true;
 }
 
@@ -616,38 +647,121 @@ bool GetTxOfAssetControl(CAssetDB& dbAsset, const vector<unsigned char> &vchAsse
     return error("GetTxOfAssetControl() : could not read tx from disk");
 }
 
-bool DecodeAssetTx(const CTransaction& tx, int& op, int& nOut, vector<vector<unsigned char> >& vvch, int nHeight) {
-    bool found = false;
+
+bool DecodeAssetTx(const CTransaction& tx, int& op, int& nOut, vector<vector<unsigned char> >& vvch, int nHeight, bool bDecodeAll) {
+
     if (nHeight < 0)
         nHeight = pindexBest->nHeight;
-    for (unsigned int i = 0; i < tx.vout.size(); i++) {
+    CAsset theAsset(tx);
+
+    unsigned int nOutSize = bDecodeAll
+    		? tx.vout.size()
+    				:( tx.vout.size() < 1 ? tx.vout.size() : 1 );
+
+    bool found = false;
+    for (unsigned int i = 0; i < nOutSize; i++) {
         const CTxOut& out = tx.vout[i];
         vector<vector<unsigned char> > vvchRead;
         if (DecodeAssetScript(out.scriptPubKey, op, vvchRead)) {
-            nOut = i;
-            found = true;
-            vvch = vvchRead;
-            break;
+        	if(!bDecodeAll && i > 0)
+        		continue;
+        	bool isExtraCoin = i > 0
+        		  && ( theAsset.IsGenesisAsset( Hash160 ( vvchRead[1] ) )
+                    || theAsset.IsAssetChange( Hash160 ( vvchRead[1] ) ) );
+        	if(isExtraCoin || i == 0) {
+				nOut = i;
+				found = true;
+				vvch = vvchRead;
+				break;
+        	}
         }
     }
     if (!found) vvch.clear();
     return found && IsAssetOp(op);
 }
 
-bool DecodeAssetTx(const CCoins& tx, int& op, int& nOut, vector<vector<unsigned char> >& vvch, int nHeight) {
+bool DecodeAssetTx(CAsset theAsset, const CCoins& tx, int& op, int& nOut, vector<vector<unsigned char> >& vvch, int nHeight, bool bDecodeAll) {
+
+    if (nHeight < 0)
+        nHeight = pindexBest->nHeight;
+	unsigned int nOutSize = bDecodeAll
+    		? tx.vout.size()
+    				:( tx.vout.size() < 1 ? tx.vout.size() : 1 );
+
     bool found = false;
-    for (unsigned int i = 0; i < tx.vout.size(); i++) {
+    for (unsigned int i = 0; i < nOutSize; i++) {
         const CTxOut& out = tx.vout[i];
         vector<vector<unsigned char> > vvchRead;
         if (DecodeAssetScript(out.scriptPubKey, op, vvchRead)) {
-            nOut = i;
-            found = true;
-            vvch = vvchRead;
-            break;
+        	if(!bDecodeAll && i > 0)
+        		continue;
+        	bool isExtraCoin = i > 0
+        		  && ( theAsset.IsGenesisAsset( Hash160 ( vvchRead[1] ) )
+                    || theAsset.IsAssetChange( Hash160 ( vvchRead[1] ) ) );
+        	if(isExtraCoin || i == 0) {
+				nOut = i;
+				found = true;
+				vvch = vvchRead;
+				break;
+        	}
         }
     }
     if (!found) vvch.clear();
     return found && IsAssetOp(op);
+}
+
+
+bool DecodeAssetCoins(const CTransaction& tx, vector<CAssetCoin> &vecAssetCoins, int nHeight, bool bDecodeAll) {
+    if (nHeight < 0)
+        nHeight = pindexBest->nHeight;
+
+    CAsset theAsset(tx);
+    vector<vector<unsigned char> > vvch;
+    int op;
+
+    if(tx.nVersion != SYSCOIN_TX_VERSION)
+    	return false;
+
+    // max loop iterations. either 1 or size of outs list
+    unsigned int maxI =  bDecodeAll ? tx.vout.size() : 1;
+    if(tx.vout.size() < maxI)
+    	maxI = tx.vout.size();
+
+    for (unsigned int i = 0; i < maxI; i++) {
+        const CTxOut& out = tx.vout[i];
+        vector<vector<unsigned char> > vvchRead;
+        if (DecodeAssetScript(out.scriptPubKey, op, vvchRead)) {
+    		CAsset tAsset = theAsset;
+    		// stop looking if this isnt a send tx
+    		// iterator is past primary position
+    		if(i > 0 &&
+				!(tAsset.nOp == XOP_ASSET_SEND
+						|| tAsset.nOp == XOP_ASSET_NEW))
+							break;
+    		// look for a secondary coin out
+        	if(i > 0) {
+        		// is this the asset genesis coins?
+				if(tAsset.IsGenesisAsset(Hash160(vvchRead[1]))) {
+					tAsset.txHash = tAsset.genTxHash;
+					tAsset.isGenerate = true;
+					tAsset.nQty = out.nValue;
+				}
+				// is this asset change from a previous send?
+				else if(theAsset.IsAssetChange(Hash160(vvchRead[1]))) {
+					tAsset.txHash = tAsset.changeTxHash;
+					tAsset.isChange = true;
+					tAsset.nQty = CBigNum(vvch[2]).getulong();
+				}
+        	}
+        	else {
+        		if(theAsset.nOp !=XOP_ASSET_SEND)
+        			continue;
+        	}
+			CAssetCoin theCoin(tAsset, op, i, vvch, nHeight, out.nValue);
+			vecAssetCoins.push_back(theCoin);
+        }
+    }
+    return vecAssetCoins.size() != 0;
 }
 
 bool CAsset::IsAssetChange(uint160 compareHash) {
@@ -662,8 +776,6 @@ bool CAsset::IsAssetChange(uint160 compareHash) {
 	theAsset.changeTxHash = theAsset.txHash;
 	uint160 theHash 	  = Hash160(vchFromString(theAsset.SerializeToString()));
 
-	printf("IsAssetChange: %s\n", theAsset.toString().c_str());
-
 	return (theHash==compareHash);
 }
 
@@ -673,32 +785,29 @@ bool CAsset::IsGenesisAsset(uint160 compareHash) {
 
 	CAsset theAsset = *this;
 
-	printf("IsGenesisAsset: BEFORE %s\n", theAsset.toString().c_str());
-
 	theAsset.nOp 		= XOP_ASSET_NEW;
 	theAsset.isGenerate = true;
 	theAsset.genTxHash  = theAsset.txHash;
 	theAsset.nQty 		= theAsset.nTotalQty;
 	uint160 theHash  	= Hash160(vchFromString(theAsset.SerializeToString()));
 
-	printf("IsGenesisAsset: AFTER %s\n", theAsset.toString().c_str());
-
 	return (theHash==compareHash);
 }
 
-bool DecodeAssetTxExtraCoins(const CTransaction& tx, int& op, int& nOut, vector<vector<unsigned char> >& vvch, int nHeight) {
+bool DecodeAssetTxExtraCoins(const CTransaction& tx,  int& op, int& nOut, vector<vector<unsigned char> >& vvch, int nHeight) {
     bool found = false;
     if (nHeight < 0)
         nHeight = pindexBest->nHeight;
     CAsset theAsset(tx);
 
-    for (unsigned int i = 0; i < tx.vout.size(); i++) {
+    // extra coin outputs are elways pos 1 or later
+    for (unsigned int i = 1; i < tx.vout.size(); i++) {
         const CTxOut& out = tx.vout[i];
         vector<vector<unsigned char> > vvchRead;
         if (DecodeAssetScript(out.scriptPubKey, op, vvchRead)) {
         	uint160 theHash = uint160(vvchRead[1]);
         	if ( theAsset.IsGenesisAsset ( theHash )
-        	   || theAsset.IsAssetChange ( theHash ) ) {
+        	    || theAsset.IsAssetChange ( theHash ) )  {
 				nOut = i;
 				found = true;
 				vvch = vvchRead;
@@ -709,6 +818,30 @@ bool DecodeAssetTxExtraCoins(const CTransaction& tx, int& op, int& nOut, vector<
     if (!found) vvch.clear();
     return found;
 }
+
+
+bool DecodeAssetTxExtraCoins(const CAsset &a, const CCoins& tx, int& op, int& nOut, vector<vector<unsigned char> >& vvch, int nHeight) {
+    bool found = false;
+    CAsset theAsset = a;
+
+    for (unsigned int i = 1; i < tx.vout.size(); i++) {
+        const CTxOut& out = tx.vout[i];
+        vector<vector<unsigned char> > vvchRead;
+        if (DecodeAssetScript(out.scriptPubKey, op, vvchRead)) {
+        	uint160 theHash = uint160(vvchRead[1]);
+        	if ( theAsset.IsGenesisAsset ( theHash )
+        	   || theAsset.IsAssetChange ( theHash ) )  {
+				nOut = i;
+				found = true;
+				vvch = vvchRead;
+				break;
+        	}
+        }
+    }
+    if (!found) vvch.clear();
+    return found && IsAssetOp(op);
+}
+
 
 bool DecodeAssetScript(const CScript& script, int& op, vector<vector<unsigned char> > &vvch) {
     CScript::const_iterator pc = script.begin();
@@ -765,20 +898,6 @@ bool SignAssetSignature(const CTransaction& txFrom, CTransaction& txTo, unsigned
     return true;
 }
 
-bool GetValueOfAssetTx(const CCoins& tx, vector<unsigned char>& value) {
-    vector<vector<unsigned char> > vvch;
-
-    int op, nOut;
-
-    if (!DecodeAssetTx(tx, op, nOut, vvch, -1))
-        return false;
-
-    if(!IsAssetOp(op)) 
-        return false;
-
-    value = vvch[vvch.size()-1];
-    return true;
-}
 
 bool GetAssetAddress(const CTransaction& tx, std::string& strAddress) {
     int op, nOut = 0;
@@ -851,12 +970,11 @@ string CAsset::SendToDestination ( CWalletTx& wtxNew, const vector<unsigned char
 
     printf("SendToDestination:%s\n", toString().c_str());
 
+	CAsset theAsset = *this;
+
     // if there is any asset change, send change to ourselves
     if(nOp == XOP_ASSET_NEW) {
-
-    	CAsset theAsset = *this;
-
-    	// with change set to true and transaction ID
+  	// with change set to true and transaction ID
     	theAsset.isGenerate = true;
     	theAsset.genTxHash  = theAsset.txHash;
     	theAsset.nQty 	    = theAsset.nTotalQty;
@@ -885,8 +1003,6 @@ string CAsset::SendToDestination ( CWalletTx& wtxNew, const vector<unsigned char
 
     // if there is any asset change, send change to ourselves
     if(nAssetChange > 0) {
-
-    	CAsset theAsset = *this;
 
     	// this transaction's hash is the asset object
     	// with change set to true and transaction ID
@@ -971,7 +1087,18 @@ bool CAsset::CreateTransaction(
     if (vecSend.empty() || nValue < 0)
         return false;
 
+    bool bIsSendChange = nOp == XOP_ASSET_SEND && isChange == true && changeTxHash == txHash;
+
     int64 nBaseValue = nQty + (nOp == XOP_ASSET_NEW ? nTotalQty : 0 );
+    if(bIsSendChange && changeTxHash == txHash) {
+    	nBaseValue = pwalletMain->GetAssetBalance(vchSymbol);
+    }
+
+    if(nOp == XOP_ASSET_NEW) {
+    	nBaseValue = nQty + nTotalQty;
+    } else if(nOp == XOP_ASSET_SEND) {
+    	nBaseValue = pwalletMain->GetAssetBalance(vchSymbol);
+    }
     assert(nValue == nBaseValue);
 
     wtxNew.data = vchFromString(SerializeToString().c_str());
@@ -1241,10 +1368,14 @@ bool CheckAssetInputs(
     }
 
     int64 nNetFee;
+    bool goodec = false;
 
     // look for an asset transaction in this transction
     bool good = DecodeAssetTx(tx, op, nOut, vvchArgs, pindexBlock->nHeight);
-    if (!good) return error("CheckAssetInputs() : could not decode asset tx");
+    if(!good) {
+    	goodec = DecodeAssetTxExtraCoins(tx, op, nOut, vvchArgs, pindexBlock->nHeight);
+    	if (!goodec) return error("CheckAssetInputs() : could not decode asset tx");
+    }
 
     // unserialize asset object from txn, check for valid
     CAsset theAsset(tx);
@@ -2188,7 +2319,6 @@ Value assetlist(const Array& params, bool fHelp) {
 
         uint256 blockHash;
         uint256 hash;
-        CTransaction tx;
 
         vector<unsigned char> vchValue;
         int nHeight;
@@ -2198,24 +2328,21 @@ Value assetlist(const Array& params, bool fHelp) {
             // get txn hash, read txn index
             hash = item.second.GetHash();
 
-            if (!GetTransaction(hash, tx, blockHash, true))
-                continue;
-
             // skip non-syscoin txns
-            if (tx.nVersion != SYSCOIN_TX_VERSION)
+            if (item.second.nVersion != SYSCOIN_TX_VERSION)
                 continue;
 
             // decode txn, skip non-asset txns
             vector<vector<unsigned char> > vvch;
             int op, nOut;
-            if (!DecodeAssetTx(tx, op, nOut, vvch, -1) || !IsAssetOp(op)) 
+            if (!DecodeAssetTx(item.second, op, nOut, vvch, -1) || !IsAssetOp(op))
                 continue;
 
             // get the txn height
             nHeight = GetAssetTxHashHeight(hash);
 
             // get the txn asset name
-            if(!GetNameOfAssetTx(tx, vchName))
+            if(!GetNameOfAssetTx(item.second, vchName))
                 continue;
 
             // skip this asset if it doesn't match the given filter value
@@ -2223,7 +2350,7 @@ Value assetlist(const Array& params, bool fHelp) {
                 continue;
 
             // get the value of the asset txn
-            if(!GetValueOfAssetTx(tx, vchValue))
+            if(!GetValueOfAssetTx(item.second, vchValue))
                 continue;
 
             // build the output object
@@ -2232,7 +2359,7 @@ Value assetlist(const Array& params, bool fHelp) {
             oName.push_back(Pair("value", stringFromVch(vchValue)));
             
             string strAddress = "";
-            GetAssetAddress(tx, strAddress);
+            GetAssetAddress(item.second, strAddress);
             oName.push_back(Pair("address", strAddress));
 
             // get last active name only
@@ -2273,7 +2400,6 @@ Value listassettransactions(const Array& params, bool fHelp) {
 
         uint256 blockHash;
         uint256 hash;
-        CTransaction tx;
 
         vector<unsigned char> vchValue;
         int nHeight;
@@ -2283,24 +2409,21 @@ Value listassettransactions(const Array& params, bool fHelp) {
             // get txn hash, read txn index
             hash = item.second.GetHash();
 
-            if (!GetTransaction(hash, tx, blockHash, true))
-                continue;
-
             // skip non-syscoin txns
-            if (tx.nVersion != SYSCOIN_TX_VERSION)
+            if (item.second.nVersion != SYSCOIN_TX_VERSION)
                 continue;
 
             // decode txn, skip non-asset txns
             vector<vector<unsigned char> > vvch;
             int op, nOut;
-            if (!DecodeAssetTx(tx, op, nOut, vvch, -1) || !IsAssetOp(op)) 
+            if (!DecodeAssetTx(item.second, op, nOut, vvch, -1) || !IsAssetOp(op))
                 continue;
 
             // get the txn height
             nHeight = GetAssetTxHashHeight(hash);
 
             // get the txn asset name
-            if(!GetNameOfAssetTx(tx, vchName))
+            if(!GetNameOfAssetTx(item.second, vchName))
                 continue;
 
             // skip this asset if it doesn't match the given filter value
@@ -2308,16 +2431,16 @@ Value listassettransactions(const Array& params, bool fHelp) {
                 continue;
 
             // get the value of the asset txn
-            if(!GetValueOfAssetTx(tx, vchValue))
+            if(!GetValueOfAssetTx(item.second, vchValue))
                 continue;
 
             // build the output object
             Object oName;
-            oName.push_back(Pair("txid", tx.GetHash().GetHex()));
+            oName.push_back(Pair("txid", hash.GetHex()));
             oName.push_back(Pair("name", stringFromVch(vchName)));
             oName.push_back(Pair("value", stringFromVch(vchValue)));             
             string strAddress = "";
-            GetAssetAddress(tx, strAddress);
+            GetAssetAddress(item.second, strAddress);
             oName.push_back(Pair("address", strAddress));
 
             Array details;

@@ -1153,10 +1153,6 @@ void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDe
                         nTxOut = IndexOfCertIssuerOutput(wtx);
                         ExtractCertIssuerAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
                     } 
-                    else if(IsAssetOp(op)) {
-                        nTxOut = IndexOfAssetOutput(wtx);
-                        ExtractAssetAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
-                    } 
                 }
                 else if(DecodeAssetTx(wtx, op, nOut, vvchArgs, -1)) {
                     if(IsAssetOp(op)) {
@@ -1164,6 +1160,12 @@ void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDe
                         ExtractAssetAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
                     } 
                 }
+                else if(DecodeAssetTxExtraCoins(wtx, op, nOut, vvchArgs, -1)) {
+					if(IsAssetOp(op)) {
+						nTxOut = IndexOfAssetExtraCoinsOutput(wtx);
+						ExtractAssetAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
+					}
+				}
             }
             entry.push_back(Pair("address", strAddress));
             entry.push_back(Pair("category", "send"));
