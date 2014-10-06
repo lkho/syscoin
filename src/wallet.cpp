@@ -1261,17 +1261,11 @@ void CWallet::AssetCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCo
 
             vector<vector<unsigned char> > vvch;
             int op, nOut;
-            bool isAssetCoin = DecodeAssetTx(*pcoin, op, nOut, vvch, -1)
-            		&& asset.nOp == XOP_ASSET_SEND;
-
-            bool isAssetExtraCoin = false;
-            if(!isAssetCoin)
-            	isAssetExtraCoin = DecodeAssetTxExtraCoins(*pcoin, op, nOut, vvch, -1)
-            		&& ( asset.nOp == XOP_ASSET_SEND || asset.nOp == XOP_ASSET_NEW );
+            if(!DecodeAssetTx(*pcoin, op, nOut, vvch, -1, true))
+            	continue;
 
             if( pcoin->vout[nOut].nValue >= nMinimumInputValue
     			&& !pcoin->IsSpent(nOut)
-    			&& (isAssetCoin || isAssetExtraCoin)
     			&& IsMyAsset(*pcoin, pcoin->vout[nOut])
     			&& !IsLockedCoin(pcoin->GetHash(), nOut)
     			&& (!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, nOut))) {
@@ -1500,13 +1494,10 @@ bool CWallet::SelectCoinsMinConf(int64 nTargetValue, int nConfMine, int nConfThe
     return true;
 }
 
-bool CWallet::SelectCoins(int64 nTargetValue, set<pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl, bool bFinalOnly) const
+bool CWallet::SelectCoins(int64 nTargetValue, set<pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl) const
 {
     vector<COutput> vCoins;
-    if(bFinalOnly)
-    	AvailableCoins(vCoins,  true, coinControl);
-    else
-    	AllSpendableCoins(vCoins,  false, coinControl);
+    AvailableCoins(vCoins,  true, coinControl);
     
     // coin control -> return all selected outputs (we want all selected to go into the transaction for sure)
     if (coinControl && coinControl->HasSelected())
@@ -1521,14 +1512,14 @@ bool CWallet::SelectCoins(int64 nTargetValue, set<pair<const CWalletTx*,unsigned
 
     return (SelectCoinsMinConf(nTargetValue, 1, 6, vCoins, setCoinsRet, nValueRet) ||
             SelectCoinsMinConf(nTargetValue, 1, 1, vCoins, setCoinsRet, nValueRet) ||
-            SelectCoinsMinConf(nTargetValue, 0, bFinalOnly ? 1 : 0, vCoins, setCoinsRet, nValueRet));
+            SelectCoinsMinConf(nTargetValue, 0, 1, vCoins, setCoinsRet, nValueRet));
 }
 
 bool CWallet::SelectAssetCoins(const vector<unsigned char> &vchSymbol, int64 nTargetValue, set<pair<const CWalletTx*,
-		unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl, bool bConfirmedOnly) const
+		unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl) const
 {
     vector<COutput> vCoins;
-    AssetCoins(vCoins, bConfirmedOnly, coinControl, &vchSymbol);
+    AssetCoins(vCoins, true, coinControl, &vchSymbol);
     
     // coin control -> return all selected outputs (we want all selected to go into the transaction for sure)
     if (coinControl && coinControl->HasSelected())
@@ -1547,10 +1538,10 @@ bool CWallet::SelectAssetCoins(const vector<unsigned char> &vchSymbol, int64 nTa
 }
 
 bool CWallet::SelectAssetControlCoins(const vector<unsigned char> &vchSymbol, int64 nTargetValue, set<pair<const CWalletTx*,
-		unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl, bool bConfirmedOnly) const
+		unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl* coinControl) const
 {
     vector<COutput> vCoins;
-    AssetControlCoins(vCoins, bConfirmedOnly, coinControl, &vchSymbol);
+    AssetControlCoins(vCoins, true, coinControl, &vchSymbol);
 
     // coin control -> return all selected outputs (we want all selected to go into the transaction for sure)
     if (coinControl && coinControl->HasSelected())

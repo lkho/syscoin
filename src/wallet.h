@@ -82,9 +82,9 @@ private:
     int nWalletMaxVersion;
 
 public:
-    bool SelectCoins(int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL, bool bIsFinalOnly = true) const;
-    bool SelectAssetCoins(const std::vector<unsigned char> &vchSymbol, int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL, bool bFinalOnly = true) const;
-    bool SelectAssetControlCoins(const std::vector<unsigned char> &vchSymbol, int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL, bool bFinalOnly = true) const;
+    bool SelectCoins(int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL) const;
+    bool SelectAssetCoins(const std::vector<unsigned char> &vchSymbol, int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL) const;
+    bool SelectAssetControlCoins(const std::vector<unsigned char> &vchSymbol, int64 nTargetValue, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64& nValueRet, const CCoinControl *coinControl=NULL) const;
 
     mutable CCriticalSection cs_wallet;
 

@@ -296,11 +296,11 @@ Value listassetunspent(const Array& params, bool fHelp)
     pwalletMain->AssetCoins(vecOutputs, true, NULL, NULL);
     BOOST_FOREACH(const COutput& out, vecOutputs)
     {
-        if (out.nDepth < nMinDepth || out.nDepth > nMaxDepth)
-            continue;
+        if (out.nDepth < nMinDepth
+        		|| out.nDepth > nMaxDepth)
+            		continue;
 
-         if (setAddress.size())
-         {
+         if (setAddress.size()) {
              CTxDestination address;
              if (!ExtractDestination(out.tx->vout[out.i].scriptPubKey, address))
                  continue;
@@ -308,30 +308,26 @@ Value listassetunspent(const Array& params, bool fHelp)
                  continue;
          }
 
-        const string sData = stringFromVch(out.tx->data);
-        CAsset theAsset(sData);
+        CAsset theAsset(stringFromVch(out.tx->data));
 
-        // get the asset from DB
-        vector<unsigned char> vchAsset;
         int64 nValue = out.tx->vout[out.i].nValue;
         const CScript& pk = out.tx->vout[out.i].scriptPubKey;
         Object entry;
         entry.push_back(Pair("txid", out.tx->GetHash().GetHex()));
-        entry.push_back(Pair("vout", out.i));
+        //entry.push_back(Pair("vout", out.i));
         entry.push_back(Pair("symbol", stringFromVch(theAsset.vchSymbol).c_str()));
+
         CTxDestination address;
-        if (ExtractDestination(out.tx->vout[out.i].scriptPubKey, address))
-        {
+        if (ExtractDestination(out.tx->vout[out.i].scriptPubKey, address)) {
              entry.push_back(Pair("address", CBitcoinAddress(address).ToString()));
              if (pwalletMain->mapAddressBook.count(address))
                  entry.push_back(Pair("account", pwalletMain->mapAddressBook[address]));
         }
         entry.push_back(Pair("scriptPubKey", HexStr(pk.begin(), pk.end())));
-        if (pk.IsPayToScriptHash())
-        {
+
+        if (pk.IsPayToScriptHash()) {
             CTxDestination address;
-            if (ExtractDestination(pk, address))
-            {
+            if (ExtractDestination(pk, address)) {
                 const CScriptID& hash = boost::get<const CScriptID&>(address);
                 CScript redeemScript;
                 if (pwalletMain->GetCScript(hash, redeemScript))
