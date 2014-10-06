@@ -165,7 +165,7 @@ string CAsset::toString() {
 			assetFromOp(nOp).c_str(),
 			(isChange?"true":"false"),
 			(changeTxHash != 0 ? changeTxHash.GetHex().c_str() : "0"),
-			(isGenerate?"true":"false"),
+			(isGenesis?"true":"false"),
 			(genTxHash != 0 ? genTxHash.GetHex().c_str() : "0"),
 			ValueFromAmount(nFee).get_real(),
 			txHash.GetHex().c_str(),
@@ -742,7 +742,7 @@ bool DecodeAssetCoins(const CTransaction& tx, vector<CAssetCoin> &vecAssetCoins,
         		// is this the asset genesis coins?
 				if(tAsset.IsGenesisAsset(Hash160(vvchRead[1]))) {
 					tAsset.txHash = tAsset.genTxHash;
-					tAsset.isGenerate = true;
+					tAsset.isGenesis = true;
 					tAsset.nQty = out.nValue;
 				}
 				// is this asset change from a previous send?
@@ -785,7 +785,7 @@ bool CAsset::IsGenesisAsset(uint160 compareHash) {
 	CAsset theAsset = *this;
 
 	theAsset.nOp 		= XOP_ASSET_NEW;
-	theAsset.isGenerate = true;
+	theAsset.isGenesis = true;
 	theAsset.genTxHash  = theAsset.txHash;
 	theAsset.nQty 		= theAsset.nTotalQty;
 	uint160 theHash  	= Hash160(vchFromString(theAsset.SerializeToString()));
@@ -984,7 +984,7 @@ string CAsset::SendToDestination ( CWalletTx& wtxNew, const vector<unsigned char
     // if there is any asset change, send change to ourselves
     if(nOp == XOP_ASSET_NEW) {
   	// with change set to true and transaction ID
-    	theAsset.isGenerate = true;
+    	theAsset.isGenesis = true;
     	theAsset.genTxHash  = theAsset.txHash;
     	theAsset.nQty 	    = theAsset.nTotalQty;
 
@@ -1397,7 +1397,7 @@ bool CheckAssetInputs(
 
     bool isGeneratingBlock = ( fBlock || fMiner );
 	bool isChangeSource    = !theAsset.isChange && theAsset.changeTxHash != 0;
-	bool isGeneratedAsset  = theAsset.isGenerate || isChangeSource;
+	bool isGenesisdAsset  = theAsset.isGenesis || isChangeSource;
 
     // check for enough fees
     if(hasAssetPrevout) {
@@ -1413,7 +1413,7 @@ bool CheckAssetInputs(
 		 // disallow transaction on a nonexistent asset on
 		 // transactions when it constitutes in illegal state
 		if(theAsset.nOp != XOP_ASSET_NEW
-				&& !isGeneratedAsset)
+				&& !isGenesisdAsset)
 			return error("CheckAssetInputs() : asset does not exist or invalid asset send.");
     }
 
@@ -1458,7 +1458,7 @@ bool CheckAssetInputs(
             		// if this asset send is a generate (it has no previous asset coins as inputs
             		// but another transaction is paired with it as its generator) then wait until
             		// the generating transaction has been accepted and mined before accepting it
-                    if(isGeneratedAsset) {
+                    if(isGenesisdAsset) {
                         CTransaction genTx;
                         uint256 genBlockHash = 0,
                         		genTxHash = isChangeSource ? theAsset.changeTxHash : theAsset.genTxHash;
@@ -1513,7 +1513,7 @@ bool CheckAssetInputs(
 //
 //                    // if this is an asset generate (initial shares allotment created on assetnew) then
 //                    // make sure that the assetnew transaction has been accepted and mined before accepting
-//                    if(theAsset.isGenerate) {
+//                    if(theAsset.isGenesis) {
 //
 //                        CTransaction genTx;
 //                        uint256 genBlockHash = 0;
@@ -1621,7 +1621,7 @@ bool CheckAssetInputs(
             theAsset.nFee = serializedAsset.nFee;
             theAsset.isChange = serializedAsset.isChange;
             theAsset.changeTxHash = serializedAsset.changeTxHash;
-            theAsset.isGenerate = serializedAsset.isGenerate;
+            theAsset.isGenesis = serializedAsset.isGenesis;
             theAsset.genTxHash = serializedAsset.genTxHash;
             theAsset.nTime = pindexBlock->nTime;
             theAsset.n = nOut;
@@ -1842,7 +1842,7 @@ Value assetnew(const Array& params, bool fHelp) {
         newAsset.nFee           = 0;
         newAsset.isChange		= false;
         newAsset.changeTxHash	= 0;
-        newAsset.isGenerate		= false;
+        newAsset.isGenesis		= false;
         newAsset.genTxHash      = 0;
 
         // send the assetnew control transaction out
@@ -1923,7 +1923,7 @@ Value assetsend(const Array& params, bool fHelp) {
         theAsset.nFee           = 0;
         theAsset.isChange		= false;
         theAsset.changeTxHash	= 0;
-        theAsset.isGenerate		= false;
+        theAsset.isGenesis		= false;
         theAsset.genTxHash      = 0;
         
         string strError = theAsset.SendToDestination(wtx, &vchAddress);
@@ -1989,7 +1989,7 @@ Value assetpeg(const Array& params, bool fHelp) {
         theAsset.nFee           = 0;
         theAsset.isChange		= false;
         theAsset.changeTxHash	= 0;
-        theAsset.isGenerate		= false;
+        theAsset.isGenesis		= false;
         theAsset.genTxHash      = 0;
         theAsset.nQty 			= COIN;
         theAsset.nCoinsPerShare = nCoinsPerShare;
@@ -2058,7 +2058,7 @@ Value assetupdate(const Array& params, bool fHelp) {
         theAsset.nFee           = 0;
         theAsset.isChange		= false;
         theAsset.changeTxHash	= 0;
-        theAsset.isGenerate		= false;
+        theAsset.isGenesis		= false;
         theAsset.genTxHash      = 0;
         theAsset.vchDescription = vchDesc;
         
@@ -2072,7 +2072,7 @@ Value assetupdate(const Array& params, bool fHelp) {
 Value assetgenerate(const Array& params, bool fHelp) {
     if (fHelp || params.size() != 2)
         throw runtime_error(
-                "assetgenerate <symbol> <description>\n"
+                "assetgenerate <symbol> <amount> [address]\n"
                 "Generate new asset shares.\n"
                         "<symbol> asset symbol.\n"
                         "<amount> amount of asset shares to generate.\n"
@@ -2080,11 +2080,13 @@ Value assetgenerate(const Array& params, bool fHelp) {
 
     // gather & validate inputs
     vector<unsigned char> vchAsset = vchFromValue(params[0]);
-    uint64 nGenQty = atoi64(params[1].get_str().c_str());
-    if(nGenQty < 1) throw runtime_error("Invalid generate quantity.");
 
     if (vchAsset.size() > 10)
         throw runtime_error("asset symbol > 10 bytes!\n");
+
+    // TODO CB better translation for total quantity
+    uint64 nQty = params[1].get_real() * COIN;
+    if(nQty <= 0) throw runtime_error("Invalid asset quantity.");
 
     // this is a syscoin txn
     CWalletTx wtx;
@@ -2103,38 +2105,34 @@ Value assetgenerate(const Array& params, bool fHelp) {
 
         EnsureWalletIsUnlocked();
 
-        // look for a transaction with this key
-        CTransaction tx;
-        if (!GetTxOfAssetControl(*passetdb, vchAsset, tx))
-            throw runtime_error("could not find an asset with this key");
+        // get the asset from DB
+        vector<CAsset> vtxPos;
+        if (!passetdb->ReadAsset(vchAsset, vtxPos))
+            throw runtime_error("could not read asset from DB");
+        CAsset theAsset = vtxPos.back();
 
-        // unserialize asset object from txn
-        CAsset theAsset(tx);
-        if(theAsset.IsNull())
-            throw runtime_error("cannot unserialize asset from txn");
+        // calculate network fees
+        uint64 nNetFee = theAsset.GetServiceFee(2, pindexBest->nHeight);
+
+        // make sure we have enough quantity to perform the send
+        uint64 nAssetBalance = pwalletMain->GetAssetBalance(vchAsset);
+        nQty *= theAsset.nCoinsPerShare;
+        if(nAssetBalance == 0 || nQty == 0 || nAssetBalance < nQty + nNetFee )
+            throw runtime_error("invalid asset quantity");
 
         // make sure there's enough funds to send this txn before trying
-        if(pwalletMain->GetAssetControlBalance(theAsset.vchSymbol) != COIN)
-            throw runtime_error("you cannot modify this asset because you do not control it.");
+        if(pwalletMain->GetBalance() < (int64)nNetFee)
+            throw runtime_error("insufficient balance to pay asset send fee.");
 
-        // TODO CB make it incrementally more and more expensive to split an asset.
-        // this is to prevent someone from creating an asset with a low number
-        // of shares and then splitting it to save on fees.
-        // serialize asset object
-        
-        // TODO CB MAKE SURE that the asset_activate txn is NOT used as an input to
-        // the txn for the destination or the original asset creator will be unable to update it
-        // TODO Currently anyone holding this asset can split it. Fix that.
-
-        // asset transaction
-        theAsset.nOp          = XOP_ASSET_GENERATE;
-        theAsset.txHash       = wtx.GetHash();
-        theAsset.nFee         = 0;
-        theAsset.isChange	  = false;
-        theAsset.changeTxHash = 0;
-        theAsset.isGenerate	  = false;
-        theAsset.genTxHash    = 0;
-        theAsset.nQty         = COIN;
+        // populate the asset object
+        theAsset.nOp            = XOP_ASSET_GENERATE;
+        theAsset.txHash         = wtx.GetHash();
+        theAsset.nQty			= nQty;
+        theAsset.nFee           = nNetFee;
+        theAsset.isChange		= false;
+        theAsset.changeTxHash	= 0;
+        theAsset.isGenesis		= false;
+        theAsset.genTxHash      = wtx.GetHash();
 
         string strError = theAsset.SendToDestination(wtx);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
@@ -2154,8 +2152,11 @@ Value assetdissolve(const Array& params, bool fHelp) {
 
     // gather & validate inputs
     vector<unsigned char> vchAsset = vchFromValue(params[0]);
-    uint64 nGenQty = atoi64(params[1].get_str().c_str());
-    if(nGenQty < 1) throw runtime_error("Invalid dissolve quantity.");
+
+    // TODO CB better translation for total quantity
+    uint64 nQty = params[1].get_real() * COIN;
+    if(nQty <= 0) throw runtime_error("Invalid asset quantity.");
+
 
     if (vchAsset.size() > 10)
         throw runtime_error("asset symbol > 10 bytes!\n");
@@ -2167,43 +2168,44 @@ Value assetdissolve(const Array& params, bool fHelp) {
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
 
-        if(IsAssetTransactionPending(vchAsset))
-            throw runtime_error("there are pending operations on that asset");
-
-        EnsureWalletIsUnlocked();
-
         // make sure no pending transactions for this asset
-        if(IsAssetTransactionPending(vchAsset))
-            throw runtime_error("there are pending operations on that asset");
+         if(IsAssetTransactionPending(vchAsset))
+             throw runtime_error("there are pending operations on that asset");
 
-        // cannot activate an asset if it is already active
-        if (!AssetTransactionExists(vchAsset))
-            throw runtime_error("this asset does not exist");
+         // cannot activate an asset if it is already active
+         if (!AssetTransactionExists(vchAsset))
+             throw runtime_error("this asset does not exist");
 
-        EnsureWalletIsUnlocked();
+         EnsureWalletIsUnlocked();
 
-        // look for a transaction with this key
-        CTransaction tx;
-        if (!GetTxOfAssetControl(*passetdb, vchAsset, tx))
-            throw runtime_error("could not find an asset with this key");
+         // get the asset from DB
+         vector<CAsset> vtxPos;
+         if (!passetdb->ReadAsset(vchAsset, vtxPos))
+             throw runtime_error("could not read asset from DB");
+         CAsset theAsset = vtxPos.back();
 
-        // unserialize asset object from txn
-        CAsset theAsset(tx);
-        if(theAsset.IsNull())
-            throw runtime_error("cannot unserialize asset from txn");
+         // calculate network fees
+         uint64 nNetFee = theAsset.GetServiceFee(2, pindexBest->nHeight);
 
-        // make sure there's enough funds to send this txn before trying 
-        if(pwalletMain->GetAssetControlBalance(theAsset.vchSymbol) != COIN)
-            throw runtime_error("you cannot modify this asset because you do not control it.");
+         // make sure we have enough quantity to perform the send
+         uint64 nAssetBalance = pwalletMain->GetAssetBalance(vchAsset);
+         nQty *= theAsset.nCoinsPerShare;
+         if(nAssetBalance == 0 || nQty == 0 || nAssetBalance < nQty + nNetFee )
+             throw runtime_error("invalid asset quantity");
+
+         // make sure there's enough funds to send this txn before trying
+         if(pwalletMain->GetBalance() < (int64)nNetFee)
+             throw runtime_error("insufficient balance to pay asset send fee.");
+
 
         // asset transaction
         theAsset.nOp          = XOP_ASSET_DISSOLVE;
         theAsset.txHash       = wtx.GetHash();
-        theAsset.nQty         = COIN;
+        theAsset.nQty         = nQty;
         theAsset.nFee         = 0;
         theAsset.isChange	  = false;
         theAsset.changeTxHash = 0;
-        theAsset.isGenerate	  = false;
+        theAsset.isGenesis	  = false;
         theAsset.genTxHash    = 0;
 
         string strError = theAsset.SendToDestination(wtx);

@@ -63,7 +63,7 @@ public:
     uint64 nCoinsPerShare;
 
     bool isChange;
-    bool isGenerate;
+    bool isGenesis;
 
     uint256 txHash;
     uint256 changeTxHash;
@@ -108,7 +108,7 @@ public:
         READWRITE(nCoinsPerShare);
         READWRITE(nQty);
         READWRITE(isChange);
-        READWRITE(isGenerate);
+        READWRITE(isGenesis);
         READWRITE(txHash);
         READWRITE(changeTxHash);
         READWRITE(genTxHash);       
@@ -217,7 +217,7 @@ public:
 
     uint160 GetGenesisHash() {
     	CAsset theAsset = *this;
-    	theAsset.isGenerate = true;
+    	theAsset.isGenesis = true;
     	theAsset.txHash = theAsset.genTxHash;
     	theAsset.nQty = theAsset.nTotalQty;
     	return Hash160(theAsset.SerializeToString());
@@ -242,7 +242,7 @@ public:
         && a.changeTxHash == b.changeTxHash
         && a.isChange == b.isChange
         && a.genTxHash == b.genTxHash
-        && a.isGenerate == b.isGenerate
+        && a.isGenesis == b.isGenesis
         && a.nFee == b.nFee
         && a.n == b.n
         && a.hash == b.hash
@@ -262,7 +262,7 @@ public:
         nCoinsPerShare = b.nCoinsPerShare;
         isChange = b.isChange;
         changeTxHash = b.changeTxHash;
-        isGenerate = b.isGenerate;
+        isGenesis = b.isGenesis;
         genTxHash = b.genTxHash;
         nFee = b.nFee;
         n = b.n;
@@ -283,7 +283,7 @@ public:
         txHash = changeTxHash = genTxHash = hash = 0;
         nTotalQty = nQty = nCoinsPerShare = 0;
         isChange = false;
-        isGenerate = false;
+        isGenesis = false;
         vchSymbol.clear(); 
         vchTitle.clear(); 
         vchDescription.clear(); 
