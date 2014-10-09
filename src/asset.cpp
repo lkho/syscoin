@@ -1,3 +1,5 @@
+#include <boost/assign/list_of.hpp>
+
 #include "asset.h"
 #include "init.h"
 #include "txdb.h"
@@ -44,6 +46,10 @@ extern bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey,
         int nHashType);
 
 extern void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDepth, bool fLong, Array& ret);
+
+extern void RPCTypeCheck(const Array& params,
+                  const list<Value_type>& typesExpected,
+                  bool fAllowNull);
 
 bool IsAssetOp(int op) {
     return op == OP_ASSET;
@@ -299,10 +305,8 @@ bool CAssetDB::ReconstructAssetIndex(CBlockIndex *pindexRescan) {
                     txAsset.vchDescription = serializedAsset.vchDescription;
                     break;
                 case XOP_ASSET_GENERATE:
-                    txAsset.nTotalQty += serializedAsset.nQty;
-                    break;
                 case XOP_ASSET_DISSOLVE:
-                    txAsset.nTotalQty -= serializedAsset.nQty;
+                    txAsset.nTotalQty = serializedAsset.nTotalQty;
                     break;
                 default:
                     return error("ReconstructAssetIndex() : unknown asset op");
@@ -666,7 +670,8 @@ bool DecodeAssetTx(const CTransaction& tx, int& op, int& nOut, vector<vector<uns
         		continue;
         	bool isExtraCoin = i > 0
         		  && ( theAsset.IsGenesisAsset( Hash160 ( vvchRead[1] ) )
-                    || theAsset.IsAssetChange( Hash160 ( vvchRead[1] ) ) );
+                     || theAsset.IsAssetChange( Hash160 ( vvchRead[1] ) )
+                     || theAsset.IsGenerate() );
         	if(isExtraCoin || i == 0) {
 				nOut = i;
 				found = true;
@@ -696,7 +701,8 @@ bool DecodeAssetTx(CAsset theAsset, const CCoins& tx, int& op, int& nOut, vector
         		continue;
         	bool isExtraCoin = i > 0
         		  && ( theAsset.IsGenesisAsset( Hash160 ( vvchRead[1] ) )
-                    || theAsset.IsAssetChange( Hash160 ( vvchRead[1] ) ) );
+                    || theAsset.IsAssetChange( Hash160 ( vvchRead[1] ) )
+                    || theAsset.IsGenerate() );
         	if(isExtraCoin || i == 0) {
 				nOut = i;
 				found = true;
@@ -735,8 +741,9 @@ bool DecodeAssetCoins(const CTransaction& tx, vector<CAssetCoin> &vecAssetCoins,
     		// iterator is past primary position
     		if(i > 0 &&
 				!(tAsset.nOp == XOP_ASSET_SEND
-						|| tAsset.nOp == XOP_ASSET_NEW))
-							break;
+				|| tAsset.nOp == XOP_ASSET_NEW
+				|| tAsset.nOp == XOP_ASSET_GENERATE ) )
+					break;
     		// look for a secondary coin out
         	if(i > 0) {
         		// is this the asset genesis coins?
@@ -806,7 +813,8 @@ bool DecodeAssetTxExtraCoins(const CTransaction& tx,  int& op, int& nOut, vector
         if (DecodeAssetScript(out.scriptPubKey, op, vvchRead)) {
         	uint160 theHash = uint160(vvchRead[1]);
         	if ( theAsset.IsGenesisAsset ( theHash )
-        	    || theAsset.IsAssetChange ( theHash ) )  {
+        	    || theAsset.IsAssetChange ( theHash )
+        	    || theAsset.IsGenerate () )  {
 				nOut = i;
 				found = true;
 				vvch = vvchRead;
@@ -829,7 +837,8 @@ bool DecodeAssetTxExtraCoins(const CAsset &a, const CCoins& tx, int& op, int& nO
         if (DecodeAssetScript(out.scriptPubKey, op, vvchRead)) {
         	uint160 theHash = uint160(vvchRead[1]);
         	if ( theAsset.IsGenesisAsset ( theHash )
-        	   || theAsset.IsAssetChange ( theHash ) )  {
+        	   || theAsset.IsAssetChange ( theHash )
+        	   || theAsset.IsGenerate () )  {
 				nOut = i;
 				found = true;
 				vvch = vvchRead;
@@ -933,7 +942,9 @@ string CAsset::SendToDestination ( CWalletTx& wtxNew, const vector<unsigned char
 
 	int64 nAssetBalance = pwalletMain->GetAssetBalance(vchSymbol);
 	int64 nAssetValue   = nQty;
-	int64 nAssetChange  = nOp == XOP_ASSET_SEND ? nAssetBalance - nAssetValue : 0;
+	int64 nAssetChange  = nOp == XOP_ASSET_SEND || nOp == XOP_ASSET_DISSOLVE ? nAssetBalance - nAssetValue : 0;
+
+	bool isControlTx = nOp != XOP_ASSET_SEND;
 
 	// vector for all destinations
     vector<pair<CScript,int64> > vecSend;
@@ -941,7 +952,7 @@ string CAsset::SendToDestination ( CWalletTx& wtxNew, const vector<unsigned char
     // serialize, hash asset data
     vector<vector<unsigned char> > vvchInputArgs;
     vvchInputArgs.push_back(vchSymbol);
-    vvchInputArgs.push_back(CBigNum(nAssetValue).getvch());
+    vvchInputArgs.push_back(CBigNum(isControlTx ? COIN : nAssetValue).getvch());
 
     CScript assetSendScript;
 
@@ -953,7 +964,6 @@ string CAsset::SendToDestination ( CWalletTx& wtxNew, const vector<unsigned char
         scriptFee << OP_RETURN;
         vecSend.push_back(make_pair(scriptFee, nServiceFee));
     }
-
 
     // main script for sending to dest
     CReserveKey reserveKey(pwalletMain);
@@ -975,15 +985,14 @@ string CAsset::SendToDestination ( CWalletTx& wtxNew, const vector<unsigned char
         		Hash160(vchFromString(SerializeToString())),
         		&pkey);
     }
-    vecSend.push_back(make_pair(assetSendScript, nQty));
+    vecSend.push_back(make_pair(assetSendScript, isControlTx ? COIN : nQty));
 
     printf("SendToDestination:%s\n", toString().c_str());
 
 	CAsset theAsset = *this;
 
-    // if there is any asset change, send change to ourselves
+
     if(nOp == XOP_ASSET_NEW) {
-  	// with change set to true and transaction ID
     	theAsset.isGenesis = true;
     	theAsset.genTxHash  = theAsset.txHash;
     	theAsset.nQty 	    = theAsset.nTotalQty;
@@ -992,8 +1001,6 @@ string CAsset::SendToDestination ( CWalletTx& wtxNew, const vector<unsigned char
         vector<vector<unsigned char> > vvchInputArgs;
         vvchInputArgs.push_back(theAsset.vchSymbol);
         vvchInputArgs.push_back(CBigNum(theAsset.nTotalQty).getvch());
-
-        printf("SendToDestination GENESIS:%s\n", toString().c_str());
 
         // Reserve a new key from key pool
         CPubKey pubkeyChange;
@@ -1006,8 +1013,25 @@ string CAsset::SendToDestination ( CWalletTx& wtxNew, const vector<unsigned char
         		Hash160(vchFromString(theAsset.SerializeToString())),
         		&pkey);
     	vecSend.push_back(make_pair(assetChangeScript, theAsset.nQty));
+    }
 
-    	nAssetValue = theAsset.nTotalQty + COIN;
+    if(nOp == XOP_ASSET_GENERATE) {
+    	// create the input vector for our script args
+        vector<vector<unsigned char> > vvchInputArgs;
+        vvchInputArgs.push_back(theAsset.vchSymbol);
+        vvchInputArgs.push_back(CBigNum(theAsset.nQty).getvch());
+
+        // Reserve a new key from key pool
+        CPubKey pubkeyGen;
+        assert(reserveKey.GetReservedKey(pubkeyGen));
+        CKeyID pkey = pubkeyGen.GetID();
+
+        // create the asset generate transaction script and add to vector
+        CScript assetGenerateScript = CreateAssetScript(
+        		vvchInputArgs,
+        		Hash160(vchFromString(theAsset.SerializeToString())),
+        		&pkey);
+    	vecSend.push_back(make_pair(assetGenerateScript, theAsset.nQty));
     }
 
     // if there is any asset change, send change to ourselves
@@ -1036,18 +1060,6 @@ string CAsset::SendToDestination ( CWalletTx& wtxNew, const vector<unsigned char
     }
 
     int64 nFeeRequired;
-
-    // create the asset transaction. return with an error
-    // message if the transaction has failed creation
-//    if (!CreateTransaction(vecSend, wtxNew, reserveKey, nFeeRequired)) {
-//        string strError = strprintf(_(
-//			"Error: This transaction requires a transaction fee "
-//			"of at least %s because of its amount, complexity, or "
-//			"use of recently received funds "), FormatMoney(nFeeRequired).c_str());
-//        return strError;
-//    }
-//    return "";
-
 
     // create the asset transaction. return with an error
     // message if the transaction has failed creation
@@ -1087,18 +1099,30 @@ bool CAsset::CreateTransaction(
     if (vecSend.empty() || nValue < 0)
         return false;
 
-    bool bIsSendChange = ( nOp == XOP_ASSET_SEND
-    		&& isChange == true
-    		&& changeTxHash == txHash );
+    bool isControlOp = nOp != XOP_ASSET_SEND;
+    bool isNewOp     = nOp == XOP_ASSET_NEW;
+    bool isGenerate  = nOp == XOP_ASSET_GENERATE;
+    bool isDissolve  = nOp == XOP_ASSET_DISSOLVE;
 
-    int64 nBaseValue = nQty + (nOp == XOP_ASSET_NEW ? nTotalQty : 0 );
-    if(bIsSendChange && changeTxHash == txHash) {
+    bool bIsSendChange = ( isChange == true && changeTxHash == txHash ) || isDissolve;
+
+
+    int64 nBaseValue = nQty + (isNewOp ? nTotalQty : 0 );
+
+    nBaseValue = ( isGenerate ? nBaseValue + COIN : nBaseValue );
+    nBaseValue = ( isDissolve ? nBaseValue + COIN : nBaseValue );
+
+    if(bIsSendChange) {
     	nBaseValue = pwalletMain->GetAssetBalance(vchSymbol);
     }
+    if(isDissolve) {
+    	nBaseValue = pwalletMain->GetAssetBalance(vchSymbol) - nQty + COIN;
+    }
 
-    if(nOp == XOP_ASSET_NEW) {
+    if(isNewOp) {
     	nBaseValue = nQty + nTotalQty;
-    } else if(nOp == XOP_ASSET_SEND) {
+    }
+    else if(nOp == XOP_ASSET_SEND) {
     	nBaseValue = pwalletMain->GetAssetBalance(vchSymbol);
     }
     assert(nValue == nBaseValue);
@@ -1133,33 +1157,43 @@ bool CAsset::CreateTransaction(
             	  nStdCoinsIn = 0,
             	  nAssetCoinsIn = 0,
             	  nControlCoinsIn = 0;
-            bool isControlOp = nOp != XOP_ASSET_SEND;
-            bool isNewOp = nOp == XOP_ASSET_NEW;
 
             if (nTotalValue > 0) {
 
             	bool bRet;
-            	if(isNewOp)
+            	if(isNewOp || isGenerate) {
             		// asset coins and fee come out of regular balance
             		// for newly-created asset classes
+            		int64 nVal = isGenerate ? nTotalValue - COIN : nTotalValue;
             		bRet = pwalletMain->SelectCoins(
-            				nTotalValue,
+            				nVal,
             				setCoins,
             				nStdCoinsIn);
-            	else {
+
+            		if(bRet) {
+                        // gather a list of the previous asset coins we need to
+                        // successfully send this asset send transaction
+                        vecCoins.insert(vecCoins.end(), setCoins.begin(), setCoins.end());
+                        setCoins.clear();
+            		}
+            	}
+
+            	if(!isNewOp) {
             		// asset control ops require an exiating asset contro
             		// coin to exist in order to create a txn
                  	if(isControlOp)
                  		bRet = pwalletMain->SelectAssetControlCoins(
                  				vchSymbol,
-                 				nQty,
+                 				COIN,
                  				setCoins,
                  				nControlCoinsIn);
+
                  	// asset send ops require existing asset coins
                  	// in quantity equal to or greater than the send amt
-					else bRet = pwalletMain->SelectAssetCoins(
+					if(!isControlOp || isDissolve)
+						bRet = pwalletMain->SelectAssetCoins(
 							vchSymbol,
-							nQty,
+							isDissolve ?  pwalletMain->GetAssetBalance(vchSymbol) : nQty,
 							setCoins,
 							nAssetCoinsIn);
 
@@ -1169,6 +1203,9 @@ bool CAsset::CreateTransaction(
 						BOOST_FOREACH(const PAIRTYPE(const CWalletTx *, unsigned int)& coin, setCoins)
 							vecAssetCoins.push_back(coin);
                  	}
+
+                    vecCoins.insert(vecCoins.end(), setCoins.begin(), setCoins.end());
+                    setCoins.clear();
             	}
             	if(!bRet) return false;
 
@@ -1177,9 +1214,6 @@ bool CAsset::CreateTransaction(
             			 + nAssetCoinsIn
             			 + nControlCoinsIn;
 
-                // gather a list of the previous asset coins we need to
-                // successfully send this asset send transaction
-                vecCoins.insert(vecCoins.end(), setCoins.begin(), setCoins.end());
                 printf( "CreateAssetTransaction: selected %d coins for %s\n",
                     (int) setCoins.size(), FormatMoney(nValueIn).c_str());
 
@@ -1198,9 +1232,7 @@ bool CAsset::CreateTransaction(
 							coin.first->GetHash().Get64(), FormatMoney(nFeeRet).c_str());
                 	}
 					nValueIn += nFeeValueIn;
-
                 }
-
             } 
 
             // iterate through coins to calculate priority
@@ -1210,7 +1242,7 @@ bool CAsset::CreateTransaction(
             }
 
             // Fill a vout back to self with any change
-            int64 nChange = nValueIn - nTotalValue;
+            int64 nChange = isGenerate ? nTotalValue - COIN -nFeeRet: nValueIn - nTotalValue;
             bool thereIsChange = nChange >= CENT;
             if (thereIsChange) {
                 // Reserve a new key pair from key pool
@@ -1397,7 +1429,7 @@ bool CheckAssetInputs(
 
     bool isGeneratingBlock = ( fBlock || fMiner );
 	bool isChangeSource    = !theAsset.isChange && theAsset.changeTxHash != 0;
-	bool isGenesisdAsset  = theAsset.isGenesis || isChangeSource;
+	bool isGenesisAsset  = theAsset.isGenesis || isChangeSource;
 
     // check for enough fees
     if(hasAssetPrevout) {
@@ -1413,7 +1445,7 @@ bool CheckAssetInputs(
 		 // disallow transaction on a nonexistent asset on
 		 // transactions when it constitutes in illegal state
 		if(theAsset.nOp != XOP_ASSET_NEW
-				&& !isGenesisdAsset)
+				&& !isGenesisAsset)
 			return error("CheckAssetInputs() : asset does not exist or invalid asset send.");
     }
 
@@ -1458,7 +1490,7 @@ bool CheckAssetInputs(
             		// if this asset send is a generate (it has no previous asset coins as inputs
             		// but another transaction is paired with it as its generator) then wait until
             		// the generating transaction has been accepted and mined before accepting it
-                    if(isGenesisdAsset) {
+                    if(isGenesisAsset) {
                         CTransaction genTx;
                         uint256 genBlockHash = 0,
                         		genTxHash = isChangeSource ? theAsset.changeTxHash : theAsset.genTxHash;
@@ -1605,10 +1637,8 @@ bool CheckAssetInputs(
                     theAsset.vchDescription = serializedAsset.vchDescription;
                     break;
                 case XOP_ASSET_GENERATE:
-                    theAsset.nTotalQty += serializedAsset.nQty;
-                    break;
                 case XOP_ASSET_DISSOLVE:
-                    theAsset.nTotalQty -= serializedAsset.nQty;
+                    theAsset.nTotalQty = serializedAsset.nTotalQty;
                     break;
             }
 
@@ -2072,7 +2102,7 @@ Value assetupdate(const Array& params, bool fHelp) {
 Value assetgenerate(const Array& params, bool fHelp) {
     if (fHelp || params.size() != 2)
         throw runtime_error(
-                "assetgenerate <symbol> <amount> [address]\n"
+                "assetgenerate <symbol> <amount>\n"
                 "Generate new asset shares.\n"
                         "<symbol> asset symbol.\n"
                         "<amount> amount of asset shares to generate.\n"
@@ -2083,10 +2113,6 @@ Value assetgenerate(const Array& params, bool fHelp) {
 
     if (vchAsset.size() > 10)
         throw runtime_error("asset symbol > 10 bytes!\n");
-
-    // TODO CB better translation for total quantity
-    uint64 nQty = params[1].get_real() * COIN;
-    if(nQty <= 0) throw runtime_error("Invalid asset quantity.");
 
     // this is a syscoin txn
     CWalletTx wtx;
@@ -2111,28 +2137,29 @@ Value assetgenerate(const Array& params, bool fHelp) {
             throw runtime_error("could not read asset from DB");
         CAsset theAsset = vtxPos.back();
 
-        // calculate network fees
-        uint64 nNetFee = theAsset.GetServiceFee(2, pindexBest->nHeight);
+        // make sure there's enough funds to send this txn before trying
+        if(pwalletMain->GetAssetControlBalance(theAsset.vchSymbol) != COIN)
+            throw runtime_error("you cannot modify this asset because you do not control it.");
 
-        // make sure we have enough quantity to perform the send
-        uint64 nAssetBalance = pwalletMain->GetAssetBalance(vchAsset);
-        nQty *= theAsset.nCoinsPerShare;
-        if(nAssetBalance == 0 || nQty == 0 || nAssetBalance < nQty + nNetFee )
-            throw runtime_error("invalid asset quantity");
+        // calculate network fees and coin qty
+        uint64 nNetFee = theAsset.GetServiceFee(2, pindexBest->nHeight);
+        uint64 nQty = ( params[1].get_real() * theAsset.nCoinsPerShare );
+        if(nQty <= 0) throw runtime_error("Invalid asset quantity.");
 
         // make sure there's enough funds to send this txn before trying
-        if(pwalletMain->GetBalance() < (int64)nNetFee)
+        if(pwalletMain->GetBalance() < (int64)nNetFee + (int64)nQty)
             throw runtime_error("insufficient balance to pay asset send fee.");
 
         // populate the asset object
-        theAsset.nOp            = XOP_ASSET_GENERATE;
-        theAsset.txHash         = wtx.GetHash();
-        theAsset.nQty			= nQty;
-        theAsset.nFee           = nNetFee;
-        theAsset.isChange		= false;
-        theAsset.changeTxHash	= 0;
-        theAsset.isGenesis		= false;
-        theAsset.genTxHash      = wtx.GetHash();
+        theAsset.nOp          = XOP_ASSET_GENERATE;
+        theAsset.txHash       = wtx.GetHash();
+        theAsset.nQty		  = nQty;
+        theAsset.nTotalQty	  = theAsset.nTotalQty + nQty;
+        theAsset.nFee         = nNetFee;
+        theAsset.isChange	  = false;
+        theAsset.changeTxHash = 0;
+        theAsset.isGenesis	  = false;
+        theAsset.genTxHash    = 0;
 
         string strError = theAsset.SendToDestination(wtx);
         if (strError != "") throw JSONRPCError(RPC_WALLET_ERROR, strError);
@@ -2152,11 +2179,6 @@ Value assetdissolve(const Array& params, bool fHelp) {
 
     // gather & validate inputs
     vector<unsigned char> vchAsset = vchFromValue(params[0]);
-
-    // TODO CB better translation for total quantity
-    uint64 nQty = params[1].get_real() * COIN;
-    if(nQty <= 0) throw runtime_error("Invalid asset quantity.");
-
 
     if (vchAsset.size() > 10)
         throw runtime_error("asset symbol > 10 bytes!\n");
@@ -2184,23 +2206,28 @@ Value assetdissolve(const Array& params, bool fHelp) {
              throw runtime_error("could not read asset from DB");
          CAsset theAsset = vtxPos.back();
 
+         // make sure there's enough funds to send this txn before trying
+         if(pwalletMain->GetAssetControlBalance(theAsset.vchSymbol) != COIN)
+             throw runtime_error("you cannot modify this asset because you do not control it.");
+
          // calculate network fees
          uint64 nNetFee = theAsset.GetServiceFee(2, pindexBest->nHeight);
 
          // make sure we have enough quantity to perform the send
          uint64 nAssetBalance = pwalletMain->GetAssetBalance(vchAsset);
-         nQty *= theAsset.nCoinsPerShare;
-         if(nAssetBalance == 0 || nQty == 0 || nAssetBalance < nQty + nNetFee )
+         uint64 nQty = ( params[1].get_real() * theAsset.nCoinsPerShare );
+         if(nQty <= 0) throw runtime_error("Invalid asset quantity.");
+         if(nAssetBalance == 0 ||nAssetBalance < nQty + nNetFee )
              throw runtime_error("invalid asset quantity");
 
          // make sure there's enough funds to send this txn before trying
          if(pwalletMain->GetBalance() < (int64)nNetFee)
              throw runtime_error("insufficient balance to pay asset send fee.");
 
-
         // asset transaction
         theAsset.nOp          = XOP_ASSET_DISSOLVE;
         theAsset.txHash       = wtx.GetHash();
+        theAsset.nTotalQty	  = theAsset.nTotalQty - nQty;
         theAsset.nQty         = nQty;
         theAsset.nFee         = 0;
         theAsset.isChange	  = false;
@@ -2257,9 +2284,9 @@ Value assetinfo(const Array& params, bool fHelp) {
             oAsset.push_back(Pair("symbol", stringFromVch(theAsset.vchSymbol)));
             oAsset.push_back(Pair("title", stringFromVch(theAsset.vchTitle)));
             oAsset.push_back(Pair("description", stringFromVch(theAsset.vchDescription)));
-            oAsset.push_back(Pair("total_quantity", (double) theAsset.nTotalQty / (double)theAsset.nCoinsPerShare ));
+            oAsset.push_back(Pair("total_existing", (double) theAsset.nTotalQty / (double)theAsset.nCoinsPerShare ));
             oAsset.push_back(Pair("coins_per_share", ValueFromAmount(theAsset.nCoinsPerShare) ));
-            oAsset.push_back(Pair("quantity", (double)nTotalAssetCoins / (double)theAsset.nCoinsPerShare));
+            oAsset.push_back(Pair("balance", (double)nTotalAssetCoins / (double)theAsset.nCoinsPerShare));
 
             oLastAsset = oAsset;
         }
@@ -2462,6 +2489,7 @@ Value assethistory(const Array& params, bool fHelp) {
                 error("could not read txpos");
                 continue;
             }
+            CAsset theAsset(tx);
 
             Object oAsset;
             vector<unsigned char> vchValue;
@@ -2469,20 +2497,12 @@ Value assethistory(const Array& params, bool fHelp) {
             uint256 hash;
             if (GetValueOfAssetTxHash(txHash, vchValue, hash, nHeight)) {
                 oAsset.push_back(Pair("asset", asset));
-                string value = stringFromVch(vchValue);
-                oAsset.push_back(Pair("value", value));
+                oAsset.push_back(Pair("value", ValueFromAmount(CBigNum(vchValue).getulong())));
                 oAsset.push_back(Pair("txid", tx.GetHash().GetHex()));
+                oAsset.push_back(Pair("operation", assetFromOp(theAsset.nOp)));
                 string strAddress = "";
                 GetAssetAddress(tx, strAddress);
                 oAsset.push_back(Pair("address", strAddress));
-                oAsset.push_back(
-                        Pair("expires_in",
-                                nHeight + GetAssetDisplayExpirationDepth(nHeight)
-                                        - pindexBest->nHeight));
-                if (nHeight + GetAssetDisplayExpirationDepth(nHeight)
-                        - pindexBest->nHeight <= 0) {
-                    oAsset.push_back(Pair("expired", 1));
-                }
                 oRes.push_back(oAsset);
             }
         }
@@ -2632,12 +2652,11 @@ Value assetscan(const Array& params, bool fHelp) {
                 <= 0) || !GetTransaction(txAsset.txHash, tx, blockHash, true)) {
             oAsset.push_back(Pair("expired", 1));
         } else {
-            string value = stringFromVch(vchValue);
-            //string strAddress = "";
-            //GetCertAddress(tx, strAddress);
-            oAsset.push_back(Pair("value", value));
-            //oAsset.push_back(Pair("txid", tx.GetHash().GetHex()));
-            //oAsset.push_back(Pair("address", strAddress));
+            string strAddress = "";
+            GetAssetAddress(tx, strAddress);
+            oAsset.push_back(Pair("value", ValueFromAmount(CBigNum(vchValue).getulong())));
+            oAsset.push_back(Pair("txid", tx.GetHash().GetHex()));
+            oAsset.push_back(Pair("address", strAddress));
             oAsset.push_back(
                     Pair("expires_in",
                             nHeight + GetAssetDisplayExpirationDepth(nHeight)
@@ -2649,6 +2668,194 @@ Value assetscan(const Array& params, bool fHelp) {
     return oRes;
 }
 
+Value listassetunspent(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() > 3)
+        throw runtime_error(
+            "listassetunspent [minconf=1] [maxconf=9999999]  [\"address\",...]\n"
+            "Returns array of unspent asset transaction outputs\n"
+            "with between minconf and maxconf (inclusive) confirmations.\n"
+            "Optionally filtered to only include txouts paid to specified addresses.\n"
+            "Results are an array of Objects, each of which has:\n"
+            "{txid, vout, scriptPubKey, asset symbol, amount, confirmations}");
+
+    RPCTypeCheck(params, boost::assign::list_of(int_type)(int_type)(array_type));
+
+    int nMinDepth = 1;
+    if (params.size() > 0)
+        nMinDepth = params[0].get_int();
+
+    int nMaxDepth = 9999999;
+    if (params.size() > 1)
+        nMaxDepth = params[1].get_int();
+
+    set<CBitcoinAddress> setAddress;
+    if (params.size() > 2)
+    {
+        Array inputs = params[2].get_array();
+        BOOST_FOREACH(Value& input, inputs)
+        {
+            CBitcoinAddress address(input.get_str());
+            if (!address.IsValid())
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, string("Invalid Syscoin address: ")+input.get_str());
+            if (setAddress.count(address))
+                throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicated address: ")+input.get_str());
+           setAddress.insert(address);
+        }
+    }
+
+    Array results;
+    vector<COutput> vecOutputs;
+    assert(pwalletMain != NULL);
+    pwalletMain->AssetCoins(vecOutputs, true, NULL, NULL);
+    BOOST_FOREACH(const COutput& out, vecOutputs)
+    {
+        if (out.nDepth < nMinDepth
+        		|| out.nDepth > nMaxDepth)
+            		continue;
+
+         if (setAddress.size()) {
+             CTxDestination address;
+             if (!ExtractDestination(out.tx->vout[out.i].scriptPubKey, address))
+                 continue;
+             if (!setAddress.count(address))
+                 continue;
+         }
+
+         CTransaction tx;
+         uint256 blockHash;
+         if(!GetTransaction(out.tx->GetHash(), tx, blockHash, true))
+         	continue;
+         CAsset theAsset(tx);
+
+        //int64 nValue = out.tx->vout[out.i].nValue;
+        const CScript& pk = out.tx->vout[out.i].scriptPubKey;
+        Object entry;
+        entry.push_back(Pair("txid", out.tx->GetHash().GetHex()));
+        entry.push_back(Pair("vout", out.i));
+        entry.push_back(Pair("symbol", stringFromVch(theAsset.vchSymbol).c_str()));
+
+        CTxDestination address;
+        if (ExtractDestination(out.tx->vout[out.i].scriptPubKey, address)) {
+             entry.push_back(Pair("address", CBitcoinAddress(address).ToString()));
+             if (pwalletMain->mapAddressBook.count(address))
+                 entry.push_back(Pair("account", pwalletMain->mapAddressBook[address]));
+        }
+        entry.push_back(Pair("scriptPubKey", HexStr(pk.begin(), pk.end())));
+
+        if (pk.IsPayToScriptHash()) {
+            CTxDestination address;
+            if (ExtractDestination(pk, address)) {
+                const CScriptID& hash = boost::get<const CScriptID&>(address);
+                CScript redeemScript;
+                if (pwalletMain->GetCScript(hash, redeemScript))
+                    entry.push_back(Pair("redeemScript", HexStr(redeemScript.begin(), redeemScript.end())));
+            }
+        }
+
+        entry.push_back(Pair("amount",ValueFromAmount(out.tx->vout[out.i].nValue)));
+        entry.push_back(Pair("confirmations",out.nDepth));
+        results.push_back(entry);
+    }
+
+    return results;
+}
+
+Value listassetcontrolunspent(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() > 3)
+        throw runtime_error(
+            "listassetunspent [minconf=1] [maxconf=9999999]  [\"address\",...]\n"
+            "Returns array of unspent asset transaction outputs\n"
+            "with between minconf and maxconf (inclusive) confirmations.\n"
+            "Optionally filtered to only include txouts paid to specified addresses.\n"
+            "Results are an array of Objects, each of which has:\n"
+            "{txid, vout, scriptPubKey, asset symbol, amount, confirmations}");
+
+    RPCTypeCheck(params, boost::assign::list_of(int_type)(int_type)(array_type));
+
+    int nMinDepth = 1;
+    if (params.size() > 0)
+        nMinDepth = params[0].get_int();
+
+    int nMaxDepth = 9999999;
+    if (params.size() > 1)
+        nMaxDepth = params[1].get_int();
+
+    set<CBitcoinAddress> setAddress;
+    if (params.size() > 2)
+    {
+        Array inputs = params[2].get_array();
+        BOOST_FOREACH(Value& input, inputs)
+        {
+            CBitcoinAddress address(input.get_str());
+            if (!address.IsValid())
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, string("Invalid Syscoin address: ")+input.get_str());
+            if (setAddress.count(address))
+                throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicated address: ")+input.get_str());
+           setAddress.insert(address);
+        }
+    }
+
+    Array results;
+    vector<COutput> vecOutputs;
+    assert(pwalletMain != NULL);
+    pwalletMain->AssetControlCoins(vecOutputs, true, NULL, NULL);
+    BOOST_FOREACH(const COutput& out, vecOutputs)
+    {
+        if (out.nDepth < nMinDepth || out.nDepth > nMaxDepth)
+            continue;
+
+         if (setAddress.size())
+         {
+             CTxDestination address;
+             if (!ExtractDestination(out.tx->vout[out.i].scriptPubKey, address))
+                 continue;
+
+             if (!setAddress.count(address))
+                 continue;
+         }
+
+        CTransaction tx;
+        uint256 blockHash;
+        if(!GetTransaction(out.tx->GetHash(), tx, blockHash, true))
+        	continue;
+        CAsset theAsset(tx);
+
+        // get the asset from DB
+        vector<unsigned char> vchAsset;
+        int64 nValue = out.tx->vout[out.i].nValue;
+        const CScript& pk = out.tx->vout[out.i].scriptPubKey;
+        Object entry;
+        entry.push_back(Pair("txid", out.tx->GetHash().GetHex()));
+        entry.push_back(Pair("vout", out.i));
+        entry.push_back(Pair("symbol", stringFromVch(theAsset.vchSymbol).c_str()));
+        CTxDestination address;
+        if (ExtractDestination(out.tx->vout[out.i].scriptPubKey, address))
+        {
+             entry.push_back(Pair("address", CBitcoinAddress(address).ToString()));
+             if (pwalletMain->mapAddressBook.count(address))
+                 entry.push_back(Pair("account", pwalletMain->mapAddressBook[address]));
+        }
+        entry.push_back(Pair("scriptPubKey", HexStr(pk.begin(), pk.end())));
+        if (pk.IsPayToScriptHash())
+        {
+            CTxDestination address;
+            if (ExtractDestination(pk, address))
+            {
+                const CScriptID& hash = boost::get<const CScriptID&>(address);
+                CScript redeemScript;
+                if (pwalletMain->GetCScript(hash, redeemScript))
+                    entry.push_back(Pair("redeemScript", HexStr(redeemScript.begin(), redeemScript.end())));
+            }
+        }
+        entry.push_back(Pair("amount",ValueFromAmount(nValue)));
+        entry.push_back(Pair("confirmations",out.nDepth));
+        results.push_back(entry);
+    }
+
+    return results;
+}
 
  Value assetclean(const Array& params, bool fHelp)
  {

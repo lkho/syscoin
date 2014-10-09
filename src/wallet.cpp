@@ -1091,11 +1091,12 @@ int64 CWallet::GetAssetBalance(const vector<unsigned char> &vchSymbol) const
     		if(i == 0 && asset.nOp != XOP_ASSET_SEND)
     			continue;
 
-    		// coins above pos 1 must be SEND or NEW
+    		// coins above pos 1 must be SEND or NEW or GENERATE
     		// to potentially contain asset coins
     		else if(i > 0 &&
-    				!(asset.nOp == XOP_ASSET_SEND
-    						|| asset.nOp == XOP_ASSET_NEW))
+				 !(asset.nOp == XOP_ASSET_SEND
+				|| asset.nOp == XOP_ASSET_NEW
+				|| asset.nOp == XOP_ASSET_GENERATE))
     			continue;
 
             if(vchSymbol.size() > 0) {
@@ -1247,29 +1248,52 @@ void CWallet::AssetCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCo
         {
             const CWalletTx* pcoin = &(*it).second;
 
-            if ((fOnlyConfirmed && !pcoin->IsConfirmed())
-        			|| !pcoin->IsFinal()
-    				|| pcoin->IsCoinBase()
-    				|| pcoin->nVersion != SYSCOIN_TX_VERSION)
+            if (!pcoin->IsConfirmed()
+    		  || pcoin->IsCoinBase()
+    		  || !pcoin->IsFinal()
+    		  || pcoin->nVersion != SYSCOIN_TX_VERSION)
                 continue;
 
             CAsset asset(*pcoin);
-            if(passetSymbol != NULL) {
-                if(asset.vchSymbol != *passetSymbol)
-                    continue;
-            }
 
-            vector<vector<unsigned char> > vvch;
-            int op, nOut;
-            if(!DecodeAssetTx(*pcoin, op, nOut, vvch, -1, true))
-            	continue;
+            for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
 
-            if( pcoin->vout[nOut].nValue >= nMinimumInputValue
-    			&& !pcoin->IsSpent(nOut)
-    			&& IsMyAsset(*pcoin, pcoin->vout[nOut])
-    			&& !IsLockedCoin(pcoin->GetHash(), nOut)
-    			&& (!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, nOut))) {
-            	vCoins.push_back(COutput(pcoin, nOut, pcoin->GetDepthInMainChain()));
+                // can't spend locked coins
+        		if(IsLockedCoin(pcoin->GetHash(), i)
+        			|| pcoin->IsSpent(i)
+        			|| !IsMyAsset(*pcoin, pcoin->vout[i]))
+        			continue;
+
+        		// coins in pos 0 that aren't ASSET SEND
+        		// are control coins and we dont want to select them
+        		if(i == 0 && asset.nOp != XOP_ASSET_SEND)
+        			continue;
+
+        		// coins above pos 1 must be SEND or NEW or GENERATE
+        		// to potentially contain asset coins
+        		else if(i > 0 &&
+    				 !(asset.nOp == XOP_ASSET_SEND
+    				|| asset.nOp == XOP_ASSET_NEW
+    				|| asset.nOp == XOP_ASSET_GENERATE))
+        			continue;
+
+                if(passetSymbol != NULL) {
+                    if(asset.vchSymbol != *passetSymbol)
+                        continue;
+                }
+
+                vector<vector<unsigned char> > vvch;
+                int op;
+
+                const CTxOut& out = pcoin->vout[i];
+                vector<vector<unsigned char> > vvchRead;
+                if (!DecodeAssetScript(out.scriptPubKey, op, vvchRead))
+                	continue;
+
+                if( pcoin->vout[i].nValue >= nMinimumInputValue
+        			&& (!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, i))) {
+                	vCoins.push_back(COutput(pcoin, i, pcoin->GetDepthInMainChain()));
+                }
             }
         }
     }
@@ -1285,31 +1309,49 @@ void CWallet::AssetControlCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, co
         {
             const CWalletTx* pcoin = &(*it).second;
 
-            if ((fOnlyConfirmed && !pcoin->IsConfirmed())
-        			|| !pcoin->IsFinal()
-    				|| pcoin->IsCoinBase()
-    				|| pcoin->nVersion != SYSCOIN_TX_VERSION)
+            if (!pcoin->IsConfirmed()
+    		  || pcoin->IsCoinBase()
+    		  || !pcoin->IsFinal()
+    		  || pcoin->nVersion != SYSCOIN_TX_VERSION)
                 continue;
 
-            vector<vector<unsigned char> > vvch;
-            int op, nOut;
-            if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1)
-            		|| !IsAssetOp(op))
-                			continue;
-
             CAsset asset(*pcoin);
-            if(passetSymbol != NULL) {
-                if(asset.vchSymbol != *passetSymbol)
-                    continue;
-            }
 
-            if(asset.nOp != XOP_ASSET_SEND
-    			&& !pcoin->IsSpent(nOut)
-    			&& IsMyAsset(*pcoin, pcoin->vout[nOut])
-    			&& !IsLockedCoin(pcoin->GetHash(), nOut)
-    			&& (!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, nOut))) {
-            	vCoins.push_back(COutput(pcoin, nOut, pcoin->GetDepthInMainChain()));
-            }
+            for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
+
+                // can't spend locked coins
+        		if(IsLockedCoin(pcoin->GetHash(), i)
+        			|| pcoin->IsSpent(i)
+        			|| !IsMyAsset(*pcoin, pcoin->vout[i]))
+        			continue;
+
+        		// coins in pos 0 that aren't ASSET SEND
+        		// are control coins and we dont want to select them
+        		if(i == 0 && asset.nOp == XOP_ASSET_SEND)
+        			continue;
+
+        		// coins above pos 1 must be SEND or NEW or GENERATE
+        		// to potentially contain asset coins
+        		else if(i > 0)
+        			continue;
+
+                if(passetSymbol != NULL) {
+                    if(asset.vchSymbol != *passetSymbol)
+                        continue;
+                }
+
+                vector<vector<unsigned char> > vvch;
+                int op;
+
+                const CTxOut& out = pcoin->vout[i];
+                vector<vector<unsigned char> > vvchRead;
+                if (!DecodeAssetScript(out.scriptPubKey, op, vvchRead))
+                	continue;
+
+                if( pcoin->vout[i].nValue >= nMinimumInputValue
+        			&& (!coinControl || !coinControl->HasSelected() || coinControl->IsSelected((*it).first, i))) {
+                	vCoins.push_back(COutput(pcoin, i, pcoin->GetDepthInMainChain()));
+                }            }
         }
     }
 }

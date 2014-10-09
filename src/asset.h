@@ -230,6 +230,9 @@ public:
     	return Hash160(theAsset.SerializeToString());
     }
 
+    bool IsGenerate() {
+    	return nOp == XOP_ASSET_GENERATE;
+    }
 
     friend bool operator==(const CAsset &a, const CAsset &b) {
         return (
