@@ -28,7 +28,7 @@ LIBS= -dead_strip
 
 TESTDEFS = -DTEST_DATA_DIR=$(abspath test/data)
 
-ifdef STATICAssetSendToDestination
+ifdef STATIC
 # Build STATIC if you are redistributing the bitcoind binary
 TESTLIBS += \
  $(DEPSDIR)/lib/libboost_unit_test_framework-mt.a
@@ -125,25 +125,25 @@ OBJS += $(OBJS_SSE2)
 endif
 
 ifndef USE_UPNP
-    override USE_UPNP = -
+	override USE_UPNP = -
 endif
 ifneq (${USE_UPNP}, -)
-    DEFS += -DUSE_UPNP=$(USE_UPNP)
+	DEFS += -DUSE_UPNP=$(USE_UPNP)
 ifdef STATIC
-    LIBS += $(DEPSDIR)/lib/libminiupnpc.a
+	LIBS += $(DEPSDIR)/lib/libminiupnpc.a
 else
-    LIBS += -lminiupnpc
+	LIBS += -lminiupnpc
 endif
 endif
 
 ifneq (${USE_IPV6}, -)
-    DEFS += -DUSE_IPV6=$(USE_IPV6)
+	DEFS += -DUSE_IPV6=$(USE_IPV6)
 endif
 
 all: syscoind
 
 test check: test_syscoin FORCE
-    ./test_syscoin
+	./test_syscoin
 
 #
 # LevelDB support
@@ -152,53 +152,53 @@ LIBS += $(CURDIR)/leveldb/libleveldb.a $(CURDIR)/leveldb/libmemenv.a
 DEFS += $(addprefix -I,$(CURDIR)/leveldb/include)
 DEFS += $(addprefix -I,$(CURDIR)/leveldb/helpers)
 leveldb/libleveldb.a:
-    @echo "Building LevelDB ..." && cd leveldb && $(MAKE) CC=$(CC) CXX=$(CXX) OPT="$(CFLAGS)" libleveldb.a libmemenv.a && cd ..
+	@echo "Building LevelDB ..." && cd leveldb && $(MAKE) CC=$(CC) CXX=$(CXX) OPT="$(CFLAGS)" libleveldb.a libmemenv.a && cd ..
 
 # auto-generated dependencies:
 -include obj/*.P
 -include obj-test/*.P
 
 obj/build.h: FORCE
-    /bin/sh ../share/genbuild.sh obj/build.h
+	/bin/sh ../share/genbuild.sh obj/build.h
 version.cpp: obj/build.h
 DEFS += -DHAVE_BUILD_INFO
 
 obj/%-sse2.o: %-sse2.cpp
-    $(CXX) -c $(CFLAGS) -msse2 -MMD -MF $(@:%.o=%.d) -o $@ $<
-    @cp $(@:%.o=%.d) $(@:%.o=%.P); \
-      sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
-          -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
-      rm -f $(@:%.o=%.d)
+	$(CXX) -c $(CFLAGS) -msse2 -MMD -MF $(@:%.o=%.d) -o $@ $<
+	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
+	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
+	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
+	  rm -f $(@:%.o=%.d)
 
 obj/%.o: %.cpp
-    $(CXX) -c $(CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
-    @cp $(@:%.o=%.d) $(@:%.o=%.P); \
-      sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
-          -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
-      rm -f $(@:%.o=%.d)
+	$(CXX) -c $(CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
+	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
+	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
+	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
+	  rm -f $(@:%.o=%.d)
 
 syscoind: $(OBJS:obj/%=obj/%)
-    $(CXX) $(CFLAGS) -o $@ $(LIBPATHS) $^ $(LIBS)
+	$(CXX) $(CFLAGS) -o $@ $(LIBPATHS) $^ $(LIBS)
 
 TESTOBJS := $(patsubst test/%.cpp,obj-test/%.o,$(wildcard test/*.cpp))
 
 obj-test/%.o: test/%.cpp
-    $(CXX) -c $(TESTDEFS) $(CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
-    @cp $(@:%.o=%.d) $(@:%.o=%.P); \
-      sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
-          -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
-      rm -f $(@:%.o=%.d)
+	$(CXX) -c $(TESTDEFS) $(CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
+	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
+	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
+	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
+	  rm -f $(@:%.o=%.d)
 
 test_syscoin: $(TESTOBJS) $(filter-out obj/init.o,$(OBJS:obj/%=obj/%))
-    $(CXX) $(CFLAGS) -o $@ $(LIBPATHS) $^ $(LIBS) $(TESTLIBS)
+	$(CXX) $(CFLAGS) -o $@ $(LIBPATHS) $^ $(LIBS) $(TESTLIBS)
 
 clean:
-    -rm -f syscoind test_syscoin
-    -rm -f obj/*.o
-    -rm -f obj-test/*.o
-    -rm -f obj/*.P
-    -rm -f obj-test/*.P
-    -rm -f obj/build.h
-    -cd leveldb && $(MAKE) clean || true
+	-rm -f syscoind test_syscoin
+	-rm -f obj/*.o
+	-rm -f obj-test/*.o
+	-rm -f obj/*.P
+	-rm -f obj-test/*.P
+	-rm -f obj/build.h
+	-cd leveldb && $(MAKE) clean || true
 
 FORCE:
