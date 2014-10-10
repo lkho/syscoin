@@ -1106,25 +1106,27 @@ bool CAsset::CreateTransaction(
 
     bool bIsSendChange = ( isChange == true && changeTxHash == txHash ) || isDissolve;
 
+    int64 nBaseValue = nQty;
 
-    int64 nBaseValue = nQty + (isNewOp ? nTotalQty : 0 );
-
-    nBaseValue = ( isGenerate ? nBaseValue + COIN : nBaseValue );
-    nBaseValue = ( isDissolve ? nBaseValue + COIN : nBaseValue );
+    if(isNewOp) {
+    	nBaseValue += nTotalQty;
+    }
+    if(isGenerate) {
+    	nBaseValue += COIN;
+    }
 
     if(bIsSendChange) {
     	nBaseValue = pwalletMain->GetAssetBalance(vchSymbol);
     }
-    if(isDissolve) {
-    	nBaseValue = pwalletMain->GetAssetBalance(vchSymbol) - nQty + COIN;
-    }
-
-    if(isNewOp) {
-    	nBaseValue = nQty + nTotalQty;
-    }
-    else if(nOp == XOP_ASSET_SEND) {
+    if(!(isNewOp || isControlOp)) {
     	nBaseValue = pwalletMain->GetAssetBalance(vchSymbol);
     }
+    if(isDissolve) {
+    	//21
+    	nBaseValue += COIN;
+    	nValue = pwalletMain->GetAssetBalance(vchSymbol) - nValue;
+    }
+
     assert(nValue == nBaseValue);
 
     wtxNew.data = vchFromString(SerializeToString().c_str());
@@ -1259,7 +1261,7 @@ bool CAsset::CreateTransaction(
                 else
                     scriptChange << pubkey << OP_CHECKSIG;
                 // Insert change txn at end of list
-                vector<CTxOut>::iterator position = wtxNew.vout.begin() + GetRandInt ( wtxNew.vout.size() + vecSend.size());
+                //vector<CTxOut>::iterator position = wtxNew.vout.begin() + GetRandInt ( wtxNew.vout.size() + vecSend.size());
                 wtxNew.vout.push_back(CTxOut(nChange, scriptChange));
             } else
                 reservekey.ReturnKey();
