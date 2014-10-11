@@ -1096,7 +1096,8 @@ int64 CWallet::GetAssetBalance(const vector<unsigned char> &vchSymbol) const
     		else if(i > 0 &&
 				 !(asset.nOp == XOP_ASSET_SEND
 				|| asset.nOp == XOP_ASSET_NEW
-				|| asset.nOp == XOP_ASSET_GENERATE))
+				|| asset.nOp == XOP_ASSET_GENERATE
+				|| asset.nOp == XOP_ASSET_DISSOLVE))
     			continue;
 
             if(vchSymbol.size() > 0) {
@@ -1123,32 +1124,42 @@ int64 CWallet::GetAssetControlBalance(const vector<unsigned char> &vchSymbol) co
         const CWalletTx* pcoin = &(*it).second;
 
         if (!pcoin->IsConfirmed()
-    			//|| !pcoin->IsFinal()
-				|| pcoin->IsCoinBase()
-				|| pcoin->nVersion != SYSCOIN_TX_VERSION)
+		  || pcoin->IsCoinBase()
+		  || !pcoin->IsFinal()
+		  || pcoin->nVersion != SYSCOIN_TX_VERSION)
             continue;
 
-        vector<vector<unsigned char> > vvch;
-        int op, nOut;
-        if (!DecodeAssetTx(*pcoin, op, nOut, vvch, -1)
-        		|| !IsAssetOp(op))
-            			continue;
-
-		if(IsLockedCoin(pcoin->GetHash(), nOut))
-			continue;
-
         CAsset asset(*pcoin);
-        if(vchSymbol.size() > 0) {
-            if(asset.vchSymbol != vchSymbol)
-                continue;
-        }
 
-        if(asset.nOp != XOP_ASSET_SEND
-			&& !pcoin->IsSpent(nOut)
-			&& IsMyAsset(*pcoin, pcoin->vout[nOut]))
-        		nTotal += pcoin->vout[nOut].nValue;
+        for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
+            vector<vector<unsigned char> > vvch;
+            int op, nOut;
 
-    }
+            // can't spend locked coins
+    		if(IsLockedCoin(pcoin->GetHash(), nOut)
+    			|| pcoin->IsSpent(i)
+    			|| !IsMyAsset(*pcoin, pcoin->vout[i]))
+    			continue;
+
+    		// coins in pos 0 that are not ASSET SEND
+    		// are control coins and we want to select them
+    		if(i == 0 && asset.nOp == XOP_ASSET_SEND)
+    			continue;
+
+    		// coins above pos 1 are never control coins
+    		else if(i > 0)
+    			continue;
+
+            if(vchSymbol.size() > 0) {
+                if(asset.vchSymbol != vchSymbol)
+                    continue;
+            }
+
+            if(!DecodeAssetTx(*pcoin, op, nOut, vvch, -1, true))
+            	continue;
+
+            nTotal += pcoin->vout[i].nValue;
+        }    }
     return nTotal;
 }
 
@@ -1270,11 +1281,12 @@ void CWallet::AssetCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCo
         			continue;
 
         		// coins above pos 1 must be SEND or NEW or GENERATE
-        		// to potentially contain asset coins
+        		// or DISSOLVE to potentially contain asset coins
         		else if(i > 0 &&
     				 !(asset.nOp == XOP_ASSET_SEND
     				|| asset.nOp == XOP_ASSET_NEW
-    				|| asset.nOp == XOP_ASSET_GENERATE))
+    				|| asset.nOp == XOP_ASSET_GENERATE
+    				|| asset.nOp == XOP_ASSET_DISSOLVE))
         			continue;
 
                 if(passetSymbol != NULL) {

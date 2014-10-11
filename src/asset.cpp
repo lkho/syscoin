@@ -742,7 +742,8 @@ bool DecodeAssetCoins(const CTransaction& tx, vector<CAssetCoin> &vecAssetCoins,
     		if(i > 0 &&
 				!(tAsset.nOp == XOP_ASSET_SEND
 				|| tAsset.nOp == XOP_ASSET_NEW
-				|| tAsset.nOp == XOP_ASSET_GENERATE ) )
+				|| tAsset.nOp == XOP_ASSET_GENERATE
+				|| tAsset.nOp == XOP_ASSET_DISSOLVE ) )
 					break;
     		// look for a secondary coin out
         	if(i > 0) {
@@ -752,7 +753,7 @@ bool DecodeAssetCoins(const CTransaction& tx, vector<CAssetCoin> &vecAssetCoins,
 					tAsset.isGenesis = true;
 					tAsset.nQty = out.nValue;
 				}
-				// is this asset change from a previous send?
+				// is this asset change from a previous send or dissolve?
 				else if(theAsset.IsAssetChange(Hash160(vvchRead[1]))) {
 					tAsset.txHash = tAsset.changeTxHash;
 					tAsset.isChange = true;
@@ -777,12 +778,11 @@ bool CAsset::IsAssetChange(uint160 compareHash) {
 
 	CAsset theAsset = *this;
 
-	theAsset.nOp 		  = XOP_ASSET_SEND;
 	theAsset.isChange 	  = true;
 	theAsset.changeTxHash = theAsset.txHash;
 	uint160 theHash 	  = Hash160(vchFromString(theAsset.SerializeToString()));
 
-	return (theHash==compareHash);
+	return (theHash == compareHash);
 }
 
 bool CAsset::IsGenesisAsset(uint160 compareHash) {
@@ -942,8 +942,8 @@ string CAsset::SendToDestination ( CWalletTx& wtxNew, const vector<unsigned char
 
 	int64 nAssetBalance = pwalletMain->GetAssetBalance(vchSymbol);
 	int64 nAssetValue   = nQty;
-	int64 nAssetChange  = nOp == XOP_ASSET_SEND || nOp == XOP_ASSET_DISSOLVE ? nAssetBalance - nAssetValue : 0;
-
+	int64 nAssetChange  = nOp == XOP_ASSET_SEND ? nAssetBalance - nAssetValue : 0;
+	nAssetChange =  nOp == XOP_ASSET_DISSOLVE ? nAssetBalance - nQty : nAssetChange;
 	bool isControlTx = nOp != XOP_ASSET_SEND;
 
 	// vector for all destinations
@@ -1122,9 +1122,8 @@ bool CAsset::CreateTransaction(
     	nBaseValue = pwalletMain->GetAssetBalance(vchSymbol);
     }
     if(isDissolve) {
-    	//21
+    	nValue +=  nQty;
     	nBaseValue += COIN;
-    	nValue = pwalletMain->GetAssetBalance(vchSymbol) - nValue;
     }
 
     assert(nValue == nBaseValue);
@@ -1162,54 +1161,50 @@ bool CAsset::CreateTransaction(
 
             if (nTotalValue > 0) {
 
-            	bool bRet;
             	if(isNewOp || isGenerate) {
             		// asset coins and fee come out of regular balance
             		// for newly-created asset classes
             		int64 nVal = isGenerate ? nTotalValue - COIN : nTotalValue;
-            		bRet = pwalletMain->SelectCoins(
+            		if(pwalletMain->SelectCoins(
             				nVal,
             				setCoins,
-            				nStdCoinsIn);
-
-            		if(bRet) {
+            				nStdCoinsIn)) {
                         // gather a list of the previous asset coins we need to
                         // successfully send this asset send transaction
                         vecCoins.insert(vecCoins.end(), setCoins.begin(), setCoins.end());
                         setCoins.clear();
-            		}
+            		} else return false;
             	}
 
             	if(!isNewOp) {
             		// asset control ops require an exiating asset contro
             		// coin to exist in order to create a txn
-                 	if(isControlOp)
-                 		bRet = pwalletMain->SelectAssetControlCoins(
+                 	if(isControlOp) {
+                     	if(pwalletMain->SelectAssetControlCoins(
                  				vchSymbol,
                  				COIN,
                  				setCoins,
-                 				nControlCoinsIn);
+                 				nControlCoinsIn)) {
+                            vecCoins.insert(vecCoins.end(), setCoins.begin(), setCoins.end());
+                            vecAssetCoins.insert(vecAssetCoins.end(), setCoins.begin(), setCoins.end());
+                            setCoins.clear();
+                     	} else return false;
+                 	}
 
                  	// asset send ops require existing asset coins
                  	// in quantity equal to or greater than the send amt
-					if(!isControlOp || isDissolve)
-						bRet = pwalletMain->SelectAssetCoins(
-							vchSymbol,
-							isDissolve ?  pwalletMain->GetAssetBalance(vchSymbol) : nQty,
-							setCoins,
-							nAssetCoinsIn);
-
-                 	// add these coins to a tracking vector. We use this later
-                 	// to ensure that coins returned to pay fees are not duplicated
-                 	if(bRet) {
-						BOOST_FOREACH(const PAIRTYPE(const CWalletTx *, unsigned int)& coin, setCoins)
-							vecAssetCoins.push_back(coin);
-                 	}
-
-                    vecCoins.insert(vecCoins.end(), setCoins.begin(), setCoins.end());
-                    setCoins.clear();
+					if(!isControlOp || isDissolve) {
+ 	                 	if(pwalletMain->SelectAssetCoins(
+								vchSymbol,
+								nQty,
+								setCoins,
+								nAssetCoinsIn)) {
+	                        vecCoins.insert(vecCoins.end(), setCoins.begin(), setCoins.end());
+	                        vecAssetCoins.insert(vecAssetCoins.end(), setCoins.begin(), setCoins.end());
+	                        setCoins.clear();
+	                 	} else return false;
+					}
             	}
-            	if(!bRet) return false;
 
             	// sum the returned coins
             	nValueIn = nStdCoinsIn
