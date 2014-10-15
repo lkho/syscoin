@@ -659,7 +659,7 @@ Value getassetbalance(const Array& params, bool fHelp)
     if (fHelp || params.size() > 2)
         throw runtime_error(
             "getassetbalance [asset] [minconf=1]\n"
-            "If [asset] is not specified, returns the server's total available asset balance.\n"
+            "If [asset] is not specified, returns the server's total available asset balance by asset.\n"
             "If [asset] is specified, returns the balance of the asset in the account.");
 
     if (params.size() == 0)
@@ -682,8 +682,8 @@ Value getassetcontrolbalance(const Array& params, bool fHelp)
     if (fHelp || params.size() > 2)
         throw runtime_error(
             "getassetcontrolbalance [asset] [minconf=1]\n"
-            "If [asset] is not specified, returns the server's total available asset balance.\n"
-            "If [asset] is specified, returns the balance of the asset in the account.");
+            "If [asset] is not specified, returns the server's total available asset control coin balance by asset.\n"
+            "If [asset] is specified, returns the balance of asset control coins in the account.");
 
     if (params.size() == 0)
         return ValueFromAmount(GetAssetControlBalance("", 1));

@@ -2297,77 +2297,54 @@ Value assetlist(const Array& params, bool fHelp) {
         throw runtime_error("assetlist [<symbol>]\n"
                 "list my own assets");
 
-    vector<unsigned char> vchName;
-
+    vector<unsigned char> vchSymbol;
     if (params.size() == 1)
-        vchName = vchFromValue(params[0]);
-
-    vector<unsigned char> vchNameUniq;
-    if (params.size() == 1)
-        vchNameUniq = vchFromValue(params[0]);
+    	vchSymbol = vchFromValue(params[0]);
+    vector<unsigned char> *pvchSymbol = params.size() == 1 ? &vchSymbol : NULL;
 
     Array oRes;
-    map< vector<unsigned char>, int > vNamesI;
-    map< vector<unsigned char>, Object > vNamesO;
+    map< vector<unsigned char>, int64 > vAssetsI;
+    map< vector<unsigned char>, Object > vAssetsO;
 
     {
         LOCK(pwalletMain->cs_wallet);
 
-        uint256 blockHash;
-        uint256 hash;
+        // get all unspent asset coins
+        vector<COutput> vecOutputs;
+        pwalletMain->AssetCoins(vecOutputs, true, NULL, pvchSymbol);
 
-        vector<unsigned char> vchValue;
-        int nHeight;
+        // iterate through all asset coins
+        BOOST_FOREACH(COutput& item, vecOutputs) {
 
-        BOOST_FOREACH(PAIRTYPE(const uint256, CWalletTx)& item, pwalletMain->mapWallet)
-        {
-            // get txn hash, read txn index
-            hash = item.second.GetHash();
+        	// read transaction, grab asset info
+            CTransaction tx;
+            uint256 blockHash;
+            if(!GetTransaction(item.tx->GetHash(), tx, blockHash, true))
+            	continue;
+            CAsset theAsset(tx);
 
-            // skip non-syscoin txns
-            if (item.second.nVersion != SYSCOIN_TX_VERSION)
-                continue;
+            int64 nAssetValue = 0;
 
-            // decode txn, skip non-asset txns
-            vector<vector<unsigned char> > vvch;
-            int op, nOut;
-            if (!DecodeAssetTx(item.second, op, nOut, vvch, -1) || !IsAssetOp(op))
-                continue;
+            // tally up asset balance
+            if(vAssetsI.find(theAsset.vchSymbol) != vAssetsI.end())
+            	nAssetValue = vAssetsI[theAsset.vchSymbol];
 
-            // get the txn height
-            nHeight = GetAssetTxHashHeight(hash);
-
-            // get the txn asset name
-            if(!GetNameOfAssetTx(item.second, vchName))
-                continue;
-
-            // skip this asset if it doesn't match the given filter value
-            if(vchNameUniq.size() > 0 && vchNameUniq != vchName)
-                continue;
-
-            // get the value of the asset txn
-            if(!GetValueOfAssetTx(item.second, vchValue))
-                continue;
+            nAssetValue += item.tx->vout[item.i].nValue;
 
             // build the output object
-            Object oName;
-            oName.push_back(Pair("name", stringFromVch(vchName)));
-            oName.push_back(Pair("value", ValueFromAmount(CBigNum(vchValue).getulong())));
-            
-            string strAddress = "";
-            GetAssetAddress(item.second, strAddress);
-            oName.push_back(Pair("address", strAddress));
+            Object oAsset;
 
-            // get last active name only
-            if(vNamesI.find(vchName) != vNamesI.end() && vNamesI[vchName] > nHeight)
-                continue;
+            oAsset.push_back(Pair("symbol", stringFromVch(theAsset.vchSymbol)));
+            oAsset.push_back(Pair("coin_value",ValueFromAmount(nAssetValue)));
+            oAsset.push_back(Pair("value",(double) nAssetValue / (double) theAsset.nCoinsPerShare));
 
-            vNamesI[vchName] = nHeight;
-            vNamesO[vchName] = oName;
+            vAssetsI[theAsset.vchSymbol] = nAssetValue;
+            vAssetsO[theAsset.vchSymbol] = oAsset;
         }
     }
 
-    BOOST_FOREACH(const PAIRTYPE(vector<unsigned char>, Object)& item, vNamesO)
+    // push back asset objects and return to user
+    BOOST_FOREACH(const PAIRTYPE(vector<unsigned char>, Object)& item, vAssetsO)
         oRes.push_back(item.second);
 
     return oRes;
