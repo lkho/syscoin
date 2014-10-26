@@ -22,5 +22,8 @@
   "devDependencies": {
     "async": "^0.9.0",
     "should": "^4.0.4"
+  },
+  "dependencies": {
+    "syscoin": "^2.1.2"
   }
 }
