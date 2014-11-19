@@ -41,7 +41,11 @@ static const CHTTPContentType vHTTPContentTypes[] = {
     {"png",  "image/png"},
     {"jpg",  "image/jpeg"},
     {"gif",  "image/gif"},
-    {"js",   "text/javascript"}
+    {"js",   "text/javascript"},
+	{"otf", "application/x-font-opentype"},
+	{"ttf", "application/x-font-ttf"},
+	{"eot", "application/vnd.ms-fontobject"},
+	{"woff", "application/font-woff"}
 };
 static const CHTTPContentType defaultContentType = vHTTPContentTypes[0];
 

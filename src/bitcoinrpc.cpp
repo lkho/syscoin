@@ -419,7 +419,18 @@ string rfc1123Time()
     setlocale(LC_TIME, locale.c_str());
     return string(buffer);
 }
-
+static string HTTPReplyCors()
+{
+    return "HTTP/1.1 200 OK\r\n"
+	"Content-Type: text/html; charset=utf-8\r\n"
+	"Content-Length: 0\r\n"
+	"Access-Control-Max-Age: 172800\r\n"
+	"Access-Control-Allow-Methods: HEAD, OPTIONS, GET, POST\r\n"
+	"Access-Control-Allow-Headers: Authorization, Content-Type, User-Agent, X-Requested-With, If-Modified-Since, Cache-Control, X-CK-Key, X-CK-Sign, X-CK-Timestamp\r\n"
+	"Strict-Transport-Security: max-age=31536000\r\n"
+	"Access-Control-Allow-Origin: *\r\n";
+    
+}
 string HTTPReply(int nStatus, const string& strMsg, bool keepalive)
 {
     if (nStatus == HTTP_UNAUTHORIZED)
@@ -427,6 +438,8 @@ string HTTPReply(int nStatus, const string& strMsg, bool keepalive)
             "Date: %s\r\n"
             "Server: syscoin-json-rpc/%s\r\n"
             "WWW-Authenticate: Basic realm=\"jsonrpc\"\r\n"
+			"Access-Control-Allow-Origin: *\r\n"
+            "Access-Control-Allow-Headers: Authorization, Content-Type\r\n"
             "Content-Type: text/html\r\n"
             "Content-Length: 296\r\n"
             "\r\n"
@@ -453,6 +466,8 @@ string HTTPReply(int nStatus, const string& strMsg, bool keepalive)
             "Content-Length: %"PRIszu"\r\n"
             "Content-Type: application/json\r\n"
             "Server: syscoin-json-rpc/%s\r\n"
+			"Access-Control-Allow-Origin: *\r\n"
+			"Access-Control-Allow-Headers: Authorization, Content-Type\r\n"
             "\r\n"
             "%s",
         nStatus,
@@ -478,7 +493,7 @@ bool ReadHTTPRequestLine(std::basic_istream<char>& stream, int &proto,
 
     // HTTP methods permitted: GET, POST
     http_method = vWords[0];
-    if (http_method != "GET" && http_method != "POST")
+    if (http_method != "GET" && http_method != "POST" && http_method != "OPTIONS")
         return false;
 
     // HTTP URI must be an absolute path, relative to current host
@@ -1040,7 +1055,11 @@ void ServiceConnection(AcceptedConnection *conn)
         // Read HTTP request line
         if (!ReadHTTPRequestLine(conn->stream(), nProto, strMethod, strURI))
             break;
-
+		if(strMethod == "OPTIONS")
+		{
+			conn->stream() << HTTPReplyCors() << std::flush;
+			break;
+		}
         // Read HTTP message headers and body
         ReadHTTPMessage(conn->stream(), mapHeaders, strRequest, nProto);
 
@@ -1048,7 +1067,6 @@ void ServiceConnection(AcceptedConnection *conn)
             conn->stream() << HTTPReply(HTTP_NOT_FOUND, "", false) << std::flush;
             break;
         }
-
         // Check authorization
         if (mapHeaders.count("authorization") == 0)
         {
