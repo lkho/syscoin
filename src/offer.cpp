@@ -1462,15 +1462,18 @@ Value getofferfees(const Array& params, bool fHelp) {
 }
 
 Value offernew(const Array& params, bool fHelp) {
-	if (fHelp || params.size() < 5 || params.size() > 6)
+	if (fHelp || params.size() < 5 || params.size() > 9)
 		throw runtime_error(
-				"offernew [<address>] <category> <title> <quantity> <price> [<description>]\n"
+				"offernew [<address>] <category> [<subcategory>] <title> <quantity> <price> [<description> <UPC> <Picture>]\n"
 						"<address> offerpay receive address, wallet default address if not specified.\n"
 						"<category> category, 255 chars max.\n"
+						"<Subcategory> sub category for re-defining, 255 chars max.\n"
 						"<title> title, 255 chars max.\n"
 						"<quantity> quantity, > 0\n"
 						"<price> price in syscoin, > 0\n"
 						"<description> description, 64 KB max.\n"
+						"<UPC> A unique product identifier. E.g. ISBN for books, > 0 < 255 bytes"
+						"<Picture> Picture string, 32 KB max.\n"
 						+ HelpRequiringPassphrase());
 	// gather inputs
 	string baSig;
@@ -1495,6 +1498,7 @@ Value offernew(const Array& params, bool fHelp) {
 	}
 
 	vector<unsigned char> vchCat = vchFromValue(params[nParamIdx++]);
+	vector<unsigned char> vchSCat = vchFromValue(params[nParamIdx++]);
 	vector<unsigned char> vchTitle = vchFromValue(params[nParamIdx++]);
 	vector<unsigned char> vchDesc;
 
@@ -1503,6 +1507,8 @@ Value offernew(const Array& params, bool fHelp) {
 
 	if(nParamIdx < params.size()) vchDesc = vchFromValue(params[nParamIdx++]);
     else vchDesc = vchFromString("");
+    vector<unsigned char> vchUPC = vchFromValue(params[nParamIdx++]);
+    vector<unsigned char> vchPic = vchFromValue(params[nParamIdx++]);
 
 	if(vchCat.size() < 1)
         throw runtime_error("offer category < 1 bytes!\n");
@@ -1512,6 +1518,13 @@ Value offernew(const Array& params, bool fHelp) {
         throw runtime_error("offer category > 255 bytes!\n");
 	if(vchTitle.size() > 255)
         throw runtime_error("offer title > 255 bytes!\n");
+    if(vchUPC.size() > 255)
+    	throw runtime_error("UPC > 255 bytes!\n");
+    if(vchSCat.size() > 255)
+    	throw runtime_error("SubCategory > 255 bytes!\n");
+    // 32Kbyte offer pics maxlen
+    if (vchPic.size() > 512 * 64)
+		throw JSONRPCError(RPC_INVALID_PARAMETER, "offer picture(s) > 32768 bytes!\n");
     // 64Kbyte offer desc. maxlen
 	if (vchDesc.size() > 1024 * 64)
 		throw JSONRPCError(RPC_INVALID_PARAMETER, "offer description > 65536 bytes!\n");
@@ -1536,6 +1549,9 @@ Value offernew(const Array& params, bool fHelp) {
 	newOffer.sTitle = vchTitle;
 	newOffer.sDescription = vchDesc;
 	newOffer.nQty = nQty;
+	newOffer.vchUPC = vchUPC;
+	newOffer.vchSCat = vchSCat;
+	newOffer.vchPic = vchPic;
 	newOffer.nPrice = nPrice * COIN;
 
 	string bdata = newOffer.SerializeToString();
@@ -2069,10 +2085,13 @@ Value offerinfo(const Array& params, bool fHelp) {
 			}
 			oOffer.push_back(Pair("payment_address", stringFromVch(theOffer.vchPaymentAddress)));
 			oOffer.push_back(Pair("category", stringFromVch(theOffer.sCategory)));
+			oOffer.push_back(Pair("subcategory", stringFromVch(theOffer.vchSCat)));
 			oOffer.push_back(Pair("title", stringFromVch(theOffer.sTitle)));
 			oOffer.push_back(Pair("quantity", strprintf("%llu", theOffer.GetRemQty())));
 			oOffer.push_back(Pair("price", ValueFromAmount(theOffer.nPrice) ) );
 			oOffer.push_back(Pair("description", stringFromVch(theOffer.sDescription)));
+			oOffer.push_back(Pair("UPC", stringFromVch(theOffer.vchUPC)));
+			oOffer.push_back(Pair("picture(s)", stringFromVch(theOffer.vchPic)));
 			oOffer.push_back(Pair("accepts", aoOfferAccepts));
 			oLastOffer = oOffer;
 		}
