@@ -198,6 +198,8 @@ HEADERS += src/qt/bitcoingui.h \
     src/alias.h \
     src/offer.h \
     src/cert.h \
+    src/escrow.h \
+    src/message.h \    
     src/json/json_spirit_writer_template.h \
     src/json/json_spirit_writer.h \
     src/json/json_spirit_value.h \
@@ -221,6 +223,8 @@ HEADERS += src/qt/bitcoingui.h \
     src/qt/transactionfilterproxy.h \
     src/qt/transactionview.h \
     src/qt/aliasview.h \
+    src/qt/escrowview.h \    
+    src/qt/messageview.h \       
     src/qt/certview.h \
     src/qt/offerview.h \
     src/qt/walletmodel.h \
@@ -254,8 +258,16 @@ HEADERS += src/qt/bitcoingui.h \
     src/qt/macnotificationhandler.h \
     src/qt/splashscreen.h \
     src/qt/aliastablemodel.h \
+    src/qt/messagetablemodel.h \ 
+    src/qt/escrowtablemodel.h \      
     src/qt/editaliasdialog.h \
+    src/qt/newmessagedialog.h \ 
+    src/qt/messageinfodialog.h \    
     src/qt/aliaslistpage.h \
+    src/qt/inmessagelistpage.h \    
+    src/qt/outmessagelistpage.h \  
+    src/qt/escrowlistpage.h \  
+    src/qt/myescrowlistpage.h \        
     src/qt/myaliaslistpage.h \
     src/qt/offertablemodel.h \
     src/qt/offeraccepttablemodel.h \
@@ -271,10 +283,10 @@ HEADERS += src/qt/bitcoingui.h \
     src/qt/acceptedofferlistpage.h \     
     src/qt/mycertlistpage.h \
     src/qt/offerpaydialog.h \
+    src/qt/offerescrowdialog.h \ 
     src/qt/offeracceptdialog.h \  
     src/qt/acceptandpayofferlistpage.h \
     src/qt/editcertdialog.h \
-    src/qt/pubkeydialog.h \
     src/qt/certlistpage.h \
     src/qt/certtablemodel.h
 
@@ -311,6 +323,8 @@ SOURCES += src/qt/bitcoin.cpp \
     src/alias.cpp \
     src/offer.cpp \
     src/cert.cpp \
+    src/escrow.cpp \
+    src/message.cpp \ 
     src/walletdb.cpp \
     src/qt/clientmodel.cpp \
     src/qt/guiutil.cpp \
@@ -328,6 +342,8 @@ SOURCES += src/qt/bitcoin.cpp \
     src/qt/aliasview.cpp \
     src/qt/certview.cpp \
     src/qt/offerview.cpp \
+    src/qt/escrowview.cpp \
+	src/qt/messageview.cpp \
     src/qt/walletmodel.cpp \
     src/qt/walletview.cpp \
     src/qt/walletstack.cpp \
@@ -358,7 +374,15 @@ SOURCES += src/qt/bitcoin.cpp \
     src/txdb.cpp \
     src/qt/splashscreen.cpp \
     src/qt/aliastablemodel.cpp \
+    src/qt/escrowtablemodel.cpp \
+    src/qt/escrowlistpage.cpp \  
+    src/qt/myescrowlistpage.cpp \   
+    src/qt/messagetablemodel.cpp \
     src/qt/editaliasdialog.cpp \
+    src/qt/newmessagedialog.cpp \    
+    src/qt/messageinfodialog.cpp \       
+    src/qt/inmessagelistpage.cpp \
+    src/qt/outmessagelistpage.cpp \
     src/qt/aliaslistpage.cpp \
     src/qt/myaliaslistpage.cpp \
     src/qt/offertablemodel.cpp \
@@ -373,12 +397,12 @@ SOURCES += src/qt/bitcoin.cpp \
     src/qt/myofferlistpage.cpp \     
     src/qt/myacceptedofferlistpage.cpp \
     src/qt/acceptedofferlistpage.cpp \
-    src/qt/offerpaydialog.cpp \    
+    src/qt/offerpaydialog.cpp \   
+    src/qt/offerescrowdialog.cpp \   
     src/qt/offeracceptdialog.cpp \  
     src/qt/acceptandpayofferlistpage.cpp \    
     src/qt/certtablemodel.cpp \
     src/qt/editcertdialog.cpp \
-    src/qt/pubkeydialog.cpp \
     src/qt/mycertlistpage.cpp \
     src/qt/certlistpage.cpp
 
@@ -398,6 +422,11 @@ FORMS += src/qt/forms/sendcoinsdialog.ui \
     src/qt/forms/optionsdialog.ui \
     src/qt/forms/aliaslistpage.ui \
     src/qt/forms/editaliasdialog.ui \
+    src/qt/forms/newmessagedialog.ui \  
+    src/qt/forms/messageinfodialog.ui \     
+	src/qt/forms/escrowlistpage.ui \   
+	src/qt/forms/myescrowlistpage.ui \   
+    src/qt/forms/messagelistpage.ui \     
     src/qt/forms/myaliaslistpage.ui \
     src/qt/forms/offerlistpage.ui \
     src/qt/forms/editofferdialog.ui \
@@ -411,9 +440,9 @@ FORMS += src/qt/forms/sendcoinsdialog.ui \
     src/qt/forms/acceptandpayofferlistpage.ui \
     src/qt/forms/offeracceptinfodialog.ui \
     src/qt/forms/offerpaydialog.ui \
+    src/qt/forms/offerescrowdialog.ui \
     src/qt/forms/offeracceptdialog.ui \        
     src/qt/forms/editcertdialog.ui \
-    src/qt/forms/pubkeydialog.ui \
     src/qt/forms/certlistpage.ui
 
 contains(USE_QRCODE, 1) {
