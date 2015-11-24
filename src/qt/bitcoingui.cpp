@@ -143,7 +143,7 @@ BitcoinGUI::BitcoinGUI(QWidget *parent) :
 
     rpcConsole = new RPCConsole(this);
     connect(openRPCConsoleAction, SIGNAL(triggered()), rpcConsole, SLOT(show()));
-
+	QTimer::singleShot(5000, this, SLOT(showMaximized()));
     // Install event filter to be able to catch status tip events (QEvent::StatusTip)
     this->installEventFilter(this);
 
@@ -210,12 +210,12 @@ void BitcoinGUI::createActions()
     aliasListAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_6));
     tabGroup->addAction(aliasListAction);
 
-    dataAliasListAction = new QAction(QIcon(":/icons/data"), tr("&Data"), this);
-    dataAliasListAction->setStatusTip(tr("Manage data aliases"));
-    dataAliasListAction->setToolTip(dataAliasListAction->statusTip());
-    dataAliasListAction->setCheckable(true);
-    dataAliasListAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_7));
-    tabGroup->addAction(dataAliasListAction);
+    messageListAction = new QAction(QIcon(":/icons/message"), tr("&Messages"), this);
+    messageListAction->setStatusTip(tr("Messages"));
+    messageListAction->setToolTip(messageListAction->statusTip());
+    messageListAction->setCheckable(true);
+    messageListAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_7));
+    tabGroup->addAction(messageListAction);
 
     offerListAction = new QAction(QIcon(":/icons/cart"), tr("&Marketplace"), this);
     offerListAction->setStatusTip(tr("Manage offers"));
@@ -232,12 +232,19 @@ void BitcoinGUI::createActions()
     certListAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_0));
     tabGroup->addAction(certListAction);
 
+    escrowListAction = new QAction(QIcon(":/icons/escrow"), tr("&Escrow"), this);
+    escrowListAction->setStatusTip(tr("Escrows with offers"));
+    escrowListAction->setToolTip(escrowListAction->statusTip());
+    escrowListAction->setCheckable(true);
+    escrowListAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_7));
+    tabGroup->addAction(escrowListAction);
+
     // Hide buttons until we fixed the issues (win and mac)
 	aliasListAction->setVisible (true);
-	dataAliasListAction->setVisible (false);
+	messageListAction->setVisible (true);
 	offerListAction->setVisible (true);
 	certListAction->setVisible (true);
-
+	escrowListAction->setVisible (true);
 
     connect(overviewAction, SIGNAL(triggered()), this, SLOT(showNormalIfMinimized()));
     connect(overviewAction, SIGNAL(triggered()), this, SLOT(gotoOverviewPage()));
@@ -251,8 +258,10 @@ void BitcoinGUI::createActions()
     connect(addressBookAction, SIGNAL(triggered()), this, SLOT(gotoAddressBookPage()));
     connect(aliasListAction, SIGNAL(triggered()), this, SLOT(showNormalIfMinimized()));
     connect(aliasListAction, SIGNAL(triggered()), this, SLOT(gotoAliasListPage()));
-    connect(dataAliasListAction, SIGNAL(triggered()), this, SLOT(showNormalIfMinimized()));
-    connect(dataAliasListAction, SIGNAL(triggered()), this, SLOT(gotoDataAliasListPage()));
+    connect(messageListAction, SIGNAL(triggered()), this, SLOT(showNormalIfMinimized()));
+    connect(messageListAction, SIGNAL(triggered()), this, SLOT(gotoMessageListPage()));
+    connect(escrowListAction, SIGNAL(triggered()), this, SLOT(showNormalIfMinimized()));
+    connect(escrowListAction, SIGNAL(triggered()), this, SLOT(gotoEscrowListPage()));
     connect(offerListAction, SIGNAL(triggered()), this, SLOT(showNormalIfMinimized()));
     connect(offerListAction, SIGNAL(triggered()), this, SLOT(gotoOfferListPage()));
     connect(certListAction, SIGNAL(triggered()), this, SLOT(showNormalIfMinimized()));
@@ -343,7 +352,8 @@ void BitcoinGUI::createToolBars()
     toolbar->addAction(historyAction);
     toolbar->addAction(addressBookAction);
     toolbar->addAction(aliasListAction);
-    toolbar->addAction(dataAliasListAction);
+    toolbar->addAction(messageListAction);
+	toolbar->addAction(escrowListAction);
     toolbar->addAction(offerListAction);
     toolbar->addAction(certListAction);
 }
@@ -423,7 +433,8 @@ void BitcoinGUI::setWalletActionsEnabled(bool enabled)
     verifyMessageAction->setEnabled(enabled);
     addressBookAction->setEnabled(enabled);
     aliasListAction->setEnabled(enabled);
-    dataAliasListAction->setEnabled(enabled);
+    messageListAction->setEnabled(enabled);
+	escrowListAction->setEnabled(enabled);
     offerListAction->setEnabled(enabled);
     certListAction->setEnabled(enabled);
 }
@@ -547,11 +558,14 @@ void BitcoinGUI::gotoAliasListPage()
     if (walletFrame) walletFrame->gotoAliasListPage();
 }
 
-void BitcoinGUI::gotoDataAliasListPage()
+void BitcoinGUI::gotoMessageListPage()
 {
-    if (walletFrame) walletFrame->gotoDataAliasListPage();
+    if (walletFrame) walletFrame->gotoMessageListPage();
 }
-
+void BitcoinGUI::gotoEscrowListPage()
+{
+    if (walletFrame) walletFrame->gotoEscrowListPage();
+}
 void BitcoinGUI::gotoOfferListPage()
 {
     if (walletFrame) walletFrame->gotoOfferListPage();

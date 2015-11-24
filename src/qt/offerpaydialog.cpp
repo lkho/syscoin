@@ -2,15 +2,6 @@
 #include "util.h"
 #include "offerpaydialog.h"
 #include "ui_offerpaydialog.h"
-
-#include "bitcoingui.h"
-#include "bitcoinrpc.h"
-#include <QProgressBar> 
-#include <QTimer>
-#include <QMessageBox>
-using namespace std;
-using namespace json_spirit;
-extern const CRPCTable tableRPC;
 OfferPayDialog::OfferPayDialog(QString title, QString quantity, QString price, QWidget *parent) :
     QDialog(parent), 
 	ui(new Ui::OfferPayDialog)

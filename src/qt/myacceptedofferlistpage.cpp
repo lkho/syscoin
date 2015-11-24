@@ -5,6 +5,7 @@
 #include "ui_myacceptedofferlistpage.h"
 #include "offeraccepttablemodel.h"
 #include "offeracceptinfodialog.h"
+#include "newmessagedialog.h"
 #include "clientmodel.h"
 #include "optionsmodel.h"
 #include "walletmodel.h"
@@ -33,33 +34,57 @@ MyAcceptedOfferListPage::MyAcceptedOfferListPage(QWidget *parent) :
 	ui->refreshButton->setIcon(QIcon());
     ui->copyOffer->setIcon(QIcon());
     ui->exportButton->setIcon(QIcon());
+	ui->messageButton->setIcon(QIcon());
+	ui->detailButton->setIcon(QIcon());
+	ui->refundButton->setIcon(QIcon());
 #endif
 
 	ui->buttonBox->setVisible(false);
 
     ui->labelExplanation->setText(tr("These are offers you have sold to others. Offer operations take 2-5 minutes to become active. Right click on an offer for more info including buyer message, quantity, date, etc."));
 	
-	connect(ui->tableView, SIGNAL(doubleClicked(QModelIndex)), this, SLOT(info()));	
+	connect(ui->tableView, SIGNAL(doubleClicked(QModelIndex)), this, SLOT(on_detailButton_clicked()));	
     // Context menu actions
     QAction *copyOfferAction = new QAction(ui->copyOffer->text(), this);
     QAction *copyOfferValueAction = new QAction(tr("&Copy OfferAccept ID"), this);
-	QAction *moreInfoAction = new QAction(tr("&More Info"), this);
+	QAction *detailsAction = new QAction(tr("&Details"), this);
 	QAction *refundAction = new QAction(tr("&Refund"), this);
+	QAction *messageAction = new QAction(tr("&Message Buyer"), this);
 
     // Build context menu
     contextMenu = new QMenu();
     contextMenu->addAction(copyOfferAction);
     contextMenu->addAction(copyOfferValueAction);
 	contextMenu->addSeparator();
-	contextMenu->addAction(moreInfoAction);
+	contextMenu->addAction(detailsAction);
+	contextMenu->addAction(messageAction);
 	contextMenu->addAction(refundAction);
     // Connect signals for context menu actions
     connect(copyOfferAction, SIGNAL(triggered()), this, SLOT(on_copyOffer_clicked()));
     connect(copyOfferValueAction, SIGNAL(triggered()), this, SLOT(onCopyOfferValueAction()));
-	connect(moreInfoAction, SIGNAL(triggered()), this, SLOT(info()));
-	connect(refundAction, SIGNAL(triggered()), this, SLOT(refund()));
+	connect(detailsAction, SIGNAL(triggered()), this, SLOT(on_detailButton_clicked()));
+	connect(refundAction, SIGNAL(triggered()), this, SLOT(on_refundButton_clicked()));
+	connect(messageAction, SIGNAL(triggered()), this, SLOT(on_messageButton_clicked()));
 
     connect(ui->tableView, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(contextualMenu(QPoint)));
+
+
+}
+void MyAcceptedOfferListPage::on_messageButton_clicked()
+{
+ 	if(!model)	
+		return;
+	if(!ui->tableView->selectionModel())
+        return;
+    QModelIndexList selection = ui->tableView->selectionModel()->selectedRows();
+    if(selection.isEmpty())
+    {
+        return;
+    }
+	QString buyerKey = selection.at(0).data(OfferAcceptTableModel::BuyerKeyRole).toString();
+	// send message to buyer
+	NewMessageDialog dlg(NewMessageDialog::NewMessage, buyerKey);   
+	dlg.exec();
 
 
 }
@@ -68,7 +93,7 @@ MyAcceptedOfferListPage::~MyAcceptedOfferListPage()
 {
     delete ui;
 }
-void MyAcceptedOfferListPage::info()
+void MyAcceptedOfferListPage::on_detailButton_clicked()
 {
     if(!ui->tableView->selectionModel())
         return;
@@ -79,7 +104,7 @@ void MyAcceptedOfferListPage::info()
         dlg.exec();
     }
 }
-void MyAcceptedOfferListPage::refund()
+void MyAcceptedOfferListPage::on_refundButton_clicked()
 {
     if(!ui->tableView->selectionModel())
         return;
@@ -173,6 +198,7 @@ void MyAcceptedOfferListPage::setModel(WalletModel *walletModel, OfferAcceptTabl
 	ui->tableView->horizontalHeader()->setResizeMode(OfferAcceptTableModel::Currency, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setResizeMode(OfferAcceptTableModel::Qty, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setResizeMode(OfferAcceptTableModel::Total, QHeaderView::ResizeToContents);
+	ui->tableView->horizontalHeader()->setResizeMode(OfferAcceptTableModel::Alias, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setResizeMode(OfferAcceptTableModel::Status, QHeaderView::ResizeToContents);
 #else
     ui->tableView->horizontalHeader()->setSectionResizeMode(OfferAcceptTableModel::Name, QHeaderView::ResizeToContents);
@@ -183,6 +209,7 @@ void MyAcceptedOfferListPage::setModel(WalletModel *walletModel, OfferAcceptTabl
 	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferAcceptTableModel::Currency, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferAcceptTableModel::Qty, QHeaderView::ResizeToContents);
     ui->tableView->horizontalHeader()->setSectionResizeMode(OfferAcceptTableModel::Total, QHeaderView::ResizeToContents);
+	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferAcceptTableModel::Alias, QHeaderView::ResizeToContents);
 	 ui->tableView->horizontalHeader()->setSectionResizeMode(OfferAcceptTableModel::Status, QHeaderView::ResizeToContents);
 #endif
 
@@ -229,10 +256,16 @@ void MyAcceptedOfferListPage::selectionChanged()
     if(table->selectionModel()->hasSelection())
     {
         ui->copyOffer->setEnabled(true);
+		ui->messageButton->setEnabled(true);
+		ui->detailButton->setEnabled(true);
+		ui->refundButton->setEnabled(true);
     }
     else
     {
         ui->copyOffer->setEnabled(false);
+		ui->messageButton->setEnabled(false);
+		ui->detailButton->setEnabled(false);
+		ui->refundButton->setEnabled(false);
     }
 }
 
@@ -282,6 +315,7 @@ void MyAcceptedOfferListPage::on_exportButton_clicked()
 	writer.addColumn("Currency", OfferAcceptTableModel::Currency, Qt::EditRole);
 	writer.addColumn("Qty", OfferAcceptTableModel::Qty, Qt::EditRole);
 	writer.addColumn("Total", OfferAcceptTableModel::Total, Qt::EditRole);
+	writer.addColumn("Alias", OfferAcceptTableModel::Alias, Qt::EditRole);
 	writer.addColumn("Status", OfferAcceptTableModel::Status, Qt::EditRole);
     if(!writer.write())
     {

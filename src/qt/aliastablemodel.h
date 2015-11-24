@@ -31,8 +31,9 @@ public:
     };
 
     enum RoleIndex {
-        TypeRole = Qt::UserRole /**< Type of alias (#Send or #Receive) */
-    };
+        TypeRole = Qt::UserRole, /**< Type of alias (#Send or #Receive) */
+		NameRole
+	};
 
     /** Return status of edit/insert operation */
     enum EditStatus {

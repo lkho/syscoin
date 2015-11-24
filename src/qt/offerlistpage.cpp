@@ -10,6 +10,7 @@
 #include "bitcoingui.h"
 #include "bitcoinrpc.h"
 #include "resellofferdialog.h"
+#include "newmessagedialog.h"
 #include "csvmodelwriter.h"
 #include "guiutil.h"
 #include "ui_interface.h"
@@ -39,6 +40,7 @@ OfferListPage::OfferListPage(OfferView *parent) :
     ui->exportButton->setIcon(QIcon());
 	ui->resellButton->setIcon(QIcon());
 	ui->purchaseButton->setIcon(QIcon());
+	ui->messageButton->setIcon(QIcon());
 #endif
 
     ui->labelExplanation->setText(tr("Search for Syscoin Offers (double click on one to purchase). Select the number of results desired from the dropdown box and click Search."));
@@ -47,8 +49,9 @@ OfferListPage::OfferListPage(OfferView *parent) :
     QAction *copyOfferAction = new QAction(ui->copyOffer->text(), this);
     QAction *copyOfferValueAction = new QAction(tr("&Copy Title"), this);
 	QAction *copyOfferDescriptionAction = new QAction(tr("&Copy Description"), this);
-	QAction *resellAction = new QAction(tr("&Resell Offer"), this);
-	QAction *purchaseAction = new QAction(tr("&Purchase Offer"), this);
+	QAction *resellAction = new QAction(tr("&Resell"), this);
+	QAction *purchaseAction = new QAction(tr("&Purchase"), this);
+	QAction *messageSellerAction = new QAction(tr("&Message Seller"), this);
 
     // Build context menu
     contextMenu = new QMenu();
@@ -56,6 +59,7 @@ OfferListPage::OfferListPage(OfferView *parent) :
     contextMenu->addAction(copyOfferValueAction);
 	contextMenu->addAction(copyOfferDescriptionAction);
 	contextMenu->addSeparator();
+	contextMenu->addAction(messageSellerAction);
 	contextMenu->addAction(resellAction);
 	contextMenu->addAction(purchaseAction);
     // Connect signals for context menu actions
@@ -64,6 +68,7 @@ OfferListPage::OfferListPage(OfferView *parent) :
 	connect(copyOfferDescriptionAction, SIGNAL(triggered()), this, SLOT(onCopyOfferDescriptionAction()));
 	connect(resellAction, SIGNAL(triggered()), this, SLOT(on_resellButton_clicked()));
 	connect(purchaseAction, SIGNAL(triggered()), this, SLOT(on_purchaseButton_clicked()));
+	connect(messageSellerAction, SIGNAL(triggered()), this, SLOT(on_messageButton_clicked()));
 	connect(ui->tableView, SIGNAL(doubleClicked(QModelIndex)), this, SLOT(on_purchaseButton_clicked()));
     connect(ui->tableView, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(contextualMenu(QPoint)));
 
@@ -113,6 +118,7 @@ void OfferListPage::setModel(WalletModel* walletModel, OfferTableModel *model)
 	ui->tableView->horizontalHeader()->setResizeMode(OfferTableModel::Currency, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setResizeMode(OfferTableModel::Qty, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setResizeMode(OfferTableModel::ExclusiveResell, QHeaderView::ResizeToContents);
+	ui->tableView->horizontalHeader()->setResizeMode(OfferTableModel::Private, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setResizeMode(OfferTableModel::Expired, QHeaderView::ResizeToContents);
 #else
     ui->tableView->horizontalHeader()->setSectionResizeMode(OfferTableModel::Name, QHeaderView::ResizeToContents);
@@ -124,6 +130,7 @@ void OfferListPage::setModel(WalletModel* walletModel, OfferTableModel *model)
 	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferTableModel::Currency, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferTableModel::Qty, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferTableModel::ExclusiveResell, QHeaderView::ResizeToContents);
+	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferTableModel::Private, QHeaderView::ResizeToContents);
     ui->tableView->horizontalHeader()->setSectionResizeMode(OfferTableModel::Expired, QHeaderView::ResizeToContents);
 #endif
 
@@ -148,6 +155,24 @@ void OfferListPage::on_copyOffer_clicked()
 {
    
     GUIUtil::copyEntryData(ui->tableView, OfferTableModel::Name);
+}
+void OfferListPage::on_messageButton_clicked()
+{
+ 	if(!model)	
+		return;
+	if(!ui->tableView->selectionModel())
+        return;
+    QModelIndexList selection = ui->tableView->selectionModel()->selectedRows();
+    if(selection.isEmpty())
+    {
+        return;
+    }
+	QString offerAlias = selection.at(0).data(OfferTableModel::AliasRole).toString();
+	// send message to seller
+	NewMessageDialog dlg(NewMessageDialog::NewMessage, offerAlias);   
+	dlg.exec();
+
+
 }
 void OfferListPage::on_resellButton_clicked()
 {
@@ -218,13 +243,14 @@ void OfferListPage::selectionChanged()
         ui->copyOffer->setEnabled(true);
 		ui->resellButton->setEnabled(true);
 		ui->purchaseButton->setEnabled(true);
-		
+		ui->messageButton->setEnabled(true);	
     }
     else
     {
         ui->copyOffer->setEnabled(false);
 		ui->resellButton->setEnabled(false);
 		ui->purchaseButton->setEnabled(false);
+		ui->messageButton->setEnabled(false);
     }
 }
 void OfferListPage::keyPressEvent(QKeyEvent * event)
@@ -260,6 +286,7 @@ void OfferListPage::on_exportButton_clicked()
 	writer.addColumn("Currency", OfferTableModel::Currency, Qt::EditRole);
 	writer.addColumn("Qty", OfferTableModel::Qty, Qt::EditRole);
 	writer.addColumn("Exclusive Resell", OfferTableModel::ExclusiveResell, Qt::EditRole);
+	writer.addColumn("Private", OfferTableModel::Private, Qt::EditRole);
 	writer.addColumn("Expired", OfferTableModel::Expired, Qt::EditRole);
     if(!writer.write())
     {
@@ -317,6 +344,8 @@ void OfferListPage::on_searchOffer_clicked()
 		string qty_str;
 		string expired_str;
 		string exclusive_resell_str;
+		string private_str;
+		string alias_str;
 		int expired = 0;
         params.push_back(ui->lineEditOfferSearch->text().toStdString());
         params.push_back(GetOfferDisplayExpirationDepth());
@@ -356,7 +385,9 @@ void OfferListPage::on_searchOffer_clicked()
 				cert_str = "";
 				value_str = "";
 				desc_str = "";
+				private_str = "";
 				exclusive_resell_str = "";
+				alias_str = "";
 				expired = 0;
 
 
@@ -386,7 +417,13 @@ void OfferListPage::on_searchOffer_clicked()
 					qty_str = qty_value.get_str();
 				const Value& exclusive_resell_value = find_value(o, "exclusive_resell");
 				if (exclusive_resell_value.type() == str_type)
-					exclusive_resell_str = exclusive_resell_value.get_str();				
+					exclusive_resell_str = exclusive_resell_value.get_str();		
+				const Value& private_value = find_value(o, "private");
+				if (private_value.type() == str_type)
+					private_str = private_value.get_str();	
+				const Value& alias_value = find_value(o, "alias");
+				if (alias_value.type() == str_type)
+					alias_str = alias_value.get_str();
 				const Value& expired_value = find_value(o, "expired");
 				if (expired_value.type() == int_type)
 					expired = expired_value.get_int();
@@ -411,7 +448,10 @@ void OfferListPage::on_searchOffer_clicked()
 						QString::fromStdString(price_str),
 						QString::fromStdString(currency_str),
 						QString::fromStdString(qty_str),
-						QString::fromStdString(expired_str), QString::fromStdString(exclusive_resell_str));
+						QString::fromStdString(expired_str), 
+						QString::fromStdString(exclusive_resell_str),
+						QString::fromStdString(private_str),
+						QString::fromStdString(alias_str));
 					this->model->updateEntry(QString::fromStdString(name_str),
 						QString::fromStdString(cert_str),
 						QString::fromStdString(value_str),
@@ -420,7 +460,10 @@ void OfferListPage::on_searchOffer_clicked()
 						QString::fromStdString(price_str),
 						QString::fromStdString(currency_str),
 						QString::fromStdString(qty_str),
-						QString::fromStdString(expired_str),QString::fromStdString(exclusive_resell_str), AllOffer, CT_NEW);	
+						QString::fromStdString(expired_str),
+						QString::fromStdString(exclusive_resell_str),
+						QString::fromStdString(private_str), 
+						QString::fromStdString(alias_str), AllOffer, CT_NEW);	
 			  }
 
             

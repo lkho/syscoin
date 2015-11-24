@@ -87,6 +87,14 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
 			{
 
 			}
+			else if(DecodeEscrowTx(wtx, op, nOut, vvchArgs, -1))
+			{
+
+			}
+			else if(DecodeMessageTx(wtx, op, nOut, vvchArgs, -1))
+			{
+
+			}
         }
 
         bool fAllFromMe = true;
@@ -135,30 +143,21 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
                 else
                 {
 					if (op > 0) {
-						vector<unsigned char> vchName;
-						std::string strGUID;
-						COffer theOffer;
 						switch(op)
 						{
 						case OP_ALIAS_ACTIVATE:
 							sub.type = TransactionRecord::AliasActivate;
-							vchName = vvchArgs[0];
 							break;
 						case OP_ALIAS_UPDATE:
-							vchName = vvchArgs[0];
-							sub.type = (IsAliasMine(wtx)) ? TransactionRecord::AliasUpdate : TransactionRecord::AliasTransfer;
-							
+							sub.type = (IsAliasMine(wtx)) ? TransactionRecord::AliasUpdate : TransactionRecord::AliasTransfer;							
 							break;
 						case OP_OFFER_ACTIVATE:
-							vchName = vvchArgs[0];
 							sub.type = TransactionRecord::OfferActivate;
 							break;
 						case OP_OFFER_UPDATE:
-							vchName = vvchArgs[0];
 							sub.type = TransactionRecord::OfferUpdate;
 							break;
 						case OP_OFFER_REFUND:
-							vchName = vvchArgs[0];
 							if(vvchArgs[2] == OFFER_REFUND_PAYMENT_INPROGRESS)
 							{
 								sub.type = TransactionRecord::OfferAcceptRefundInProgress;
@@ -169,26 +168,34 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
 							}
 							break;
 						case OP_OFFER_ACCEPT:
-							theOffer = COffer(wtx);
-							vchName = vvchArgs[0];
 							sub.type = TransactionRecord::OfferAccept;
 							break;
 						case OP_CERT_ACTIVATE:
-							strGUID += " ("; strGUID += stringFromVch(vvchArgs[0]); strGUID += ")";
-							vchName = vvchArgs[0];
 							sub.type = TransactionRecord::CertActivate;
 							break;
 						case OP_CERT_UPDATE:
-							strGUID += " ("; strGUID += stringFromVch(vvchArgs[0]); strGUID += ")";
-							vchName = vvchArgs[0];
 							sub.type = TransactionRecord::CertUpdate;
 							break;
 						case OP_CERT_TRANSFER:
-							vchName = vvchArgs[0];
 							sub.type = TransactionRecord::CertTransfer;
 							break;
+						case OP_ESCROW_ACTIVATE:
+							sub.type = TransactionRecord::EscrowActivate;
+							break;
+						case OP_ESCROW_RELEASE:
+							sub.type = TransactionRecord::EscrowRelease;
+							break;
+						case OP_ESCROW_COMPLETE:
+							sub.type = TransactionRecord::EscrowComplete;
+							break;
+						case OP_ESCROW_REFUND:
+							sub.type = TransactionRecord::EscrowRefund;
+							break;
+						case OP_MESSAGE_ACTIVATE:
+							sub.type = TransactionRecord::MessageActivate;
+							break;
 						}
-						sub.address = stringFromVch(vchName);
+						sub.address = stringFromVch(vvchArgs[0]);
 					} 
 					else {
 						// Sent to IP, or other non-address transaction like OP_EVAL
@@ -216,31 +223,21 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
 
             if (op > 0){
                 TransactionRecord sub(hash, nTime);
-                //vector<unsigned char> &vchName = vvchArgs[0];
-                vector<unsigned char> vchName;
-                std::string strGUID;
-				COffer theOffer;
                 switch(op)
                 {
                 case OP_ALIAS_ACTIVATE:
                     sub.type = TransactionRecord::AliasActivate;
-                    vchName = vvchArgs[0];
                     break;
                 case OP_ALIAS_UPDATE:
-                    vchName = vvchArgs[0];
-                    sub.type = (IsAliasMine(wtx)) ? TransactionRecord::AliasUpdate : TransactionRecord::AliasTransfer;
-                    
+                    sub.type = (IsAliasMine(wtx)) ? TransactionRecord::AliasUpdate : TransactionRecord::AliasTransfer;                   
                     break;
                 case OP_OFFER_ACTIVATE:
-                    vchName = vvchArgs[0];
                     sub.type = TransactionRecord::OfferActivate;
                     break;
                 case OP_OFFER_UPDATE:
-                    vchName = vvchArgs[0];
                     sub.type = TransactionRecord::OfferUpdate;
                     break;
 				case OP_OFFER_REFUND:
-					vchName = vvchArgs[0];
 					if(vvchArgs[2] == OFFER_REFUND_PAYMENT_INPROGRESS)
 					{
 						sub.type = TransactionRecord::OfferAcceptRefundInProgress;
@@ -251,26 +248,34 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
 					}
 					break;
                 case OP_OFFER_ACCEPT:
-					theOffer = COffer(wtx);
-					vchName = vvchArgs[0];
 					sub.type = TransactionRecord::OfferAccept;
                     break;
                 case OP_CERT_ACTIVATE:
-                    strGUID += " ("; strGUID += stringFromVch(vvchArgs[0]); strGUID += ")";
-                    vchName = vvchArgs[0];
                     sub.type = TransactionRecord::CertActivate;
                     break;
                 case OP_CERT_UPDATE:
-                    strGUID += " ("; strGUID += stringFromVch(vvchArgs[0]); strGUID += ")";
-                    vchName = vvchArgs[0];
                     sub.type = TransactionRecord::CertUpdate;
                     break;
                 case OP_CERT_TRANSFER:
-                    vchName = vvchArgs[0];
                     sub.type = TransactionRecord::CertTransfer;
                     break;
+                case OP_ESCROW_ACTIVATE:
+                    sub.type = TransactionRecord::EscrowActivate;
+                    break;
+                case OP_ESCROW_RELEASE:
+                    sub.type = TransactionRecord::EscrowRelease;
+                    break;
+				case OP_ESCROW_COMPLETE:
+					sub.type = TransactionRecord::EscrowComplete;
+					break;
+                case OP_ESCROW_REFUND:
+                    sub.type = TransactionRecord::EscrowRefund;
+                    break;
+                case OP_MESSAGE_ACTIVATE:
+                    sub.type = TransactionRecord::MessageActivate;
+                    break;
                 }
-                sub.address = stringFromVch(vchName) + strGUID;
+                sub.address = stringFromVch(vvchArgs[0]);
                 sub.debit = nNet;
                 parts.append(sub);
             } else {
@@ -278,7 +283,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
                 parts.append(TransactionRecord(hash, nTime, TransactionRecord::Other, "", nNet, 0));
             }
         }
-    }
+	}
 
     return parts;
 }

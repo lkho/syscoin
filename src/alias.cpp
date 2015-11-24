@@ -30,20 +30,9 @@ template<typename T> void ConvertTo(Value& value, bool fAllowNull = false);
 extern uint256 SignatureHash(CScript scriptCode, const CTransaction& txTo,
 		unsigned int nIn, int nHashType);
 
-bool GetValueOfAliasTxHash(const uint256 &txHash,
-		vector<unsigned char>& vchValue, uint256& hash, int& nHeight);
-
 extern Object JSONRPCError(int code, const string& message);
 
-/** Global variable that points to the active block tree (protected by cs_main) */
-extern CBlockTreeDB *pblocktree;
-
-extern CCriticalSection cs_mapTransactions;
-extern map<uint256, CTransaction> mapTransactions;
-
 // forward decls
-extern bool DecodeAliasScript(const CScript& script, int& op,
-		vector<vector<unsigned char> > &vvch, CScript::const_iterator& pc);
 extern bool Solver(const CKeyStore& keystore, const CScript& scriptPubKey,
 		uint256 hash, int nHashType, CScript& scriptSigRet,
 		txnouttype& whichTypeRet);
@@ -51,13 +40,8 @@ extern bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey,
 		const CTransaction& txTo, unsigned int nIn, unsigned int flags,
 		int nHashType);
 
-extern int GetTxPosHeight(const CDiskTxPos& txPos);
-extern int GetTxPosHeight2(const CDiskTxPos& txPos, int nHeight);
-extern int64 GetTxHashHeight(const uint256 txHash);
-extern int CheckTransactionAtRelativeDepth(CBlockIndex* pindexBlock,
-		const CCoins *txindex, int maxDepth);
-//extern Value sendtoaddress(const Array& params, bool fHelp);
-
+bool GetValueOfAliasTxHash(const uint256 &txHash,
+		vector<unsigned char>& vchValue, uint256& hash, int& nHeight);
 CScript RemoveAliasScriptPrefix(const CScript& scriptIn);
 int GetAliasExpirationDepth();
 int64 GetAliasNetFee(const CTransaction& tx);
@@ -329,14 +313,21 @@ bool CheckAliasInputs(CBlockIndex *pindexBlock, const CTransaction &tx,
 					tx.GetHash().GetHex().c_str());
 		int64 nNetFee;
 
-		// unserialize offer object from txn, check for valid
+		// unserialize alias object from txn, check for valid
 		CAliasIndex theAlias(tx);
-
 		if (theAlias.IsNull())
-			error("CheckAliasInputs() : null alias object");
+			return error("CheckAliasInputs() : null alias object");
 		if(theAlias.vValue.size() > MAX_VALUE_LENGTH)
 		{
 			return error("alias value too big");
+		}
+		if(theAlias.vchPubKey.size() > MAX_VALUE_LENGTH)
+		{
+			return error("alias pub key too big");
+		}
+		if(theAlias.vchPubKey.empty())
+		{
+			return error("alias pub key cannot be empty");
 		}
 		if (vvchArgs[0].size() > MAX_NAME_LENGTH)
 			return error("alias hex guid too long");
@@ -387,7 +378,7 @@ bool CheckAliasInputs(CBlockIndex *pindexBlock, const CTransaction &tx,
 							"CheckAliasInputs() : aliasupdate on an expired alias, or there is a pending transaction on the alias");
 				// verify enough fees with this txn
 				nNetFee = GetAliasNetFee(tx);
-				if (nNetFee < GetAliasNetworkFee(OP_ALIAS_UPDATE, theAlias.nHeight))
+				if (stringFromVch(vvchArgs[0]) != "SYS_RATES" && nNetFee < GetAliasNetworkFee(OP_ALIAS_UPDATE, theAlias.nHeight))
 					return error(
 							"CheckAliasInputs() : OP_ALIAS_UPDATE got tx %s with fee too low %lu",
 							tx.GetHash().GetHex().c_str(),
@@ -415,15 +406,14 @@ bool CheckAliasInputs(CBlockIndex *pindexBlock, const CTransaction &tx,
 					&& pindexBlock->nHeight != pindexBest->nHeight) {
 				
 				int nHeight = pindexBlock->nHeight;
-
-				CAliasIndex txPos2;		
+	
 				const vector<unsigned char> &vchVal = vvchArgs[
 					op == OP_ALIAS_ACTIVATE ? 2 : 1];
-				txPos2.nHeight = nHeight;
-				txPos2.vValue = vchVal;
-				txPos2.txHash = tx.GetHash();
+				theAlias.nHeight = nHeight;
+				theAlias.vValue = vchVal;
+				theAlias.txHash = tx.GetHash();
 
-				PutToAliasList(vtxPos, txPos2);
+				PutToAliasList(vtxPos, theAlias);
 
 				{
 				TRY_LOCK(cs_main, cs_trymain);
@@ -431,8 +421,8 @@ bool CheckAliasInputs(CBlockIndex *pindexBlock, const CTransaction &tx,
 				if (!paliasdb->WriteAlias(vvchArgs[0], vtxPos))
 					return error( "CheckAliasInputs() :  failed to write to alias DB");
 				
-
-				printf(
+				if(fDebug)
+					printf(
 						"CONNECTED ALIAS: name=%s  op=%s  hash=%s  height=%d\n",
 						stringFromVch(vvchArgs[0]).c_str(),
 						aliasFromOp(op).c_str(),
@@ -675,9 +665,8 @@ CScript RemoveAliasScriptPrefix(const CScript& scriptIn) {
 	return CScript(pc, scriptIn.end());
 }
 
-bool SignNameSignature(const CTransaction& txFrom, CTransaction& txTo,
-		unsigned int nIn, int nHashType = SIGHASH_ALL, CScript scriptPrereq =
-				CScript()) {
+bool SignAliasSignature(const CTransaction& txFrom, CTransaction& txTo,
+		unsigned int nIn, int nHashType = SIGHASH_ALL) {
 	assert(nIn < txTo.vin.size());
 	CTxIn& txin = txTo.vin[nIn];
 	assert(txin.prevout.n < txFrom.vout.size());
@@ -686,7 +675,7 @@ bool SignNameSignature(const CTransaction& txFrom, CTransaction& txTo,
 	// Leave out the signature from the hash, since a signature can't sign itself.
 	// The checksig op will also drop the signatures from its hash.
 	const CScript& scriptPubKey = RemoveAliasScriptPrefix(txout.scriptPubKey);
-	uint256 hash = SignatureHash(scriptPrereq + txout.scriptPubKey, txTo, nIn,
+	uint256 hash = SignatureHash(txout.scriptPubKey, txTo, nIn,
 			nHashType);
 	txnouttype whichTypeRet;
 
@@ -694,12 +683,9 @@ bool SignNameSignature(const CTransaction& txFrom, CTransaction& txTo,
 			whichTypeRet))
 		return false;
 
-	txin.scriptSig = scriptPrereq + txin.scriptSig;
-
 	// Test the solution
-	if (scriptPrereq.empty())
-		if (!VerifyScript(txin.scriptSig, txout.scriptPubKey, txTo, nIn, 0, 0))
-			return false;
+	if (!VerifyScript(txin.scriptSig, txout.scriptPubKey, txTo, nIn, 0, 0))
+		return false;
 
 	return true;
 }
@@ -808,7 +794,7 @@ bool CreateTransactionWithInputTx(const vector<pair<CScript, int64> >& vecSend,
 			BOOST_FOREACH(PAIRTYPE(const CWalletTx*, unsigned int)& coin, vecCoins) {
 				if (coin.first == &wtxIn
 						&& coin.second == (unsigned int) nTxOut) {
-					if (!SignNameSignature(*coin.first, wtxNew, nIn++))
+					if (!SignAliasSignature(*coin.first, wtxNew, nIn++))
 						throw runtime_error("could not sign name coin output");
 				} else {
 					if (!SignSignature(*pwalletMain, *coin.first, wtxNew,
@@ -919,19 +905,7 @@ bool GetValueOfAliasTxHash(const uint256 &txHash, vector<unsigned char>& vchValu
 	return true;
 }
 
-bool GetValueOfName(CAliasDB& dbName, const vector<unsigned char> &vchName,
-		vector<unsigned char>& vchValue, int& nHeight) {
-	vector<CAliasIndex> vtxPos;
-	if (!paliasdb->ReadAlias(vchName, vtxPos) || vtxPos.empty())
-		return false;
-
-	CAliasIndex& txPos = vtxPos.back();
-	nHeight = txPos.nHeight;
-	vchValue = txPos.vValue;
-	return true;
-}
-
-bool GetTxOfAlias(CAliasDB& dbName, const vector<unsigned char> &vchName,
+bool GetTxOfAlias(const vector<unsigned char> &vchName,
 		CTransaction& tx) {
 	vector<CAliasIndex> vtxPos;
 	if (!paliasdb->ReadAlias(vchName, vtxPos) || vtxPos.empty())
@@ -1072,7 +1046,7 @@ bool DecodeAliasTx(const CTransaction& tx, int& op, int& nOut,
 	if (!found)
 		vvch.clear();
 
-	return found;
+	return found && IsAliasOp(op);
 }
 bool DecodeAliasTxInputs(const CTransaction& tx, int& op, int& nOut,
 		vector<vector<unsigned char> >& vvch, CCoinsViewCache &inputs) {
@@ -1207,7 +1181,7 @@ Value aliasnew(const Array& params, bool fHelp) {
 	wtx.nVersion = SYSCOIN_TX_VERSION;
 
 	CTransaction tx;
-	if (GetTxOfAlias(*paliasdb, vchName, tx)) {
+	if (GetTxOfAlias(vchName, tx)) {
 		error("aliasactivate() : this alias is already active with tx %s",
 				tx.GetHash().GetHex().c_str());
 		throw runtime_error("this alias is already active");
@@ -1225,11 +1199,13 @@ Value aliasnew(const Array& params, bool fHelp) {
 	scriptPubKey << CScript::EncodeOP_N(OP_ALIAS_ACTIVATE) << vchName
 			<< vchRand << vchValue << OP_2DROP << OP_2DROP;
 	scriptPubKey += scriptPubKeyOrig;
+	std::vector<unsigned char> vchPubKey(newDefaultKey.begin(), newDefaultKey.end());
+	string strPubKey = HexStr(vchPubKey);
 
     // build cert object
     CAliasIndex newAlias;
 	newAlias.nHeight = nBestHeight;
-
+	newAlias.vchPubKey = vchFromString(strPubKey);
     string bdata = newAlias.SerializeToString();
 	// calculate network fees
 	int64 nNetFee = GetAliasNetworkFee(OP_ALIAS_ACTIVATE, nBestHeight);
@@ -1253,32 +1229,48 @@ Value aliasnew(const Array& params, bool fHelp) {
 Value aliasupdate(const Array& params, bool fHelp) {
 	if (fHelp || 2 > params.size() || 3 < params.size())
 		throw runtime_error(
-				"aliasupdate <aliasname> <value> [<toaddress>]\n"
+				"aliasupdate <aliasname> <value> [<toalias>]\n"
 						"Update and possibly transfer an alias.\n"
 						"<aliasname> alias name.\n"
 						"<value> alias value, 1023 chars max.\n"
-                        "<toaddress> receiver syscoin address, if transferring alias.\n"
+                        "<toalias> receiver syscoin alias, if transferring alias.\n"
 						+ HelpRequiringPassphrase());
 
 	vector<unsigned char> vchName = vchFromValue(params[0]);
 	vector<unsigned char> vchValue = vchFromValue(params[1]);
-	if (vchValue.size() > 519)
+	if (vchValue.size() > MAX_VALUE_LENGTH)
 		throw runtime_error("alias value cannot exceed 1023 bytes!");
 	CWalletTx wtx, wtxIn;
 	wtx.nVersion = SYSCOIN_TX_VERSION;
 	CScript scriptPubKeyOrig;
-
+	string strPubKey;
     if (params.size() == 3) {
 		string strAddress = params[2].get_str();
 		CBitcoinAddress myAddress = CBitcoinAddress(strAddress);
 		if (!myAddress.IsValid())
 			throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
 					"Invalid syscoin address");
+		if (!myAddress.isAlias)
+			throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
+					"You must transfer an alias to another alias");
+
+		// check for alias existence in DB
+		vector<CAliasIndex> vtxPos;
+		if (!paliasdb->ReadAlias(vchFromString(myAddress.aliasName), vtxPos))
+			throw JSONRPCError(RPC_WALLET_ERROR,
+					"failed to read transfer to alias from alias DB");
+		if (vtxPos.size() < 1)
+			throw JSONRPCError(RPC_WALLET_ERROR, "no result returned");
+		CAliasIndex xferAlias = vtxPos.back();
+		strPubKey = stringFromVch(xferAlias.vchPubKey);
 		scriptPubKeyOrig.SetDestination(myAddress.Get());
+
 	} else {
 		CPubKey newDefaultKey;
 		pwalletMain->GetKeyFromPool(newDefaultKey, false);
 		scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
+		std::vector<unsigned char> vchPubKey(newDefaultKey.begin(), newDefaultKey.end());
+		strPubKey = HexStr(vchPubKey);
 	}
 
 	CScript scriptPubKey;
@@ -1296,7 +1288,7 @@ Value aliasupdate(const Array& params, bool fHelp) {
 	EnsureWalletIsUnlocked();
 
 	CTransaction tx;
-	if (!GetTxOfAlias(*paliasdb, vchName, tx))
+	if (!GetTxOfAlias(vchName, tx))
 		throw runtime_error("could not find an alias with this name");
 
     if(!IsAliasMine(tx)) {
@@ -1308,10 +1300,12 @@ Value aliasupdate(const Array& params, bool fHelp) {
 
     CAliasIndex updateAlias;
 	updateAlias.nHeight = nBestHeight;
-
+	updateAlias.vchPubKey = vchFromString(strPubKey);
     string bdata = updateAlias.SerializeToString();
 	int64 nNetFee = GetAliasNetworkFee(OP_ALIAS_UPDATE, nBestHeight);
-
+	// SYS_RATES update is free
+	if(stringFromVch(vchName) == "SYS_RATES")
+		nNetFee = 0;
 	string strError = SendMoneyWithInputTx(scriptPubKey, MIN_AMOUNT,
 			nNetFee, wtxIn, wtx, false, bdata);
 	if (strError != "")
@@ -1537,6 +1531,10 @@ Value aliashistory(const Array& params, bool fHelp) {
 		BOOST_FOREACH(txPos2, vtxPos) {
 			txHash = txPos2.txHash;
 			CTransaction tx;
+			if (!GetTransaction(txHash, tx, blockHash, true)) {
+				error("could not read txpos");
+				continue;
+			}
 			int expired = 0;
 			int expires_in = 0;
 			int expired_block = 0;
@@ -1595,7 +1593,7 @@ Value aliasfilter(const Array& params, bool fHelp) {
 	string strRegexp;
 	int nFrom = 0;
 	int nNb = 0;
-	int nMaxAge = 36000;
+	int nMaxAge = GetAliasExpirationDepth();
 	bool fStat = false;
 	int nCountFrom = 0;
 	int nCountNb = 0;
@@ -1621,18 +1619,14 @@ Value aliasfilter(const Array& params, bool fHelp) {
 	vector<pair<vector<unsigned char>, CAliasIndex> > nameScan;
 	if (!paliasdb->ScanNames(vchName, 100000000, nameScan))
 		throw JSONRPCError(RPC_WALLET_ERROR, "scan failed");
-
+	// regexp
+	using namespace boost::xpressive;
+	smatch nameparts;
+	sregex cregex = sregex::compile(strRegexp);
 	pair<vector<unsigned char>, CAliasIndex> pairScan;
 	BOOST_FOREACH(pairScan, nameScan) {
 		string name = stringFromVch(pairScan.first);
-		string nameToSearch = name;
-		std::transform(nameToSearch.begin(), nameToSearch.end(), nameToSearch.begin(), ::tolower);
-		std::transform(strRegexp.begin(), strRegexp.end(), strRegexp.begin(), ::tolower);
-		// regexp
-		using namespace boost::xpressive;
-		smatch nameparts;
-		sregex cregex = sregex::compile(strRegexp);
-		if (strRegexp != "" && !regex_search(nameToSearch, nameparts, cregex))
+		if (strRegexp != "" && !regex_search(name, nameparts, cregex))
 			continue;
 
 		CAliasIndex txName = pairScan.second;

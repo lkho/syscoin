@@ -53,6 +53,7 @@ OfferView::OfferView(QStackedWidget *parent, BitcoinGUI *_gui):
 
 OfferView::~OfferView()
 {
+
 }
 
 void OfferView::setBitcoinGUI(BitcoinGUI *gui)

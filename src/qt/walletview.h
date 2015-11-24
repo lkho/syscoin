@@ -18,6 +18,8 @@ class AddressBookPage;
 class AliasView;
 class CertView;
 class OfferView;
+class EscrowView;
+class MessageView;
 class SendCoinsDialog;
 class SignVerifyMessageDialog;
 class RPCConsole;
@@ -64,10 +66,12 @@ private:
     OverviewPage *overviewPage;
     QWidget *transactionsPage;
     AliasView *aliasView;
-	AliasView *dataAliasView;
+	EscrowView *escrowView;
+	MessageView *messageView;
 	CertView *certView;
     QStackedWidget* aliasListPage;
-    QStackedWidget* dataAliasListPage;
+	QStackedWidget* escrowListPage;
+    QStackedWidget* messageListPage;
     AddressBookPage *addressBookPage;
     AddressBookPage *receiveCoinsPage;
     OfferView *offerView;
@@ -87,8 +91,8 @@ public slots:
     void gotoAddressBookPage();
     /** Switch to alias list page */
     void gotoAliasListPage();
-    /** Switch to alias list page */
-    void gotoDataAliasListPage();
+    void gotoEscrowListPage();
+    void gotoMessageListPage();
     /** Switch to offer page */
     void gotoOfferListPage();
     /** Switch to cert  page */

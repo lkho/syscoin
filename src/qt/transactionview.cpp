@@ -86,10 +86,16 @@ TransactionView::TransactionView(QWidget *parent) :
 	typeWidget->addItem(tr("Offer Refund In Progress"), TransactionFilterProxy::TYPE(TransactionRecord::OfferAcceptRefundInProgress));
 	typeWidget->addItem(tr("Offer Refund Complete"), TransactionFilterProxy::TYPE(TransactionRecord::OfferAcceptRefundComplete));
   
-    typeWidget->addItem(tr("Cert. Activated"), TransactionFilterProxy::TYPE(TransactionRecord::CertActivate));
-    typeWidget->addItem(tr("Cert. Updated"), TransactionFilterProxy::TYPE(TransactionRecord::CertUpdate));
-    typeWidget->addItem(tr("Cert. Transfer"), TransactionFilterProxy::TYPE(TransactionRecord::CertTransfer));
+    typeWidget->addItem(tr("Certificate Activated"), TransactionFilterProxy::TYPE(TransactionRecord::CertActivate));
+    typeWidget->addItem(tr("Certificate Updated"), TransactionFilterProxy::TYPE(TransactionRecord::CertUpdate));
+    typeWidget->addItem(tr("Certificate Transfer"), TransactionFilterProxy::TYPE(TransactionRecord::CertTransfer));
 
+    typeWidget->addItem(tr("Escrow Activated"), TransactionFilterProxy::TYPE(TransactionRecord::EscrowActivate));
+    typeWidget->addItem(tr("Escrow Released"), TransactionFilterProxy::TYPE(TransactionRecord::EscrowRelease));
+    typeWidget->addItem(tr("Escrow Refunded"), TransactionFilterProxy::TYPE(TransactionRecord::EscrowRefund));
+	typeWidget->addItem(tr("Escrow Complete"), TransactionFilterProxy::TYPE(TransactionRecord::EscrowComplete));
+
+	typeWidget->addItem(tr("New Message"), TransactionFilterProxy::TYPE(TransactionRecord::MessageActivate));
 
     hlayout->addWidget(typeWidget);
 

@@ -386,6 +386,17 @@ QString TransactionTableModel::formatTxType(const TransactionRecord *wtx) const
         return tr("Cert. Updated");
     case TransactionRecord::CertTransfer:
         return tr("Cert. Transfer");
+   case TransactionRecord::EscrowActivate:
+        return tr("Escrow Activated");
+    case TransactionRecord::EscrowRelease:
+        return tr("Escrow Released");
+    case TransactionRecord::EscrowRefund:
+        return tr("Escrow Refunded");
+    case TransactionRecord::EscrowComplete:
+        return tr("Escrow Complete");
+    case TransactionRecord::MessageActivate:
+        return tr("New Message");
+		
     default:
         return QString();
     }
@@ -403,11 +414,18 @@ QVariant TransactionTableModel::txAddressDecoration(const TransactionRecord *wtx
     case TransactionRecord::SendToAddress:
     case TransactionRecord::SendToOther:
     case TransactionRecord::AliasActivate:
+    case TransactionRecord::AliasTransfer:
     case TransactionRecord::OfferActivate:
     case TransactionRecord::OfferAccept:
 	case TransactionRecord::OfferAcceptRefundInProgress:
 	case TransactionRecord::OfferAcceptRefundComplete:
     case TransactionRecord::CertActivate:
+	case TransactionRecord::CertTransfer:
+    case TransactionRecord::EscrowActivate:
+    case TransactionRecord::EscrowRelease:
+    case TransactionRecord::EscrowRefund:
+	case TransactionRecord::EscrowComplete:
+	case TransactionRecord::MessageActivate:	
         return QIcon(":/icons/tx_output");
     default:
         return QIcon(":/icons/tx_inout");
@@ -430,17 +448,19 @@ QString TransactionTableModel::formatTxToAddress(const TransactionRecord *wtx, b
     case TransactionRecord::AliasActivate:
     case TransactionRecord::AliasUpdate:
     case TransactionRecord::AliasTransfer:
- 
-   
     case TransactionRecord::OfferActivate:
     case TransactionRecord::OfferUpdate:
     case TransactionRecord::OfferAccept:
  	case TransactionRecord::OfferAcceptRefundInProgress:
 	case TransactionRecord::OfferAcceptRefundComplete:
-  
     case TransactionRecord::CertActivate:
     case TransactionRecord::CertUpdate:
     case TransactionRecord::CertTransfer:
+    case TransactionRecord::EscrowActivate:
+    case TransactionRecord::EscrowRelease:
+	case TransactionRecord::EscrowComplete:
+    case TransactionRecord::EscrowRefund:
+	case TransactionRecord::MessageActivate:
         return QString::fromStdString(wtx->address);
     case TransactionRecord::SendToSelf:
     default:

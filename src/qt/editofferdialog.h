@@ -41,6 +41,7 @@ public slots:
 private:
     bool saveCurrentRow();
 	void loadCerts();
+	void loadAliases();
     Ui::EditOfferDialog *ui;
     QDataWidgetMapper *mapper;
     Mode mode;

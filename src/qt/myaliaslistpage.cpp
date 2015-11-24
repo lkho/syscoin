@@ -29,6 +29,8 @@ MyAliasListPage::MyAliasListPage(QWidget *parent) :
     ui->copyAlias->setIcon(QIcon());
     ui->exportButton->setIcon(QIcon());
 	ui->refreshButton->setIcon(QIcon());
+	ui->transferButton->setIcon(QIcon());
+	ui->editButton->setIcon(QIcon());
 #endif
 
 	ui->buttonBox->setVisible(false);
@@ -40,7 +42,7 @@ MyAliasListPage::MyAliasListPage(QWidget *parent) :
     QAction *copyAliasAction = new QAction(ui->copyAlias->text(), this);
     QAction *copyAliasValueAction = new QAction(tr("Copy Va&lue"), this);
     QAction *editAction = new QAction(tr("&Edit"), this);
-    QAction *transferAliasAction = new QAction(tr("&Transfer Alias"), this);
+    QAction *transferAliasAction = new QAction(tr("&Transfer"), this);
 
     // Build context menu
     contextMenu = new QMenu();
@@ -53,8 +55,8 @@ MyAliasListPage::MyAliasListPage(QWidget *parent) :
     // Connect signals for context menu actions
     connect(copyAliasAction, SIGNAL(triggered()), this, SLOT(on_copyAlias_clicked()));
     connect(copyAliasValueAction, SIGNAL(triggered()), this, SLOT(onCopyAliasValueAction()));
-    connect(editAction, SIGNAL(triggered()), this, SLOT(onEditAction()));
-    connect(transferAliasAction, SIGNAL(triggered()), this, SLOT(onTransferAliasAction()));
+    connect(editAction, SIGNAL(triggered()), this, SLOT(on_editButton_clicked()));
+    connect(transferAliasAction, SIGNAL(triggered()), this, SLOT(on_transferButton_clicked()));
 
     connect(ui->tableView, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(contextualMenu(QPoint)));
 
@@ -140,7 +142,7 @@ void MyAliasListPage::onCopyAliasValueAction()
     GUIUtil::copyEntryData(ui->tableView, AliasTableModel::Value);
 }
 
-void MyAliasListPage::onEditAction()
+void MyAliasListPage::on_editButton_clicked()
 {
     if(!ui->tableView->selectionModel())
         return;
@@ -155,7 +157,7 @@ void MyAliasListPage::onEditAction()
     dlg.exec();
 }
 
-void MyAliasListPage::onTransferAliasAction()
+void MyAliasListPage::on_transferButton_clicked()
 {
     if(!ui->tableView->selectionModel())
         return;
@@ -197,10 +199,14 @@ void MyAliasListPage::selectionChanged()
     if(table->selectionModel()->hasSelection())
     {
         ui->copyAlias->setEnabled(true);
+		ui->transferButton->setEnabled(true);
+		ui->editButton->setEnabled(true);
     }
     else
     {
         ui->copyAlias->setEnabled(false);
+		ui->transferButton->setEnabled(false);
+		ui->editButton->setEnabled(false);
     }
 }
 

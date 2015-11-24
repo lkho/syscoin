@@ -45,6 +45,7 @@ private:
 	QString offerQty;
 	QString offerPrice;
 	QString offerDescription;
+	QString offerPrivate;
 
 private slots:
     /** Create a new cert */

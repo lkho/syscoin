@@ -114,7 +114,7 @@
      <item>
       <widget class="QPushButton" name="resellButton">
        <property name="text">
-        <string>Resell Offer</string>
+        <string>Resell</string>
        </property>
        <property name="icon">
         <iconset resource="../bitcoin.qrc">
@@ -125,11 +125,22 @@
      <item>
       <widget class="QPushButton" name="purchaseButton">
        <property name="text">
-        <string>Purchase Offer</string>
+        <string>Purchase</string>
        </property>
        <property name="icon">
         <iconset resource="../bitcoin.qrc">
          <normaloff>:/icons/send</normaloff>:/icons/send</iconset>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="messageButton">
+       <property name="text">
+        <string>Send Message To Seller</string>
+       </property>
+       <property name="icon">
+        <iconset resource="../bitcoin.qrc">
+         <normaloff>:/icons/outmail</normaloff>:/icons/outmail</iconset>
        </property>
       </widget>
      </item>

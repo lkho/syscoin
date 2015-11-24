@@ -122,10 +122,6 @@ bool EditAliasDialog::saveCurrentRow()
 			{
 				string strResult = result.get_str();
 				alias = ui->nameEdit->text() + ui->aliasEdit->text();
-
-				QMessageBox::information(this, windowTitle(),
-                tr("New Alias created successfully! TXID: \"%1\"").arg(QString::fromStdString(strResult)),
-					QMessageBox::Ok, QMessageBox::Ok);
 					
 			}
 		}
@@ -170,10 +166,6 @@ bool EditAliasDialog::saveCurrentRow()
 				{
 					string strResult = result.get_str();
 					alias = ui->nameEdit->text() + ui->aliasEdit->text();
-
-					QMessageBox::information(this, windowTitle(),
-                    tr("Alias updated successfully! TXID: \"%1\"").arg(QString::fromStdString(strResult)),
-						QMessageBox::Ok, QMessageBox::Ok);
 						
 				}
 			}
@@ -218,10 +210,6 @@ bool EditAliasDialog::saveCurrentRow()
 					string strResult = result.get_str();
 
 					alias = ui->nameEdit->text() + ui->aliasEdit->text()+ui->transferEdit->text();
-
-					QMessageBox::information(this, windowTitle(),
-                    tr("Alias transferred successfully! TXID: \"%1\"").arg(QString::fromStdString(strResult)),
-						QMessageBox::Ok, QMessageBox::Ok);
 						
 				}
 			}

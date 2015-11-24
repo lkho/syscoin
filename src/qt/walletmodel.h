@@ -10,6 +10,8 @@
 class OptionsModel;
 class AddressTableModel;
 class AliasTableModel;
+class MessageTableModel;
+class EscrowTableModel;
 class CertTableModel;
 class OfferTableModel;
 class OfferAcceptTableModel;
@@ -68,6 +70,10 @@ public:
     AddressTableModel *getAddressTableModel();
     AliasTableModel *getAliasTableModelMine();
     AliasTableModel *getAliasTableModelAll();
+	MessageTableModel *getMessageTableModelIn();
+	MessageTableModel *getMessageTableModelOut();
+	EscrowTableModel *getEscrowTableModelMine();
+	EscrowTableModel *getEscrowTableModelAll();
     CertTableModel *getCertTableModelMine();
     CertTableModel *getCertTableModelAll();
     OfferTableModel *getOfferTableModelMine();
@@ -153,6 +159,10 @@ private:
     TransactionTableModel *transactionTableModel;
     AliasTableModel *aliasTableModelMine;
     AliasTableModel *aliasTableModelAll;
+    EscrowTableModel *escrowTableModelMine;
+	EscrowTableModel *escrowTableModelAll;
+    MessageTableModel *inMessageTableModel;
+	MessageTableModel *outMessageTableModel;
     CertTableModel *certTableModelMine;
     CertTableModel *certTableModelAll;
     OfferTableModel *offerTableModelMine;
@@ -200,7 +210,9 @@ public slots:
     void updateAddressBook(const QString &address, const QString &label, bool isMine, int status);
     void updateAlias();
     void updateCert();
+	void updateEscrow();
 	void updateOffer();
+	void updateMessage();
     /* Current, immature or unconfirmed balance might have changed - emit 'balanceChanged' if so */
     void pollBalanceChanged();
 };

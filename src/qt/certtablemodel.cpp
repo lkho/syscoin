@@ -50,7 +50,6 @@ struct CertTableEntryLessThan
     }
 };
 
-#define NAMEMAPTYPE map<vector<unsigned char>, uint256>
 
 // Private implementation
 class CertTablePriv

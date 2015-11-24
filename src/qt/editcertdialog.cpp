@@ -37,7 +37,7 @@ EditCertDialog::EditCertDialog(Mode mode, QWidget *parent) :
 	ui->privateBox->addItem(tr("No"));
 	ui->privateBox->addItem(tr("Yes"));
 	
-	ui->transferDisclaimer->setText(tr("<font color='red'>Enter the address of the recipient for public certificates and the public key of the recipient for private certificates. The recipient can find the public key from the <b>Copy Public Key</b> button in the <b>Certificates</b> tab. The recipient must communicate this key to you.</font>"));
+	ui->transferDisclaimer->setText(tr("<font color='red'>Enter the alias of the recipient of this certificate</font>"));
     ui->transferDisclaimer->setVisible(false);
 	switch(mode)
     {
@@ -140,10 +140,6 @@ bool EditCertDialog::saveCurrentRow()
 			{
 				string strResult = result.get_str();
 				cert = ui->nameEdit->text();
-
-				QMessageBox::information(this, windowTitle(),
-                tr("New Certificate created successfully! TXID: \"%1\"").arg(QString::fromStdString(strResult)),
-					QMessageBox::Ok, QMessageBox::Ok);
 					
 			}
 		}
@@ -190,10 +186,6 @@ bool EditCertDialog::saveCurrentRow()
 					string strResult = result.get_str();
 					cert = ui->nameEdit->text() + ui->certEdit->text();
 
-					QMessageBox::information(this, windowTitle(),
-                    tr("Certificate updated successfully! TXID: \"%1\"").arg(QString::fromStdString(strResult)),
-						QMessageBox::Ok, QMessageBox::Ok);
-						
 				}
 			}
 			catch (Object& objError)
@@ -237,10 +229,6 @@ bool EditCertDialog::saveCurrentRow()
 
 					cert = ui->certEdit->text()+ui->transferEdit->text();
 
-					QMessageBox::information(this, windowTitle(),
-                    tr("Certificate transferred successfully! TXID: \"%1\"").arg(QString::fromStdString(strResult)),
-						QMessageBox::Ok, QMessageBox::Ok);
-						
 				}
 			}
 			catch (Object& objError)

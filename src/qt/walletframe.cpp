@@ -101,12 +101,17 @@ void WalletFrame::gotoAliasListPage()
     if (walletView)
         walletStack->gotoAliasListPage();
 }
-
-void WalletFrame::gotoDataAliasListPage()
+void WalletFrame::gotoMessageListPage()
 {
     WalletView *walletView = currentWalletView();
     if (walletView)
-        walletStack->gotoDataAliasListPage();
+        walletStack->gotoMessageListPage();
+}
+void WalletFrame::gotoEscrowListPage()
+{
+    WalletView *walletView = currentWalletView();
+    if (walletView)
+        walletStack->gotoEscrowListPage();
 }
 
 void WalletFrame::gotoOfferListPage()

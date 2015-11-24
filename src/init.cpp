@@ -29,10 +29,14 @@ using namespace boost;
 extern CAliasDB *paliasdb;
 extern COfferDB *pofferdb;
 extern CCertDB *pcertdb;
+extern CEscrowDB *pescrowdb;
+extern CMessageDB *pmessagedb;
 
 void rescanforaliases(CBlockIndex *pindexRescan);
 void rescanforoffers(CBlockIndex *pindexRescan);
 void rescanforcerts(CBlockIndex *pindexRescan);
+void rescanforescrows(CBlockIndex *pindexRescan);
+void rescanformessages(CBlockIndex *pindexRescan);
 
 CWallet* pwalletMain;
 CClientUIInterface uiInterface;
@@ -127,12 +131,18 @@ void Shutdown()
             pofferdb->Flush(); 
         if (pcertdb)
             pcertdb->Flush();   
+        if (pescrowdb)
+            pescrowdb->Flush();  
+        if (pmessagedb)
+            pmessagedb->Flush();  
         delete pcoinsTip; pcoinsTip = NULL;
         delete pcoinsdbview; pcoinsdbview = NULL;
         delete pblocktree; pblocktree = NULL;
         delete paliasdb; paliasdb = NULL;
         delete pofferdb; pofferdb = NULL;
         delete pcertdb; pcertdb = NULL;
+		delete pescrowdb; pescrowdb = NULL;
+		delete pmessagedb; pmessagedb = NULL;
     }
     if (pwalletMain)
         bitdb.Flush(true);
@@ -904,13 +914,16 @@ bool AppInit2(boost::thread_group& threadGroup)
                 delete paliasdb;
                 delete pofferdb;
                 delete pcertdb;
+				delete pescrowdb;
 
                 pblocktree = new CBlockTreeDB(nBlockTreeDBCache, false, fReindex);
                 pcoinsdbview = new CCoinsViewDB(nCoinDBCache, false, fReindex);
                 pcoinsTip = new CCoinsViewCache(*pcoinsdbview);
-                paliasdb = new CAliasDB(nNameDBCache, false, fReindex);
+                paliasdb = new CAliasDB(nNameDBCache*2, false, fReindex);
                 pofferdb = new COfferDB(nNameDBCache*2, false, fReindex);
                 pcertdb = new CCertDB(nNameDBCache*2, false, fReindex);
+				pescrowdb = new CEscrowDB(nNameDBCache*2, false, fReindex);
+				pmessagedb = new CMessageDB(nNameDBCache*2, false, fReindex);
 
                 if (fReindex) pblocktree->WriteReindexing(true);
 
@@ -1111,6 +1124,9 @@ bool AppInit2(boost::thread_group& threadGroup)
     		rescanforaliases(pindexRescan);
     		rescanforoffers(pindexRescan);
     		rescanforcerts(pindexRescan);
+			rescanforescrows(pindexRescan);
+			rescanformessages(pindexRescan);
+
             nWalletDBUpdated++;
         }
     } // (!fDisableWallet)

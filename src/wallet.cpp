@@ -4,20 +4,13 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "wallet.h"
-#include "walletdb.h"
 #include "crypter.h"
 #include "ui_interface.h"
 #include "base58.h"
 #include "coincontrol.h"
-#include "script.h"
-#include "alias.h"
-#include "offer.h"
-#include "cert.h"
 #include <boost/algorithm/string/replace.hpp>
 
 using namespace std;
-
-extern CAliasDB *paliasdb;
 
 inline std::string PubKeyToAddress(const std::vector<unsigned char>& vchPubKey);
 inline std::string Hash160ToAddress(uint160 hash160);
@@ -368,18 +361,28 @@ void CWallet::WalletUpdateSpent(const CTransaction &tx)
 
                     vector<vector<unsigned char> > vvchArgs;
                     int op, nOut;
-					if(DecodeAliasTx(tx, op, nOut, vvchArgs, -1))
-					{
-						NotifyAliasListChanged(this, &tx, CT_UPDATED);
+					if (wtx.nVersion == SYSCOIN_TX_VERSION) {
+						if(DecodeAliasTx(wtx, op, nOut, vvchArgs, -1))
+						{
+							NotifyAliasListChanged(this, &wtx, CT_UPDATED);
+						}
+						else if(DecodeOfferTx(wtx, op, nOut, vvchArgs, -1))
+						{
+							NotifyOfferListChanged(this, &wtx, CT_UPDATED);
+						}
+						else if(DecodeCertTx(wtx, op, nOut, vvchArgs, -1))
+						{
+							NotifyCertListChanged(this, &wtx, CT_UPDATED);
+						} 
+						else if(DecodeEscrowTx(wtx, op, nOut, vvchArgs, -1))
+						{
+							NotifyEscrowListChanged(this, &wtx, CT_UPDATED);
+						} 
+						else if(DecodeMessageTx(wtx, op, nOut, vvchArgs, -1))
+						{
+							NotifyMessageListChanged(this, &wtx, CT_UPDATED);
+						} 
 					}
-                    else if(DecodeOfferTx(tx, op, nOut, vvchArgs, -1))
-                    {
-                        NotifyOfferListChanged(this, &tx, CT_UPDATED);
-                    }
-					else if(DecodeCertTx(tx, op, nOut, vvchArgs, -1))
-					{
-						NotifyCertListChanged(this, &tx, CT_UPDATED);
-					} 
 				}
 			}
         }
@@ -516,19 +519,28 @@ bool CWallet::AddToWallet(const CWalletTx& wtxIn)
         // notify on syscoin transaction
         vector<vector<unsigned char> > vvchArgs;
         int op, nOut;
-		if(DecodeAliasTx(wtx, op, nOut, vvchArgs, -1))
-		{
-			NotifyAliasListChanged(this, &wtx, fInsertedNew ? CT_NEW : CT_UPDATED);
+		if (wtx.nVersion == SYSCOIN_TX_VERSION) {
+			if(DecodeAliasTx(wtx, op, nOut, vvchArgs, -1))
+			{
+				NotifyAliasListChanged(this, &wtx, fInsertedNew ? CT_NEW : CT_UPDATED);
+			}
+			else if(DecodeOfferTx(wtx, op, nOut, vvchArgs, -1))
+			{
+				NotifyOfferListChanged(this, &wtx, fInsertedNew ? CT_NEW : CT_UPDATED);
+			}
+			else if(DecodeCertTx(wtx, op, nOut, vvchArgs, -1))
+			{
+				NotifyCertListChanged(this, &wtx, fInsertedNew ? CT_NEW : CT_UPDATED);
+			} 
+ 			else if(DecodeEscrowTx(wtx, op, nOut, vvchArgs, -1))
+			{
+				NotifyEscrowListChanged(this, &wtx, fInsertedNew ? CT_NEW : CT_UPDATED);
+			} 
+ 			else if(DecodeMessageTx(wtx, op, nOut, vvchArgs, -1))
+			{
+				NotifyMessageListChanged(this, &wtx, fInsertedNew ? CT_NEW : CT_UPDATED);
+			} 
 		}
-        else if(DecodeOfferTx(wtx, op, nOut, vvchArgs, -1))
-        {
-            NotifyOfferListChanged(this, &wtx, fInsertedNew ? CT_NEW : CT_UPDATED);
-        }
-		else if(DecodeCertTx(wtx, op, nOut, vvchArgs, -1))
-		{
-            NotifyCertListChanged(this, &wtx, fInsertedNew ? CT_NEW : CT_UPDATED);
-		} 
-        
 
         // notify an external script when a wallet transaction comes in or is updated
         std::string strCmd = GetArg("-walletnotify", "");
@@ -626,7 +638,8 @@ int64 CWallet::GetDebitInclName(const CTxIn &txin) const
                 if (IsMine(prev.vout[txin.prevout.n]) 
                 || IsAliasMine(prev, prev.vout[txin.prevout.n]) 
                 || IsOfferMine(prev, prev.vout[txin.prevout.n])
-                || IsCertMine(prev, prev.vout[txin.prevout.n]))
+                || IsCertMine(prev, prev.vout[txin.prevout.n])
+				|| IsEscrowMine(prev, prev.vout[txin.prevout.n]))
                 return prev.vout[txin.prevout.n].nValue;
         }
     }
@@ -742,7 +755,9 @@ void CWalletTx::GetAmounts(list<pair<CTxDestination, int64> >& listReceived,
         if(!ExtractDestination(txout.scriptPubKey, address)
         && !ExtractAliasAddress(txout.scriptPubKey, saddress)
         && !ExtractOfferAddress(txout.scriptPubKey, saddress)
-        && !ExtractCertAddress(txout.scriptPubKey, saddress)) {
+        && !ExtractCertAddress(txout.scriptPubKey, saddress)
+		&& !ExtractEscrowAddress(txout.scriptPubKey, saddress)
+		&& !ExtractMessageAddress(txout.scriptPubKey, saddress)) {
             printf("CWalletTx::GetAmounts: Unknown transaction type found, txid %s\n",
                this->GetHash().ToString().c_str());            
         }
@@ -758,6 +773,12 @@ void CWalletTx::GetAmounts(list<pair<CTxDestination, int64> >& listReceived,
 		else if(DecodeCertScript(txout.scriptPubKey, op, vvch)) {
             nCarriedOverCoin -= txout.nValue;
         }
+		else if(DecodeEscrowScript(txout.scriptPubKey, op, vvch)) {
+            nCarriedOverCoin -= txout.nValue;
+        }
+		else if(DecodeMessageScript(txout.scriptPubKey, op, vvch)) {
+            nCarriedOverCoin -= txout.nValue;
+        }
         // Don't report 'change' txouts
         if (nDebit > 0 && pwallet->IsChange(txout))
             continue;
@@ -768,7 +789,9 @@ void CWalletTx::GetAmounts(list<pair<CTxDestination, int64> >& listReceived,
         if (pwallet->IsMine(txout) 
             || IsAliasMine(*this, txout) 
             || IsOfferMine(*this, txout)
-            || IsCertMine(*this, txout))
+            || IsCertMine(*this, txout)
+			|| IsEscrowMine(*this, txout)
+			|| IsMessageMine(*this, txout))
             listReceived.push_back(make_pair(address, txout.nValue));
     }
 
@@ -1490,19 +1513,28 @@ bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey)
                 // notify on syscoin transaction
                 vector<vector<unsigned char> > vvchArgs;
                 int op, nOut;
-               
-				if(DecodeAliasTx(wtxNew, op, nOut, vvchArgs, -1))
-				{
-					NotifyAliasListChanged(this, &wtxNew, CT_UPDATED);
+                if (wtxNew.nVersion == SYSCOIN_TX_VERSION) {
+					if(DecodeAliasTx(wtxNew, op, nOut, vvchArgs, -1))
+					{
+						NotifyAliasListChanged(this, &wtxNew, CT_UPDATED);
+					}
+					else if(DecodeOfferTx(wtxNew, op, nOut, vvchArgs, -1))
+					{
+						NotifyOfferListChanged(this, &wtxNew, CT_UPDATED);
+					}
+					else if(DecodeCertTx(wtxNew, op, nOut, vvchArgs, -1))
+					{
+						NotifyCertListChanged(this, &wtxNew, CT_UPDATED);
+					}
+					else if(DecodeEscrowTx(wtxNew, op, nOut, vvchArgs, -1))
+					{
+						NotifyEscrowListChanged(this, &wtxNew, CT_UPDATED);
+					}
+					else if(DecodeMessageTx(wtxNew, op, nOut, vvchArgs, -1))
+					{
+						NotifyMessageListChanged(this, &wtxNew, CT_UPDATED);
+					}
 				}
-                else if(DecodeOfferTx(wtxNew, op, nOut, vvchArgs, -1))
-                {
-                    NotifyOfferListChanged(this, &wtxNew, CT_UPDATED);
-                }
-				else if(DecodeCertTx(wtxNew, op, nOut, vvchArgs, -1))
-				{
-                    NotifyCertListChanged(this, &wtxNew, CT_UPDATED);
-				} 
 			}
             if (fFileBacked)
                 delete pwalletdb;
@@ -2088,17 +2120,27 @@ void CWallet::UpdatedTransaction(const uint256 &hashTx)
             // notify on syscoin transaction
             vector<vector<unsigned char> > vvchArgs;
             int op, nOut;
-			if(DecodeAliasTx(wtx, op, nOut, vvchArgs, -1))
-			{
-				NotifyAliasListChanged(this, &wtx, CT_UPDATED);
-			}
-            else if(DecodeOfferTx(wtx, op, nOut, vvchArgs, -1))
-            {
-                NotifyOfferListChanged(this, &wtx, CT_UPDATED);
-            }
-			else if(DecodeCertTx(wtx, op, nOut, vvchArgs, -1))
-			{
-                NotifyCertListChanged(this, &wtx, CT_UPDATED);
+			if (wtx.nVersion == SYSCOIN_TX_VERSION) {
+				if(DecodeAliasTx(wtx, op, nOut, vvchArgs, -1))
+				{
+					NotifyAliasListChanged(this, &wtx, CT_UPDATED);
+				}
+				else if(DecodeOfferTx(wtx, op, nOut, vvchArgs, -1))
+				{
+					NotifyOfferListChanged(this, &wtx, CT_UPDATED);
+				}
+				else if(DecodeCertTx(wtx, op, nOut, vvchArgs, -1))
+				{
+					NotifyCertListChanged(this, &wtx, CT_UPDATED);
+				}
+				else if(DecodeEscrowTx(wtx, op, nOut, vvchArgs, -1))
+				{
+					NotifyEscrowListChanged(this, &wtx, CT_UPDATED);
+				}
+				else if(DecodeMessageTx(wtx, op, nOut, vvchArgs, -1))
+				{
+					NotifyMessageListChanged(this, &wtx, CT_UPDATED);
+				}
 			}
         }
     }

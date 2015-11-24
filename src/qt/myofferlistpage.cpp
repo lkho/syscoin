@@ -32,6 +32,7 @@ MyOfferListPage::MyOfferListPage(QWidget *parent) :
     ui->exportButton->setIcon(QIcon());
 	ui->refreshButton->setIcon(QIcon());
 	ui->whitelistButton->setIcon(QIcon());
+	ui->editButton->setIcon(QIcon());
 #endif
 
 	ui->buttonBox->setVisible(false);
@@ -58,7 +59,7 @@ MyOfferListPage::MyOfferListPage(QWidget *parent) :
     connect(copyOfferAction, SIGNAL(triggered()), this, SLOT(on_copyOffer_clicked()));
     connect(copyOfferValueAction, SIGNAL(triggered()), this, SLOT(onCopyOfferValueAction()));
 	connect(copyOfferDescriptionAction, SIGNAL(triggered()), this, SLOT(onCopyOfferDescriptionAction()));
-    connect(editAction, SIGNAL(triggered()), this, SLOT(onEditAction()));
+    connect(editAction, SIGNAL(triggered()), this, SLOT(on_editButton_clicked()));
 	connect(editWhitelistAction, SIGNAL(triggered()), this, SLOT(onEditWhitelistAction()));
 
     connect(ui->tableView, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(contextualMenu(QPoint)));
@@ -115,6 +116,7 @@ void MyOfferListPage::setModel(WalletModel *walletModel, OfferTableModel *model)
 	ui->tableView->horizontalHeader()->setResizeMode(OfferTableModel::Currency, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setResizeMode(OfferTableModel::Qty, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setResizeMode(OfferTableModel::ExclusiveResell, QHeaderView::ResizeToContents);
+	ui->tableView->horizontalHeader()->setResizeMode(OfferTableModel::Private, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setResizeMode(OfferTableModel::Expired, QHeaderView::ResizeToContents);
 #else
     ui->tableView->horizontalHeader()->setSectionResizeMode(OfferTableModel::Name, QHeaderView::ResizeToContents);
@@ -126,6 +128,7 @@ void MyOfferListPage::setModel(WalletModel *walletModel, OfferTableModel *model)
 	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferTableModel::Currency, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferTableModel::Qty, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferTableModel::ExclusiveResell, QHeaderView::ResizeToContents);
+	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferTableModel::Private, QHeaderView::ResizeToContents);
     ui->tableView->horizontalHeader()->setSectionResizeMode(OfferTableModel::Expired, QHeaderView::ResizeToContents);
 #endif
 
@@ -162,7 +165,7 @@ void MyOfferListPage::onCopyOfferValueAction()
     GUIUtil::copyEntryData(ui->tableView, OfferTableModel::Title);
 }
 
-void MyOfferListPage::onEditAction()
+void MyOfferListPage::on_editButton_clicked()
 {
     if(!ui->tableView->selectionModel())
         return;
@@ -229,11 +232,13 @@ void MyOfferListPage::selectionChanged()
     {
         ui->copyOffer->setEnabled(true);
 		ui->whitelistButton->setEnabled(true);
+		ui->editButton->setEnabled(true);
     }
     else
     {
         ui->copyOffer->setEnabled(false);
 		ui->whitelistButton->setEnabled(false);
+		ui->editButton->setEnabled(false);
     }
 }
 
@@ -284,6 +289,7 @@ void MyOfferListPage::on_exportButton_clicked()
 	writer.addColumn("Currency", OfferTableModel::Currency, Qt::EditRole);
 	writer.addColumn("Qty", OfferTableModel::Qty, Qt::EditRole);
 	writer.addColumn("Exclusive Resell", OfferTableModel::ExclusiveResell, Qt::EditRole);
+	writer.addColumn("Private", OfferTableModel::Private, Qt::EditRole);
 	writer.addColumn("Expired", OfferTableModel::Expired, Qt::EditRole);
     if(!writer.write())
     {

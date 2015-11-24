@@ -4,6 +4,7 @@
 #include "bitcoinrpc.h"
 #include "leveldb.h"
 #include "script.h"
+#include "serialize.h"
 class CTransaction;
 class CTxOut;
 class CValidationState;
@@ -13,7 +14,7 @@ class CCoins;
 class CScript;
 class CWalletTx;
 class CDiskTxPos;
-
+class CCertDB;
 bool CheckCertInputs(CBlockIndex *pindex, const CTransaction &tx, CValidationState &state, CCoinsViewCache &inputs, bool fBlock, bool fMiner, bool fJustCheck);
 bool IsCertMine(const CTransaction& tx);
 bool IsCertMine(const CTransaction& tx, const CTxOut& txout);
@@ -41,8 +42,11 @@ bool ExtractCertAddress(const CScript& script, std::string& address);
 bool EncryptMessage(const std::vector<unsigned char> &vchPublicKey, const std::vector<unsigned char> &vchMessage, std::string &strCipherText);
 bool DecryptMessage(const std::vector<unsigned char> &vchPublicKey, const std::vector<unsigned char> &vchCipherText, std::string &strMessage);
 std::string certFromOp(int op);
+bool SignCertSignature(const CTransaction& txFrom, CTransaction& txTo,
+        unsigned int nIn, int nHashType = SIGHASH_ALL);
 
-
+bool GetCertAddress(const CTransaction& tx, std::string& strAddress);
+int GetCertExpirationDepth();
 class CBitcoinAddress;
 
 class CCert {
@@ -67,7 +71,7 @@ public:
         READWRITE(vchTitle);
         READWRITE(vchData);
         READWRITE(txHash);
-        READWRITE(nHeight);
+        READWRITE(VARINT(nHeight));
 		READWRITE(vchPubKey);
 		READWRITE(bPrivate);
 		READWRITE(vchOfferLink);
@@ -138,7 +142,7 @@ public:
 
     bool ReconstructCertIndex(CBlockIndex *pindexRescan);
 };
-
-bool GetTxOfCert(CCertDB& dbCert, const std::vector<unsigned char> &vchCert, CTransaction& tx);
+bool GetTxOfCert(CCertDB& dbCert, const std::vector<unsigned char> &vchCert,
+        CCert& txPos, CTransaction& tx);
 
 #endif // CERT_H

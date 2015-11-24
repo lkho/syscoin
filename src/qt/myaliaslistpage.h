@@ -59,11 +59,11 @@ private slots:
     /** Copy value of currently selected alias entry to clipboard (no button) */
     void onCopyAliasValueAction();
     /** Edit currently selected alias entry (no button) */
-    void onEditAction();
+    void on_editButton_clicked();
     /** Export button clicked */
     void on_exportButton_clicked();
     /** transfer the alias to a syscoin address  */
-    void onTransferAliasAction();
+    void on_transferButton_clicked();
 	void on_refreshButton_clicked();
 
     /** Set button states based on selected tab and selection */

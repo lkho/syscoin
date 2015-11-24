@@ -23,7 +23,7 @@
 #include "script.h"
 #include "allocators.h"
 
-void GetAliasValue(const std::string& strName, std::string& strAddress);
+extern void GetAliasValue(const std::string& strName, std::string& strAddress);
 static const char* pszBase58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 // Encode a byte sequence as a base58-encoded string

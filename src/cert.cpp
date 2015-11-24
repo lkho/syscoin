@@ -20,6 +20,7 @@ extern bool ExistsInMempool(std::vector<unsigned char> vchNameOrRand, opcodetype
 extern bool HasReachedMainNetForkB2();
 extern CCertDB *pcertdb;
 extern COfferDB *pofferdb;
+extern CAliasDB *paliasdb;
 extern uint256 SignatureHash(CScript scriptCode, const CTransaction& txTo,
         unsigned int nIn, int nHashType);
 
@@ -34,13 +35,9 @@ extern bool Solver(const CKeyStore& keystore, const CScript& scriptPubKey,
 extern bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey,
         const CTransaction& txTo, unsigned int nIn, unsigned int flags,
         int nHashType);
-extern int CheckTransactionAtRelativeDepth(CBlockIndex* pindexBlock,
-		const CCoins *txindex, int maxDepth);
+
 extern int GetOfferExpirationDepth();
-extern int GetTxPosHeight(const CDiskTxPos& txPos);
-extern int GetTxPosHeight2(const CDiskTxPos& txPos, int nHeight);
-extern int64 GetTxHashHeight(const uint256 txHash);
-extern string getCurrencyToSYSFromAlias(const vector<unsigned char> &vchCurrency, int64 &nFee, const unsigned int &nHeightToFind, vector<string>& rateList, int &precision);
+
 bool EncryptMessage(const vector<unsigned char> &vchPubKey, const vector<unsigned char> &vchMessage, string &strCipherText)
 {
 	CMessageCrypter crypter;
@@ -398,10 +395,9 @@ bool IsCertMine(const CTransaction& tx, const CTxOut& txout) {
     vector<vector<unsigned char> > vvch;
     int op, nOut;
 
-    bool good = DecodeCertTx(tx, op, nOut, vvch, -1);
-    if (!good) {
-        return false;
-    }
+	if (!DecodeCertScript(txout.scriptPubKey, op, vvch))
+		return false;
+
     if(!IsCertOp(op))
         return false;
 
@@ -495,7 +491,7 @@ bool DecodeCertTx(const CTransaction& tx, int& op, int& nOut,
         }
     }
     if (!found) vvch.clear();
-    return found && IsCertOp(op);
+    return found;
 }
 
 bool GetValueOfCertTx(const CCoins& tx, vector<unsigned char>& value) {
@@ -578,8 +574,7 @@ bool DecodeCertScript(const CScript& script, int& op,
 }
 
 bool SignCertSignature(const CTransaction& txFrom, CTransaction& txTo,
-        unsigned int nIn, int nHashType = SIGHASH_ALL, CScript scriptPrereq =
-                CScript()) {
+        unsigned int nIn, int nHashType) {
     assert(nIn < txTo.vin.size());
     CTxIn& txin = txTo.vin[nIn];
     assert(txin.prevout.n < txFrom.vout.size());
@@ -588,7 +583,7 @@ bool SignCertSignature(const CTransaction& txFrom, CTransaction& txTo,
     // Leave out the signature from the hash, since a signature can't sign itself.
     // The checksig op will also drop the signatures from its hash.
     const CScript& scriptPubKey = RemoveCertScriptPrefix(txout.scriptPubKey);
-    uint256 hash = SignatureHash(scriptPrereq + txout.scriptPubKey, txTo, nIn,
+    uint256 hash = SignatureHash(txout.scriptPubKey, txTo, nIn,
             nHashType);
     txnouttype whichTypeRet;
 
@@ -596,12 +591,10 @@ bool SignCertSignature(const CTransaction& txFrom, CTransaction& txTo,
             whichTypeRet))
         return false;
 
-    txin.scriptSig = scriptPrereq + txin.scriptSig;
-
     // Test the solution
-    if (scriptPrereq.empty())
-        if (!VerifyScript(txin.scriptSig, txout.scriptPubKey, txTo, nIn, 0, 0))
-            return false;
+
+    if (!VerifyScript(txin.scriptSig, txout.scriptPubKey, txTo, nIn, 0, 0))
+        return false;
 
     return true;
 }
@@ -866,9 +859,9 @@ CScript RemoveCertScriptPrefix(const CScript& scriptIn) {
     CScript::const_iterator pc = scriptIn.begin();
 
     if (!DecodeCertScript(scriptIn, op, vvch, pc))
-        //throw runtime_error(
-        //        "RemoveCertScriptPrefix() : could not decode cert script");
-	printf ("RemoveCertScriptPrefix() : Could not decode cert script (softfail). This is is known to happen for some OPs annd prevents those from getting displayed or accounted for.");
+        throw runtime_error(
+                "RemoveCertScriptPrefix() : could not decode cert script");
+	
     return CScript(pc, scriptIn.end());
 }
 
@@ -925,10 +918,9 @@ bool CheckCertInputs(CBlockIndex *pindexBlock, const CTransaction &tx,
         int nDepth;
         int64 nNetFee;
         // unserialize cert object from txn, check for valid
-        CCert theCert;
-        theCert.UnserializeFromTx(tx);
+        CCert theCert(tx);
         if (theCert.IsNull())
-            error("CheckCertInputs() : null cert object");
+            return error("CheckCertInputs() : null cert object");
 		if(theCert.vchData.size() > MAX_VALUE_LENGTH*2)
 		{
 			return error("cert data too big");
@@ -1078,7 +1070,8 @@ bool CheckCertInputs(CBlockIndex *pindexBlock, const CTransaction &tx,
 
               			
                 // debug
-                printf( "CONNECTED CERT: op=%s cert=%s title=%s hash=%s height=%d\n",
+				if(fDebug)
+					printf( "CONNECTED CERT: op=%s cert=%s title=%s hash=%s height=%d\n",
                         certFromOp(op).c_str(),
                         stringFromVch(vvchArgs[0]).c_str(),
                         stringFromVch(theCert.vchTitle).c_str(),
@@ -1293,7 +1286,8 @@ Value certupdate(const Array& params, bool fHelp) {
     CPubKey newDefaultKey;
     pwalletMain->GetKeyFromPool(newDefaultKey, false);
     scriptPubKeyOrig.SetDestination(newDefaultKey.GetID());
-
+	std::vector<unsigned char> vchPubKey(newDefaultKey.begin(), newDefaultKey.end());
+	string strPubKey = HexStr(vchPubKey);
     // create CERTUPDATE txn keys
     CScript scriptPubKey;
     scriptPubKey << CScript::EncodeOP_N(OP_CERT_UPDATE) << vchCert << vchTitle
@@ -1305,7 +1299,7 @@ Value certupdate(const Array& params, bool fHelp) {
 	if(bPrivate)
 	{
 		string strCipherText;
-		if(!EncryptMessage(theCert.vchPubKey, vchData, strCipherText))
+		if(!EncryptMessage(vchFromString(strPubKey), vchData, strCipherText))
 		{
 			throw JSONRPCError(RPC_WALLET_ERROR, "Could not encrypt certificate data!");
 		}
@@ -1319,7 +1313,7 @@ Value certupdate(const Array& params, bool fHelp) {
 	theCert.vchData = vchData;
 	theCert.nHeight = nBestHeight;
 	theCert.bPrivate = bPrivate;
-
+	theCert.vchPubKey = vchFromString(strPubKey);
 
 
     // serialize cert object
@@ -1337,9 +1331,9 @@ Value certupdate(const Array& params, bool fHelp) {
 Value certtransfer(const Array& params, bool fHelp) {
  if (fHelp || params.size() < 2 || params.size() > 3)
         throw runtime_error(
-		"certtransfer <certkey> <pubkey/address> [offerpurchase=0]\n"
+		"certtransfer <certkey> <alias> [offerpurchase=0]\n"
                 "<certkey> certificate guidkey.\n"
-				"<pubkey/address> Public key(if cert. is private) or address you wish to transfer this certificate to.\n"
+				"<alias> Alias to transfer this certificate to.\n"
                  + HelpRequiringPassphrase());
 
 	if(!HasReachedMainNetForkB2())
@@ -1347,7 +1341,51 @@ Value certtransfer(const Array& params, bool fHelp) {
     // gather & validate inputs
     vector<unsigned char> vchCertKey = ParseHex(params[0].get_str());
 	vector<unsigned char> vchCert = vchFromValue(params[0]);
-	vector<unsigned char> vchPubKeyOrAddress = vchFromValue(params[1]);
+
+	string strAddress = params[1].get_str();
+	CPubKey xferKey;
+	std::vector<unsigned char> vchPubKey;
+	std::vector<unsigned char> vchPubKeyByte;
+	try
+	{
+		vchPubKey = vchFromString(strAddress);		
+		boost::algorithm::unhex(vchPubKey.begin(), vchPubKey.end(), std::back_inserter(vchPubKeyByte));
+		xferKey  = CPubKey(vchPubKeyByte);
+		if(!xferKey.IsValid())
+		{
+			throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
+					"Invalid public key");
+		}
+	}
+	catch(...)
+	{
+		CBitcoinAddress myAddress = CBitcoinAddress(strAddress);
+		if (!myAddress.IsValid())
+			throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
+					"Invalid syscoin address");
+		if (!myAddress.isAlias)
+			throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
+					"You must transfer to a valid alias");
+
+		// check for alias existence in DB
+		vector<CAliasIndex> vtxAliasPos;
+		if (!paliasdb->ReadAlias(vchFromString(myAddress.aliasName), vtxAliasPos))
+			throw JSONRPCError(RPC_WALLET_ERROR,
+					"failed to read alias from alias DB");
+		if (vtxAliasPos.size() < 1)
+			throw JSONRPCError(RPC_WALLET_ERROR, "no result returned");
+		CAliasIndex xferAlias = vtxAliasPos.back();
+		vchPubKey = xferAlias.vchPubKey;
+		boost::algorithm::unhex(vchPubKey.begin(), vchPubKey.end(), std::back_inserter(vchPubKeyByte));
+		xferKey = CPubKey(vchPubKeyByte);
+		if(!xferKey.IsValid())
+		{
+			throw JSONRPCError(RPC_WALLET_ERROR, "Invalid transfer public key");
+		}
+	}
+
+	
+
 	bool offerpurchase = false;
 	if(params.size() >= 3)
 		offerpurchase = atoi(params[2].get_str().c_str()) == 1? true: false;
@@ -1356,8 +1394,6 @@ Value certtransfer(const Array& params, bool fHelp) {
     CWalletTx wtx, wtxIn;
     wtx.nVersion = SYSCOIN_TX_VERSION;
     CScript scriptPubKeyOrig;
-
-
 
     EnsureWalletIsUnlocked();
 
@@ -1387,26 +1423,10 @@ Value certtransfer(const Array& params, bool fHelp) {
 
     // calculate network fees
     int64 nNetFee = GetCertNetworkFee(OP_CERT_TRANSFER, nBestHeight);
+
 	// if cert is private, decrypt the data
 	if(theCert.bPrivate)
-	{
-		try
-		{
-			std::vector<unsigned char> vchPubKeyByte;
-			boost::algorithm::unhex(vchPubKeyOrAddress.begin(), vchPubKeyOrAddress.end(), std::back_inserter(vchPubKeyByte));
-			CPubKey PubKey(vchPubKeyByte);
-			CKeyID pubKeyID = PubKey.GetID();
-			sendAddr = CBitcoinAddress(pubKeyID);
-		}
-		catch(std::exception &e)
-		{
-			throw JSONRPCError(RPC_WALLET_ERROR, "Public key is in a valid format!");
-		}
-		if(!sendAddr.IsValid())
-			throw JSONRPCError(RPC_WALLET_ERROR, "Public key is invalid!");
-
-
-
+	{		
 		string strData;
 		string strCipherText;
 		// decrypt using old key
@@ -1415,18 +1435,14 @@ Value certtransfer(const Array& params, bool fHelp) {
 			throw JSONRPCError(RPC_WALLET_ERROR, "Could not decrypt certificate data!");
 		}
 		// encrypt using new key
-		if(!EncryptMessage(vchPubKeyOrAddress, vchFromString(strData), strCipherText))
+		if(!EncryptMessage(vchPubKey, vchFromString(strData), strCipherText))
 		{
 			throw JSONRPCError(RPC_WALLET_ERROR, "Could not encrypt certificate data!");
 		}
 		theCert.vchData = vchFromString(strCipherText);
-		theCert.vchPubKey = vchPubKeyOrAddress;
 	}	
-	else
-	{
-		sendAddr = CBitcoinAddress(stringFromVch(vchPubKeyOrAddress));
-	}
-    scriptPubKeyOrig.SetDestination(sendAddr.Get());
+
+    scriptPubKeyOrig.SetDestination(xferKey.GetID());
     CScript scriptPubKey;
     scriptPubKey << CScript::EncodeOP_N(OP_CERT_TRANSFER) << theCert.vchRand << vchCertKey << OP_2DROP << OP_DROP;
     scriptPubKey += scriptPubKeyOrig;
@@ -1443,6 +1459,7 @@ Value certtransfer(const Array& params, bool fHelp) {
 		}
    }
 	theCert.nHeight = nBestHeight;
+	theCert.vchPubKey = vchPubKey;
     // send the cert pay txn
     string strError = SendCertMoneyWithInputTx(scriptPubKey, MIN_AMOUNT, nNetFee,
             wtxIn, wtx, false, theCert.SerializeToString());
@@ -1501,7 +1518,11 @@ Value certinfo(const Array& params, bool fHelp) {
     if (GetValueOfCertTxHash(ca.txHash, vchValue, certHash, nHeight)) {
         string strAddress = "";
         GetCertAddress(tx, strAddress);
-        oCert.push_back(Pair("address", strAddress));
+		CBitcoinAddress address(strAddress);
+		if(address.IsValid() && address.isAlias)
+			oCert.push_back(Pair("address", address.aliasName));
+		else
+			oCert.push_back(Pair("address", address.ToString()));
 		expired_block = nHeight + GetCertDisplayExpirationDepth();
 		if(nHeight + GetCertDisplayExpirationDepth() - pindexBest->nHeight <= 0)
 		{
@@ -1596,7 +1617,11 @@ Value certlist(const Array& params, bool fHelp) {
 		oName.push_back(Pair("data", strData));
         string strAddress = "";
         GetCertAddress(tx, strAddress);
-        oName.push_back(Pair("address", strAddress));
+		CBitcoinAddress address(strAddress);
+		if(address.IsValid() && address.isAlias)
+			oName.push_back(Pair("address", address.aliasName));
+		else
+			oName.push_back(Pair("address", address.ToString()));
 		expired_block = nHeight + GetCertDisplayExpirationDepth();
 		if(nHeight + GetCertDisplayExpirationDepth() - pindexBest->nHeight <= 0)
 		{
@@ -1640,7 +1665,12 @@ Value certhistory(const Array& params, bool fHelp) {
         uint256 blockHash;
         BOOST_FOREACH(txPos2, vtxPos) {
             txHash = txPos2.txHash;
-            CTransaction tx;
+			CTransaction tx;
+			if (!GetTransaction(txHash, tx, blockHash, true)) {
+				error("could not read txpos");
+				continue;
+			}
+
 			int expired = 0;
 			int expires_in = 0;
 			int expired_block = 0;
@@ -1655,7 +1685,11 @@ Value certhistory(const Array& params, bool fHelp) {
                 oCert.push_back(Pair("txid", tx.GetHash().GetHex()));
                 string strAddress = "";
                 GetCertAddress(tx, strAddress);
-                oCert.push_back(Pair("address", strAddress));
+				CBitcoinAddress address(strAddress);
+				if(address.IsValid() && address.isAlias)
+					oCert.push_back(Pair("address", address.aliasName));
+				else
+					oCert.push_back(Pair("address", address.ToString()));
 				expired_block = nHeight + GetCertDisplayExpirationDepth();
 				if(nHeight + GetCertDisplayExpirationDepth() - pindexBest->nHeight <= 0)
 				{
@@ -1692,7 +1726,7 @@ Value certfilter(const Array& params, bool fHelp) {
     string strRegexp;
     int nFrom = 0;
     int nNb = 0;
-    int nMaxAge = 36000;
+    int nMaxAge = GetCertExpirationDepth();
     bool fStat = false;
     int nCountFrom = 0;
     int nCountNb = 0;
@@ -1719,21 +1753,16 @@ Value certfilter(const Array& params, bool fHelp) {
     vector<pair<vector<unsigned char>, CCert> > certScan;
     if (!pcertdb->ScanCerts(vchCert, 100000000, certScan))
         throw JSONRPCError(RPC_WALLET_ERROR, "scan failed");
-
+    // regexp
+    using namespace boost::xpressive;
+    smatch certparts;
+    sregex cregex = sregex::compile(strRegexp);
     pair<vector<unsigned char>, CCert> pairScan;
-    BOOST_FOREACH(pairScan, certScan) {
+	BOOST_FOREACH(pairScan, certScan) {
 		CCert txCert = pairScan.second;
-        string cert = stringFromVch(txCert.vchRand);
-		string certToSearch = cert;
+		string cert = stringFromVch(txCert.vchRand);
 		string title = stringFromVch(txCert.vchTitle);
-		std::transform(title.begin(), title.end(), title.begin(), ::tolower);
-		std::transform(certToSearch.begin(), certToSearch.end(), certToSearch.begin(), ::tolower);
-		std::transform(strRegexp.begin(), strRegexp.end(), strRegexp.begin(), ::tolower);
-        // regexp
-        using namespace boost::xpressive;
-        smatch certparts;
-        sregex cregex = sregex::compile(strRegexp);
-        if (strRegexp != "" && !regex_search(title, certparts, cregex) && strRegexp != certToSearch)
+        if (strRegexp != "" && !regex_search(title, certparts, cregex) && strRegexp != cert)
             continue;
 
         

@@ -31,9 +31,11 @@ struct OfferTableEntry
 	QString qty;
 	QString expired;
 	QString exclusive_resell;
+	QString private_str;
+	QString alias;
     OfferTableEntry() {}
-    OfferTableEntry(Type type,const QString &cert,  const QString &title, const QString &offer, const QString &description, const QString &category,const QString &price, const QString &currency,const QString &qty,const QString &expired, const QString &exclusive_resell):
-        type(type), cert(cert), title(title), offer(offer), description(description), category(category),price(price), currency(currency),qty(qty), expired(expired), exclusive_resell(exclusive_resell) {}
+    OfferTableEntry(Type type,const QString &cert,  const QString &title, const QString &offer, const QString &description, const QString &category,const QString &price, const QString &currency,const QString &qty,const QString &expired, const QString &exclusive_resell, const QString &private_str,const QString &alias):
+        type(type), cert(cert), title(title), offer(offer), description(description), category(category),price(price), currency(currency),qty(qty), expired(expired), exclusive_resell(exclusive_resell), private_str(private_str), alias(alias) {}
 };
 
 struct OfferTableEntryLessThan
@@ -51,8 +53,6 @@ struct OfferTableEntryLessThan
         return a < b.offer;
     }
 };
-
-#define NAMEMAPTYPE map<vector<unsigned char>, uint256>
 
 // Private implementation
 class OfferTablePriv
@@ -82,6 +82,8 @@ public:
 			string qty_str;
 			string expired_str;
 			string exclusive_resell_str;
+			string private_str;
+			string alias_str;
 			int expired = 0;
 
 			
@@ -108,6 +110,8 @@ public:
 						name_str = "";
 						value_str = "";
 						exclusive_resell_str = "true";
+						private_str = "";
+						alias_str = "";
 						expired = 0;
 
 
@@ -142,6 +146,12 @@ public:
 						const Value& exclusive_resell_value = find_value(o, "exclusive_resell");
 						if (exclusive_resell_value.type() == str_type)
 							exclusive_resell_str = exclusive_resell_value.get_str();
+						const Value& private_value = find_value(o, "private");
+						if (private_value.type() == str_type)
+							private_str = private_value.get_str();
+						const Value& alias_value = find_value(o, "alias");
+						if (alias_value.type() == str_type)
+							alias_str = alias_value.get_str();
 
 						const Value& pending_value = find_value(o, "pending");
 						int pending = 0;
@@ -161,7 +171,7 @@ public:
 							expired_str = "Valid";
 						}
 
-						updateEntry( QString::fromStdString(name_str), QString::fromStdString(cert_str), QString::fromStdString(value_str), QString::fromStdString(desc_str), QString::fromStdString(category_str), QString::fromStdString(price_str), QString::fromStdString(currency_str), QString::fromStdString(qty_str), QString::fromStdString(expired_str),QString::fromStdString(exclusive_resell_str), type, CT_NEW); 
+						updateEntry( QString::fromStdString(name_str), QString::fromStdString(cert_str), QString::fromStdString(value_str), QString::fromStdString(desc_str), QString::fromStdString(category_str), QString::fromStdString(price_str), QString::fromStdString(currency_str), QString::fromStdString(qty_str), QString::fromStdString(expired_str),QString::fromStdString(exclusive_resell_str), QString::fromStdString(private_str),QString::fromStdString(alias_str), type, CT_NEW); 
 					}
 				}
    			}
@@ -179,7 +189,7 @@ public:
         qSort(cachedOfferTable.begin(), cachedOfferTable.end(), OfferTableEntryLessThan());
     }
 
-    void updateEntry(const QString &offer, const QString &cert, const QString &title,  const QString &description, const QString &category,const QString &price, const QString &currency,const QString &qty,const QString &expired, const QString &exclusive_resell, OfferModelType type, int status)
+    void updateEntry(const QString &offer, const QString &cert, const QString &title,  const QString &description, const QString &category,const QString &price, const QString &currency,const QString &qty,const QString &expired, const QString &exclusive_resell, const QString &private_str, const QString &alias, OfferModelType type, int status)
     {
 		if(!parent || parent->modelType != type)
 		{
@@ -204,7 +214,7 @@ public:
                 break;
             }
             parent->beginInsertRows(QModelIndex(), lowerIndex, lowerIndex);
-            cachedOfferTable.insert(lowerIndex, OfferTableEntry(newEntryType, cert, title, offer, description, category, price, currency, qty, expired, exclusive_resell));
+            cachedOfferTable.insert(lowerIndex, OfferTableEntry(newEntryType, cert, title, offer, description, category, price, currency, qty, expired, exclusive_resell, private_str, alias));
             parent->endInsertRows();
             break;
         case CT_UPDATED:
@@ -223,6 +233,8 @@ public:
 			lower->qty = qty;
 			lower->expired = expired;
 			lower->exclusive_resell = exclusive_resell;
+			lower->private_str = private_str;
+			lower->alias = alias;
             parent->emitDataChanged(lowerIndex);
             break;
         case CT_DELETED:
@@ -259,7 +271,7 @@ public:
 OfferTableModel::OfferTableModel(CWallet *wallet, WalletModel *parent,  OfferModelType type) :
     QAbstractTableModel(parent),walletModel(parent),wallet(wallet),priv(0), modelType(type)
 {
-    columns << tr("Offer") << tr("Certificate") << tr("Title") << tr("Description") << tr("Category") << tr("Price") << tr("Currency") << tr("Quantity") << tr("Status") << tr("Exclusive Resell");
+    columns << tr("Offer") << tr("Certificate") << tr("Title") << tr("Description") << tr("Category") << tr("Price") << tr("Currency") << tr("Quantity") << tr("Status") << tr("Exclusive Resell") << tr("Private") << tr("Seller Alias");
     priv = new OfferTablePriv(wallet, this);
     refreshOfferTable();
 }
@@ -318,6 +330,10 @@ QVariant OfferTableModel::data(const QModelIndex &index, int role) const
             return rec->expired;
         case ExclusiveResell:
             return rec->exclusive_resell;
+        case Private:
+            return rec->private_str;
+        case Alias:
+            return rec->alias;
         }
     }
     else if (role == Qt::FontRole)
@@ -370,7 +386,18 @@ QVariant OfferTableModel::data(const QModelIndex &index, int role) const
 	{
 		return rec->exclusive_resell;
 	}
-
+	else if(role == PrivateRole)
+	{
+		return rec->private_str;
+	}
+	else if(role == CurrencyRole)
+	{
+		return rec->currency;
+	}
+	else if(role == AliasRole)
+	{
+		return rec->alias;
+	}
     return QVariant();
 }
 
@@ -403,6 +430,15 @@ bool OfferTableModel::setData(const QModelIndex &index, const QVariant &value, i
             }
            
             break;
+        case Private:
+	         // Do nothing, if old value == new value
+            if(rec->private_str == value.toString())
+            {
+                editStatus = NO_CHANGES;
+                return false;
+            }
+           
+            break;
         case Cert:
             // Do nothing, if old value == new value
             if(rec->cert == value.toString())
@@ -415,6 +451,15 @@ bool OfferTableModel::setData(const QModelIndex &index, const QVariant &value, i
         case Price:
             // Do nothing, if old value == new value
             if(rec->price == value.toString())
+            {
+                editStatus = NO_CHANGES;
+                return false;
+            }
+           
+            break;
+        case Alias:
+            // Do nothing, if old value == new value
+            if(rec->alias == value.toString())
             {
                 editStatus = NO_CHANGES;
                 return false;
@@ -523,13 +568,13 @@ QModelIndex OfferTableModel::index(int row, int column, const QModelIndex &paren
     }
 }
 
-void OfferTableModel::updateEntry(const QString &offer, const QString &cert, const QString &value, const QString &description, const QString &category,const QString &price, const QString &currency, const QString &qty, const QString &expired, const QString &exclusive_resell, OfferModelType type, int status)
+void OfferTableModel::updateEntry(const QString &offer, const QString &cert, const QString &value, const QString &description, const QString &category,const QString &price, const QString &currency, const QString &qty, const QString &expired, const QString &exclusive_resell, const QString &private_str, const QString &alias, OfferModelType type, int status)
 {
     // Update alias book model from Syscoin core
-    priv->updateEntry(offer, cert, value, description, category, price, currency, qty, expired, exclusive_resell, type, status);
+    priv->updateEntry(offer, cert, value, description, category, price, currency, qty, expired, exclusive_resell,private_str, alias, type, status);
 }
 
-QString OfferTableModel::addRow(const QString &type, const QString &offer, const QString &cert, const QString &value, const QString &description, const QString &category,const QString &price, const QString &currency, const QString &qty, const QString &expired, const QString &exclusive_resell)
+QString OfferTableModel::addRow(const QString &type, const QString &offer, const QString &cert, const QString &value, const QString &description, const QString &category,const QString &price, const QString &currency, const QString &qty, const QString &expired, const QString &exclusive_resell, const QString &private_str, const QString &alias)
 {
     std::string strOffer = offer.toStdString();
     editStatus = OK;

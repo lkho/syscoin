@@ -84,7 +84,15 @@ public:
       
         CertActivate,
         CertUpdate,
-        CertTransfer
+        CertTransfer,
+
+        EscrowActivate,
+        EscrowRelease,
+        EscrowRefund,
+		EscrowComplete,
+
+		MessageActivate
+
 
     };
 

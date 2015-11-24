@@ -4,12 +4,13 @@
 #include "bitcoinrpc.h"
 #include "leveldb.h"
 #include "script.h"
+#include "serialize.h"
 class CAliasIndex {
 public:
     uint256 txHash;
     int64 nHeight;
     std::vector<unsigned char> vValue;
-
+	std::vector<unsigned char> vchPubKey;
     CAliasIndex() { 
         SetNull();
     }
@@ -17,28 +18,30 @@ public:
         SetNull();
         UnserializeFromTx(tx);
     }
-    CAliasIndex(uint256 txHashIn, uint64 nHeightIn, std::vector<unsigned char> vValueIn) {
+    CAliasIndex(uint256 txHashIn, uint64 nHeightIn, std::vector<unsigned char> vValueIn, std::vector<unsigned char> vchPubKeyIn) {
         txHash = txHashIn;
         nHeight = nHeightIn;
         vValue = vValueIn;
+		vchPubKey = vchPubKeyIn;
     }
 
     IMPLEMENT_SERIALIZE (
         READWRITE(txHash);
         READWRITE(VARINT(nHeight));
     	READWRITE(vValue);
+		READWRITE(vchPubKey);
     )
 
     friend bool operator==(const CAliasIndex &a, const CAliasIndex &b) {
-        return (a.nHeight == b.nHeight && a.txHash == b.txHash);
+        return (a.nHeight == b.nHeight && a.txHash == b.txHash && a.vValue == b.vValue && a.vchPubKey == b.vchPubKey);
     }
 
     friend bool operator!=(const CAliasIndex &a, const CAliasIndex &b) {
         return !(a == b);
     }
     
-    void SetNull() { txHash.SetHex("0x0"); nHeight = -1; vValue.clear(); }
-    bool IsNull() const { return (nHeight == -1 && txHash == 0); }
+    void SetNull() { txHash = 0; nHeight = 0; vValue.clear(); vchPubKey.clear(); }
+    bool IsNull() const { return (nHeight == 0 && txHash == 0 && vValue.empty() && vchPubKey.empty()); }
 	bool UnserializeFromTx(const CTransaction &tx);
     std::string SerializeToString();
 };
@@ -52,7 +55,7 @@ public:
 		return Write(make_pair(std::string("namei"), name), vtxPos);
 	}
 
-	bool EraseName(const std::vector<unsigned char>& name) {
+	bool EraseAlias(const std::vector<unsigned char>& name) {
 	    return Erase(make_pair(std::string("namei"), name));
 	}
 	bool ReadAlias(const std::vector<unsigned char>& name, std::vector<CAliasIndex>& vtxPos) {
@@ -94,11 +97,8 @@ bool IsAliasMine(const CTransaction& tx);
 bool IsAliasMine(const CTransaction& tx, const CTxOut& txout);
 bool IsAliasOp(int op);
 
-int GetTxPosHeight(const CAliasIndex& txPos);
-int GetTxPosHeight(const CDiskTxPos& txPos);
-int GetTxPosHeight2(const CDiskTxPos& txPos, int nHeight);
 
-bool GetTxOfAlias(CAliasDB& dbName, const std::vector<unsigned char> &vchName, CTransaction& tx);
+bool GetTxOfAlias(const std::vector<unsigned char> &vchName, CTransaction& tx);
 int IndexOfNameOutput(const CTransaction& tx);
 bool GetValueOfNameTxHash(const uint256& txHash, std::vector<unsigned char>& vchValue, uint256& hash, int& nHeight);
 bool GetAliasOfTx(const CTransaction& tx, std::vector<unsigned char>& name);
@@ -108,14 +108,16 @@ bool DecodeAliasTxInputs(const CTransaction& tx, int& op, int& nOut, std::vector
 bool GetValueOfAliasTx(const CCoins& tx, std::vector<unsigned char>& value);
 bool DecodeAliasTx(const CCoins& tx, int& op, int& nOut, std::vector<std::vector<unsigned char> >& vvch, int nHeight);
 bool DecodeAliasScript(const CScript& script, int& op, std::vector<std::vector<unsigned char> > &vvch);
+bool DecodeAliasScript(const CScript& script, int& op,
+		std::vector<std::vector<unsigned char> > &vvch, CScript::const_iterator& pc);
 bool GetAliasAddress(const CTransaction& tx, std::string& strAddress);
 bool GetAliasAddress(const CDiskTxPos& txPos, std::string& strAddress);
-extern void GetAliasValue(const std::string& strName, std::string& strAddress);
+void GetAliasValue(const std::string& strName, std::string& strAddress);
 std::string SendMoneyWithInputTx(CScript scriptPubKey, int64 nValue, int64 nNetFee, CWalletTx& wtxIn, CWalletTx& wtxNew, bool fAskFee, const std::string& txData = "");
 bool CreateTransactionWithInputTx(const std::vector<std::pair<CScript, int64> >& vecSend, CWalletTx& wtxIn, int nTxOut, CWalletTx& wtxNew, CReserveKey& reservekey, int64& nFeeRet, const std::string& txData = "");
 int64 GetAliasNetworkFee(opcodetype seed, unsigned int nHeight);
 int64 GetAliasNetFee(const CTransaction& tx);
-
+std::string getCurrencyToSYSFromAlias(const std::vector<unsigned char> &vchCurrency, int64 &nFee, const unsigned int &nHeightToFind, std::vector<std::string>& rateList, int &precision);
 std::string aliasFromOp(int op);
 bool IsAliasOp(int op);
 int GetAliasDisplayExpirationDepth();

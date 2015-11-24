@@ -5,6 +5,7 @@
 #include "ui_acceptedofferlistpage.h"
 #include "offeraccepttablemodel.h"
 #include "offeracceptinfodialog.h"
+#include "newmessagedialog.h"
 #include "clientmodel.h"
 #include "optionsmodel.h"
 #include "walletmodel.h"
@@ -28,28 +29,33 @@ AcceptedOfferListPage::AcceptedOfferListPage(QWidget *parent) :
     ui->copyOffer->setIcon(QIcon());
     ui->exportButton->setIcon(QIcon());
 	ui->refreshButton->setIcon(QIcon());
+	ui->messageButton->setIcon(QIcon());
+	ui->detailButton->setIcon(QIcon());
 #endif
 
 	ui->buttonBox->setVisible(false);
 
     ui->labelExplanation->setText(tr("These are offers you have purchased. Offer operations take 2-5 minutes to become active. Right click on an offer to view more info such as the message you sent to the seller, quantity, date, etc."));
 	
-	connect(ui->tableView, SIGNAL(doubleClicked(QModelIndex)), this, SLOT(info()));
+	connect(ui->tableView, SIGNAL(doubleClicked(QModelIndex)), this, SLOT(on_detailButton_clicked()));
     // Context menu actions
     QAction *copyOfferAction = new QAction(ui->copyOffer->text(), this);
     QAction *copyOfferValueAction = new QAction(tr("&Copy OfferAccept ID"), this);
-	QAction *moreInfoAction = new QAction(tr("&More Info"), this);
+	QAction *detailsAction = new QAction(tr("&Details"), this);
+	QAction *messageAction = new QAction(tr("&Message Seller"), this);
 
     // Build context menu
     contextMenu = new QMenu();
     contextMenu->addAction(copyOfferAction);
     contextMenu->addAction(copyOfferValueAction);
 	contextMenu->addSeparator();
-	contextMenu->addAction(moreInfoAction);
+	contextMenu->addAction(detailsAction);
+	contextMenu->addAction(messageAction);
     // Connect signals for context menu actions
     connect(copyOfferAction, SIGNAL(triggered()), this, SLOT(on_copyOffer_clicked()));
     connect(copyOfferValueAction, SIGNAL(triggered()), this, SLOT(onCopyOfferValueAction()));
-	connect(moreInfoAction, SIGNAL(triggered()), this, SLOT(info()));
+	connect(detailsAction, SIGNAL(triggered()), this, SLOT(on_detailButton_clicked()));
+	connect(messageAction, SIGNAL(triggered()), this, SLOT(on_messageButton_clicked()));
 
     connect(ui->tableView, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(contextualMenu(QPoint)));
 
@@ -60,7 +66,7 @@ AcceptedOfferListPage::~AcceptedOfferListPage()
 {
     delete ui;
 }
-void AcceptedOfferListPage::info()
+void AcceptedOfferListPage::on_detailButton_clicked()
 {
     if(!ui->tableView->selectionModel())
         return;
@@ -74,13 +80,6 @@ void AcceptedOfferListPage::info()
 void AcceptedOfferListPage::showEvent ( QShowEvent * event )
 {
     if(!walletModel) return;
-    /*if(walletModel->getEncryptionStatus() == WalletModel::Locked)
-	{
-        ui->labelExplanation->setText(tr("<font color='red'>WARNING: Your wallet is currently locked. For security purposes you'll need to enter your passphrase in order to interact with Syscoin Offers. Because your wallet is locked you must manually refresh this table after creating or updating an Offer. </font> <a href=\"http://lockedwallet.syscoin.org\">more info</a><br><br>These are your registered Syscoin Offers. Offer updates take 1 confirmation to appear in this table."));
-		ui->labelExplanation->setTextFormat(Qt::RichText);
-		ui->labelExplanation->setTextInteractionFlags(Qt::TextBrowserInteraction);
-		ui->labelExplanation->setOpenExternalLinks(true);
-    }*/
 }
 void AcceptedOfferListPage::setModel(WalletModel *walletModel, OfferAcceptTableModel *model)
 {
@@ -113,6 +112,7 @@ void AcceptedOfferListPage::setModel(WalletModel *walletModel, OfferAcceptTableM
 	ui->tableView->horizontalHeader()->setResizeMode(OfferAcceptTableModel::Currency, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setResizeMode(OfferAcceptTableModel::Qty, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setResizeMode(OfferAcceptTableModel::Total, QHeaderView::ResizeToContents);
+	ui->tableView->horizontalHeader()->setResizeMode(OfferAcceptTableModel::Alias, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setResizeMode(OfferAcceptTableModel::Status, QHeaderView::ResizeToContents);
 #else
     ui->tableView->horizontalHeader()->setSectionResizeMode(OfferAcceptTableModel::Name, QHeaderView::ResizeToContents);
@@ -123,6 +123,7 @@ void AcceptedOfferListPage::setModel(WalletModel *walletModel, OfferAcceptTableM
 	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferAcceptTableModel::Currency, QHeaderView::ResizeToContents);
 	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferAcceptTableModel::Qty, QHeaderView::ResizeToContents);
     ui->tableView->horizontalHeader()->setSectionResizeMode(OfferAcceptTableModel::Total, QHeaderView::ResizeToContents);
+	ui->tableView->horizontalHeader()->setSectionResizeMode(OfferAcceptTableModel::Alias, QHeaderView::ResizeToContents);
 	 ui->tableView->horizontalHeader()->setSectionResizeMode(OfferAcceptTableModel::Status, QHeaderView::ResizeToContents);
 #endif
 
@@ -140,7 +141,24 @@ void AcceptedOfferListPage::setOptionsModel(ClientModel* clientmodel, OptionsMod
     this->optionsModel = optionsModel;
 	this->clientModel = clientmodel;
 }
+void AcceptedOfferListPage::on_messageButton_clicked()
+{
+ 	if(!model)	
+		return;
+	if(!ui->tableView->selectionModel())
+        return;
+    QModelIndexList selection = ui->tableView->selectionModel()->selectedRows();
+    if(selection.isEmpty())
+    {
+        return;
+    }
+	QString offerAlias = selection.at(0).data(OfferAcceptTableModel::AliasRole).toString();
+	// send message to seller
+	NewMessageDialog dlg(NewMessageDialog::NewMessage, offerAlias);   
+	dlg.exec();
 
+
+}
 void AcceptedOfferListPage::on_copyOffer_clicked()
 {
     GUIUtil::copyEntryData(ui->tableView, OfferAcceptTableModel::Name);
@@ -169,10 +187,14 @@ void AcceptedOfferListPage::selectionChanged()
     if(table->selectionModel()->hasSelection())
     {
         ui->copyOffer->setEnabled(true);
+		ui->messageButton->setEnabled(true);
+		ui->detailButton->setEnabled(true);
     }
     else
     {
         ui->copyOffer->setEnabled(false);
+		ui->messageButton->setEnabled(false);
+		ui->detailButton->setEnabled(false);
     }
 }
 
@@ -222,6 +244,7 @@ void AcceptedOfferListPage::on_exportButton_clicked()
 	writer.addColumn("Currency", OfferAcceptTableModel::Currency, Qt::EditRole);
 	writer.addColumn("Qty", OfferAcceptTableModel::Qty, Qt::EditRole);
 	writer.addColumn("Total", OfferAcceptTableModel::Total, Qt::EditRole);
+	writer.addColumn("Alias", OfferAcceptTableModel::Alias, Qt::EditRole);
 	writer.addColumn("Status", OfferAcceptTableModel::Status, Qt::EditRole);
     if(!writer.write())
     {

@@ -53,6 +53,7 @@ EditWhitelistOfferDialog::EditWhitelistOfferDialog(QModelIndex *idx, QWidget *pa
 	offerQty = idx->data(OfferTableModel::QtyRole).toString();
 	offerPrice = idx->data(OfferTableModel::PriceRole).toString();
 	offerDescription = idx->data(OfferTableModel::DescriptionRole).toString();
+	offerPrivate = idx->data(OfferTableModel::PrivateRole).toString();
 	
 	ui->buttonBox->setVisible(false);
 	ui->removeAllButton->setEnabled(false);
@@ -158,6 +159,8 @@ void EditWhitelistOfferDialog::on_exclusiveButton_clicked()
 			params.push_back(offerQty.toStdString());
 			params.push_back(offerPrice.toStdString());
 			params.push_back(offerDescription.toStdString());
+			// keep it the same as what's in the database
+			params.push_back(offerPrivate.toStdString());
 			params.push_back("");
 			if(tmpExclusiveWhitelist == QString("ON"))
 				params.push_back("0");

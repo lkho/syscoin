@@ -13,6 +13,8 @@
 #include "alias.h"
 #include "offer.h"
 #include "cert.h"
+#include "escrow.h"
+#include "message.h"
 #include "txdb.h"
 #include "script.h"
 
@@ -25,8 +27,6 @@ using namespace json_spirit;
 
 int64 nWalletUnlockTime;
 static CCriticalSection cs_nWalletUnlockTime;
-
-extern CAliasDB *paliasdb;
 
 template<typename T> void ConvertTo(Value& value, bool fAllowNull=false);
 
@@ -1071,21 +1071,33 @@ void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDe
             if (fNameTx) {
                 vector<vector<unsigned char> > vvchArgs;
                 int op,nOut, nTxOut;
-				if(DecodeAliasTx(wtx, op, nOut, vvchArgs, -1))
-				{
-					nTxOut = IndexOfNameOutput(wtx);
-                    ExtractAliasAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
-				}
-				else if(DecodeOfferTx(wtx, op, nOut, vvchArgs, -1))
-				{
-                    nTxOut = IndexOfOfferOutput(wtx);
-                    ExtractOfferAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
-					 
-				}
-				else if(DecodeCertTx(wtx, op, nOut, vvchArgs, -1))
-				{
-                    nTxOut = IndexOfCertOutput(wtx);
-                    ExtractCertAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);					
+				if (wtx.nVersion == SYSCOIN_TX_VERSION) {
+					if(DecodeAliasTx(wtx, op, nOut, vvchArgs, -1))
+					{
+						nTxOut = IndexOfNameOutput(wtx);
+						ExtractAliasAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
+					}
+					else if(DecodeOfferTx(wtx, op, nOut, vvchArgs, -1))
+					{
+						nTxOut = IndexOfOfferOutput(wtx);
+						ExtractOfferAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);
+						 
+					}
+					else if(DecodeCertTx(wtx, op, nOut, vvchArgs, -1))
+					{
+						nTxOut = IndexOfCertOutput(wtx);
+						ExtractCertAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);					
+					}
+					else if(DecodeEscrowTx(wtx, op, nOut, vvchArgs, -1))
+					{
+						nTxOut = IndexOfEscrowOutput(wtx);
+						ExtractEscrowAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);					
+					}
+					else if(DecodeMessageTx(wtx, op, nOut, vvchArgs, -1))
+					{
+						nTxOut = IndexOfMessageOutput(wtx);
+						ExtractMessageAddress(wtx.vout[nTxOut].scriptPubKey, strAddress);					
+					}
 				}
 			}     
             entry.push_back(Pair("address", strAddress));
@@ -1421,6 +1433,7 @@ Value gettransaction(const Array& params, bool fHelp)
     WalletTxToJSON(wtx, entry);
 
     Array details;
+	printf("listtx\n");
     ListTransactions(wtx, "*", 0, false, details);
     entry.push_back(Pair("details", details));
 

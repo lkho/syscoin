@@ -67,7 +67,8 @@ public:
     QAction * getHistoryAction() { return historyAction; }
     QAction * getAddressBookAction() { return addressBookAction; }
     QAction * getAliasListAction() { return aliasListAction; }
-    QAction * getDataAliasListAction() { return dataAliasListAction; }
+    QAction * getMessageListAction() { return messageListAction; }
+    QAction * getEscrowListAction() { return escrowListAction; }
     QAction * getOfferListAction() { return offerListAction; }
     QAction * getCertListAction() { return certListAction; }
     QAction * getReceiveCoinsAction() { return receiveCoinsAction; }
@@ -97,7 +98,8 @@ private:
     QAction *sendCoinsAction;
     QAction *addressBookAction;
     QAction *aliasListAction;
-    QAction *dataAliasListAction;
+    QAction *escrowListAction;
+    QAction *messageListAction;
     QAction *offerListAction;
     QAction *certListAction;
     QAction *signMessageAction;
@@ -180,8 +182,8 @@ private slots:
     void gotoAddressBookPage();
     /** Switch to alias list page */
     void gotoAliasListPage();
-    /** Switch to alias list page */
-    void gotoDataAliasListPage();
+    void gotoEscrowListPage();
+    void gotoMessageListPage();
     /** Switch to offers page */
     void gotoOfferListPage();
     /** Switch to certificate  page */

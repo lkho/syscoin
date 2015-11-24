@@ -2,7 +2,6 @@
 #define OFFERACCEPTDIALOG_H
 
 #include <QDialog>
-
 namespace Ui {
     class OfferAcceptDialog;
 }
@@ -21,6 +20,7 @@ public:
     bool getPaymentStatus();
 
 private:
+	void setupEscrowCheckboxState();
     Ui::OfferAcceptDialog *ui;
 	QString quantity;
 	QString notes;
@@ -28,10 +28,14 @@ private:
 	QString title;
 	QString offer;
 	bool offerPaid; 
+	
 
 private slots:
+	void acceptPayment();
+	void onEscrowCheckBoxChanged(bool);
 	void on_cancelButton_clicked();
     void acceptOffer();
+	void acceptEscrow();
 };
 
 #endif // OFFERACCEPTDIALOG_H

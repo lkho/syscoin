@@ -10,7 +10,6 @@
 #include "bitcoingui.h"
 #include "editcertdialog.h"
 #include "editofferdialog.h"
-#include "pubkeydialog.h"
 #include "csvmodelwriter.h"
 #include "guiutil.h"
 
@@ -31,8 +30,9 @@ MyCertListPage::MyCertListPage(QWidget *parent) :
     ui->copyCert->setIcon(QIcon());
     ui->exportButton->setIcon(QIcon());
 	ui->refreshButton->setIcon(QIcon());
-	ui->pubKeyButton->setIcon(QIcon());
 	ui->sellCertButton->setIcon(QIcon());
+	ui->transferButton->setIcon(QIcon());
+	ui->editButton->setIcon(QIcon());
 #endif
 
 	ui->buttonBox->setVisible(false);
@@ -44,8 +44,8 @@ MyCertListPage::MyCertListPage(QWidget *parent) :
     QAction *copyCertAction = new QAction(ui->copyCert->text(), this);
     QAction *copyCertValueAction = new QAction(tr("&Copy Title"), this);
     QAction *editAction = new QAction(tr("&Edit"), this);
-    QAction *transferCertAction = new QAction(tr("&Transfer Certificate"), this);
-	QAction *sellCertAction = new QAction(tr("&Sell Certificate"), this);
+    QAction *transferCertAction = new QAction(tr("&Transfer"), this);
+	QAction *sellCertAction = new QAction(tr("&Sell"), this);
 
     // Build context menu
     contextMenu = new QMenu();
@@ -59,19 +59,14 @@ MyCertListPage::MyCertListPage(QWidget *parent) :
     // Connect signals for context menu actions
     connect(copyCertAction, SIGNAL(triggered()), this, SLOT(on_copyCert_clicked()));
     connect(copyCertValueAction, SIGNAL(triggered()), this, SLOT(onCopyCertValueAction()));
-    connect(editAction, SIGNAL(triggered()), this, SLOT(onEditAction()));
-    connect(transferCertAction, SIGNAL(triggered()), this, SLOT(onTransferCertAction()));
+    connect(editAction, SIGNAL(triggered()), this, SLOT(on_editButton_clicked()));
+    connect(transferCertAction, SIGNAL(triggered()), this, SLOT(on_transferButton_clicked()));
 	connect(sellCertAction, SIGNAL(triggered()), this, SLOT(on_sellCertButton_clicked()));
 
     connect(ui->tableView, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(contextualMenu(QPoint)));
 
     // Pass through accept action from button box
     connect(ui->buttonBox, SIGNAL(accepted()), this, SLOT(accept()));
-}
-void MyCertListPage::on_pubKeyButton_clicked()
-{
-	PubKeyDialog dlg;
-	dlg.exec();
 }
 MyCertListPage::~MyCertListPage()
 {
@@ -226,11 +221,15 @@ void MyCertListPage::selectionChanged()
     {
         ui->copyCert->setEnabled(true);
 		ui->sellCertButton->setEnabled(true);
+		ui->editButton->setEnabled(true);
+		ui->transferButton->setEnabled(true);
     }
     else
     {
         ui->copyCert->setEnabled(false);
 		ui->sellCertButton->setEnabled(false);
+		ui->editButton->setEnabled(false);
+		ui->transferButton->setEnabled(false);
     }
 }
 

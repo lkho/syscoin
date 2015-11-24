@@ -55,7 +55,7 @@ private slots:
     void on_copyAlias_clicked();
     /** Copy value of currently selected alias entry to clipboard (no button) */
     void onCopyAliasValueAction();
-
+	void on_messageButton_clicked();
     /** Export button clicked */
     void on_exportButton_clicked();
 

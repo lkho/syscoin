@@ -7,7 +7,6 @@
 #include "bitcoingui.h"
 #include "bitcoinrpc.h"
 #include "editcertdialog.h"
-#include "pubkeydialog.h"
 #include "csvmodelwriter.h"
 #include "guiutil.h"
 #include "ui_interface.h"
@@ -35,7 +34,6 @@ CertListPage::CertListPage(QWidget *parent) :
 #ifdef Q_OS_MAC // Icons on push buttons are very uncommon on Mac
     ui->copyCert->setIcon(QIcon());
     ui->exportButton->setIcon(QIcon());
-	ui->pubKeyButton->setIcon(QIcon());
 #endif
 
     ui->labelExplanation->setText(tr("Search for Syscoin Certificates. Select the number of results desired from the dropdown box and click Search."));
@@ -125,11 +123,6 @@ void CertListPage::setModel(WalletModel* walletModel, CertTableModel *model)
 void CertListPage::setOptionsModel(OptionsModel *optionsModel)
 {
     this->optionsModel = optionsModel;
-}
-void CertListPage::on_pubKeyButton_clicked()
-{
-	PubKeyDialog dlg;
-	dlg.exec();
 }
 void CertListPage::on_copyCert_clicked()
 {

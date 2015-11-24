@@ -3,6 +3,8 @@
 #include "optionsmodel.h"
 #include "addresstablemodel.h"
 #include "aliastablemodel.h"
+#include "messagetablemodel.h"
+#include "escrowtablemodel.h"
 #include "certtablemodel.h"
 #include "offertablemodel.h"
 #include "offeraccepttablemodel.h"
@@ -14,19 +16,6 @@
 
 #include <QSet>
 #include <QTimer>
-
-class COfferDB;
-extern COfferDB *pofferdb;
-int GetOfferExpirationDepth();
-
-class CCertDB;
-extern CCertDB *pcertdb;
-int GetCertExpirationDepth(int nHeight);
-
-class CAliasDB;
-extern CAliasDB *paliasdb;
-
-class COfferAccept;
 
 WalletModel::WalletModel(CWallet *wallet, OptionsModel *optionsModel,
 		QObject *parent) :
@@ -41,6 +30,10 @@ WalletModel::WalletModel(CWallet *wallet, OptionsModel *optionsModel,
 	transactionTableModel = new TransactionTableModel(wallet, this);
 	aliasTableModelMine = new AliasTableModel(wallet, this, MyAlias);
 	aliasTableModelAll = new AliasTableModel(wallet, this, AllAlias);
+	escrowTableModelMine = new EscrowTableModel(wallet, this, MyEscrow);
+	escrowTableModelAll = new EscrowTableModel(wallet, this, AllEscrow);
+	inMessageTableModel = new MessageTableModel(wallet, this, InMessage);
+	outMessageTableModel = new MessageTableModel(wallet, this, OutMessage);
 	certTableModelMine = new CertTableModel(wallet, this, MyCert);
 	certTableModelAll = new CertTableModel(wallet, this, AllCert);
 	offerTableModelMine = new OfferTableModel(wallet, this, MyOffer);
@@ -161,7 +154,16 @@ void WalletModel::updateCert() {
 	if (certTableModelMine)
 		certTableModelMine->refreshCertTable();
 }
-
+void WalletModel::updateMessage() {
+	if (inMessageTableModel)
+		inMessageTableModel->refreshMessageTable();
+	if (outMessageTableModel)
+		outMessageTableModel->refreshMessageTable();
+}
+void WalletModel::updateEscrow() {
+	if (escrowTableModelMine)
+		escrowTableModelMine->refreshEscrowTable();
+}
 void WalletModel::updateOffer() {
 	if (offerTableModelMine)
 		offerTableModelMine->refreshOfferTable();
@@ -288,6 +290,18 @@ AliasTableModel *WalletModel::getAliasTableModelMine() {
 AliasTableModel *WalletModel::getAliasTableModelAll() {
 	return aliasTableModelAll;
 }
+EscrowTableModel *WalletModel::getEscrowTableModelMine() {
+	return escrowTableModelMine;
+}
+EscrowTableModel *WalletModel::getEscrowTableModelAll() {
+	return escrowTableModelAll;
+}
+MessageTableModel *WalletModel::getMessageTableModelIn() {
+	return inMessageTableModel;
+}
+MessageTableModel *WalletModel::getMessageTableModelOut() {
+	return outMessageTableModel;
+}
 CertTableModel *WalletModel::getCertTableModelMine() {
 	return certTableModelMine;
 }
@@ -379,44 +393,70 @@ QMetaObject::invokeMethod(walletmodel, "updateAddressBook", Qt::QueuedConnection
 
 static void NotifyAliasListChanged(WalletModel *walletmodel, CWallet *wallet,
 	const CTransaction *tx, ChangeType status) {
-std::vector<std::vector<unsigned char> > vvchArgs;
-int op, nOut;
-if (!DecodeAliasTx(*tx, op, nOut, vvchArgs, -1)) {
-	return;
-}
-if (!IsAliasOp(op))
-	return;
+	std::vector<std::vector<unsigned char> > vvchArgs;
+	int op, nOut;
+	if (!DecodeAliasTx(*tx, op, nOut, vvchArgs, -1)) {
+		return;
+	}
+	if (!IsAliasOp(op))
+		return;
 
-OutputDebugStringF("NotifyAliasListChanged status=%i\n", status);
-QMetaObject::invokeMethod(walletmodel, "updateAlias", Qt::QueuedConnection);
+	OutputDebugStringF("NotifyAliasListChanged status=%i\n", status);
+	QMetaObject::invokeMethod(walletmodel, "updateAlias", Qt::QueuedConnection);
 
 }
 
 static void NotifyCertListChanged(WalletModel *walletmodel, CWallet *wallet,
 	const CTransaction *tx, ChangeType status) {
-std::vector<std::vector<unsigned char> > vvchArgs;
-int op, nOut;
-if (!DecodeCertTx(*tx, op, nOut, vvchArgs, -1)) {
-	return;
-}
-if (!IsCertOp(op))
-	return;
+	std::vector<std::vector<unsigned char> > vvchArgs;
+	int op, nOut;
+	if (!DecodeCertTx(*tx, op, nOut, vvchArgs, -1)) {
+		return;
+	}
+	if (!IsCertOp(op))
+		return;
 
-OutputDebugStringF("NotifyCertListChanged status=%i\n", status);
-QMetaObject::invokeMethod(walletmodel, "updateCert", Qt::QueuedConnection);
+	OutputDebugStringF("NotifyCertListChanged status=%i\n", status);
+	QMetaObject::invokeMethod(walletmodel, "updateCert", Qt::QueuedConnection);
+}
+static void NotifyEscrowListChanged(WalletModel *walletmodel, CWallet *wallet,
+	const CTransaction *tx, ChangeType status) {
+	std::vector<std::vector<unsigned char> > vvchArgs;
+	int op, nOut;
+	if (!DecodeEscrowTx(*tx, op, nOut, vvchArgs, -1)) {
+		return;
+	}
+	if (!IsEscrowOp(op))
+		return;
+
+	OutputDebugStringF("NotifyEscrowListChanged status=%i\n", status);
+	QMetaObject::invokeMethod(walletmodel, "updateEscrow", Qt::QueuedConnection);
+}
+static void NotifyMessageListChanged(WalletModel *walletmodel, CWallet *wallet,
+	const CTransaction *tx, ChangeType status) {
+	std::vector<std::vector<unsigned char> > vvchArgs;
+	int op, nOut;
+	if (!DecodeMessageTx(*tx, op, nOut, vvchArgs, -1)) {
+		return;
+	}
+	if (!IsMessageOp(op))
+		return;
+
+	OutputDebugStringF("NotifyMessageListChanged status=%i\n", status);
+	QMetaObject::invokeMethod(walletmodel, "updateMessage", Qt::QueuedConnection);
 }
 static void NotifyOfferListChanged(WalletModel *walletmodel, CWallet *wallet,
 	const CTransaction *tx, ChangeType status) {
-std::vector<std::vector<unsigned char> > vvchArgs;
-int op, nOut;
-if (!DecodeOfferTx(*tx, op, nOut, vvchArgs, -1)) {
-	return;
-}
-if (!IsOfferOp(op))
-	return;
+	std::vector<std::vector<unsigned char> > vvchArgs;
+	int op, nOut;
+	if (!DecodeOfferTx(*tx, op, nOut, vvchArgs, -1)) {
+		return;
+	}
+	if (!IsOfferOp(op))
+		return;
 
-OutputDebugStringF("NotifyOfferListChanged status=%i\n", status);
-QMetaObject::invokeMethod(walletmodel, "updateOffer", Qt::QueuedConnection);
+	OutputDebugStringF("NotifyOfferListChanged status=%i\n", status);
+	QMetaObject::invokeMethod(walletmodel, "updateOffer", Qt::QueuedConnection);
 }
 
 static void NotifyTransactionChanged(WalletModel *walletmodel, CWallet *wallet,
@@ -440,6 +480,10 @@ wallet->NotifyOfferListChanged.connect(
 	boost::bind(NotifyOfferListChanged, this, _1, _2, _3));
 wallet->NotifyCertListChanged.connect(
 	boost::bind(NotifyCertListChanged, this, _1, _2, _3));
+wallet->NotifyEscrowListChanged.connect(
+	boost::bind(NotifyEscrowListChanged, this, _1, _2, _3));
+wallet->NotifyMessageListChanged.connect(
+	boost::bind(NotifyMessageListChanged, this, _1, _2, _3));
 wallet->NotifyTransactionChanged.connect(
 	boost::bind(NotifyTransactionChanged, this, _1, _2, _3));
 }
@@ -456,6 +500,10 @@ wallet->NotifyOfferListChanged.disconnect(
 	boost::bind(NotifyOfferListChanged, this, _1, _2, _3));
 wallet->NotifyCertListChanged.disconnect(
 	boost::bind(NotifyCertListChanged, this, _1, _2, _3));
+wallet->NotifyEscrowListChanged.disconnect(
+	boost::bind(NotifyEscrowListChanged, this, _1, _2, _3));
+wallet->NotifyMessageListChanged.disconnect(
+	boost::bind(NotifyMessageListChanged, this, _1, _2, _3));
 wallet->NotifyTransactionChanged.disconnect(
 	boost::bind(NotifyTransactionChanged, this, _1, _2, _3));
 }

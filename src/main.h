@@ -67,6 +67,8 @@ static const int COINBASE_MATURITY = 60;
 static const unsigned int LOCKTIME_THRESHOLD = 500000000; // Tue Nov  5 00:53:20 1985 UTC
 /** Maximum number of script-checking threads allowed */
 static const int MAX_SCRIPTCHECK_THREADS = 16;
+static const unsigned int MAX_MULTI_BLOCK_SIZE = 5120000;    // 5MiB, most likely to hit MAX_MULTI_BLOCK_ELEMNTS first
+static const unsigned int MAX_MULTI_BLOCK_ELEMENTS = 50;     // processing larger blocks is cpu intensive
 #ifdef USE_UPNP
 static const int fHaveUPnP = true;
 #else

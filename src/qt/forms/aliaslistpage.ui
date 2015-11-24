@@ -112,6 +112,17 @@
       </widget>
      </item>
      <item>
+      <widget class="QPushButton" name="messageButton">
+       <property name="text">
+        <string>Send Message</string>
+       </property>
+       <property name="icon">
+        <iconset resource="../bitcoin.qrc">
+         <normaloff>:/icons/outmail</normaloff>:/icons/outmail</iconset>
+       </property>
+      </widget>
+     </item>
+     <item>
       <spacer name="horizontalSpacer">
        <property name="orientation">
         <enum>Qt::Horizontal</enum>

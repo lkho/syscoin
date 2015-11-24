@@ -11,6 +11,8 @@
 #include "aliasview.h"
 #include "offerview.h"
 #include "certview.h"
+#include "messageview.h"
+#include "escrowview.h"
 #include "sendcoinsdialog.h"
 #include "signverifymessagedialog.h"
 #include "clientmodel.h"
@@ -46,14 +48,17 @@ WalletView::WalletView(QWidget *parent, BitcoinGUI *_gui):
     overviewPage = new OverviewPage();
     transactionsPage = new QWidget(this);
     aliasListPage = new QStackedWidget();
+	messageListPage = new QStackedWidget();
 	certListPage = new QStackedWidget();
-    dataAliasListPage = new QStackedWidget();
+    escrowListPage = new QStackedWidget();
     QVBoxLayout *vbox = new QVBoxLayout();
     QHBoxLayout *hbox_buttons = new QHBoxLayout();
     transactionView = new TransactionView(this);
     aliasView = new AliasView(aliasListPage, gui);
+	messageView = new MessageView(messageListPage, gui);
+	escrowView = new EscrowView(escrowListPage, gui);
 	certView = new CertView(certListPage, gui);
-    dataAliasView = new AliasView(dataAliasListPage, gui);
+
 	offerListPage = new QStackedWidget();
 	offerView = new OfferView(offerListPage, gui);
     vbox->addWidget(transactionView);
@@ -92,7 +97,8 @@ WalletView::WalletView(QWidget *parent, BitcoinGUI *_gui):
     addWidget(transactionsPage);
     addWidget(addressBookPage);
     addWidget(aliasListPage);
-    addWidget(dataAliasListPage);
+	addWidget(messageListPage);
+	addWidget(escrowListPage);
     addWidget(certListPage);
     addWidget(receiveCoinsPage);
     addWidget(sendCoinsPage);
@@ -125,8 +131,11 @@ void WalletView::setBitcoinGUI(BitcoinGUI *gui)
 {
     this->gui = gui;
     aliasView->setBitcoinGUI(gui);
-	dataAliasView->setBitcoinGUI(gui);
+	messageView->setBitcoinGUI(gui);
+	escrowView->setBitcoinGUI(gui);
+	certView->setBitcoinGUI(gui);
 	offerView->setBitcoinGUI(gui);
+	escrowView->setBitcoinGUI(gui);
 }
 
 void WalletView::setClientModel(ClientModel *clientModel)
@@ -137,9 +146,11 @@ void WalletView::setClientModel(ClientModel *clientModel)
         overviewPage->setClientModel(clientModel);
         addressBookPage->setOptionsModel(clientModel->getOptionsModel());
         aliasView->setClientModel(clientModel);
-		dataAliasView->setClientModel(clientModel);
+		messageView->setClientModel(clientModel);
+		escrowView->setClientModel(clientModel);
         certView->setClientModel(clientModel);
 		offerView->setClientModel(clientModel);
+		escrowView->setClientModel(clientModel);
         receiveCoinsPage->setOptionsModel(clientModel->getOptionsModel());
     }
 }
@@ -156,9 +167,11 @@ void WalletView::setWalletModel(WalletModel *walletModel)
         transactionView->setModel(walletModel);
         overviewPage->setWalletModel(walletModel);
         aliasView->setWalletModel(walletModel);
-		dataAliasView->setWalletModel(walletModel);
+		messageView->setWalletModel(walletModel);
+		escrowView->setWalletModel(walletModel);
         certView->setWalletModel(walletModel);
 		offerView->setWalletModel(walletModel);
+		escrowView->setWalletModel(walletModel);
         addressBookPage->setModel(walletModel->getAddressTableModel());
         receiveCoinsPage->setModel(walletModel->getAddressTableModel());
         sendCoinsPage->setModel(walletModel);
@@ -210,12 +223,16 @@ void WalletView::gotoAliasListPage()
     setCurrentWidget(aliasListPage);
 }
 
-void WalletView::gotoDataAliasListPage()
+void WalletView::gotoMessageListPage()
 {
-    gui->getDataAliasListAction()->setChecked(true);
-    setCurrentWidget(dataAliasListPage);
+    gui->getMessageListAction()->setChecked(true);
+    setCurrentWidget(messageListPage);
 }
-
+void WalletView::gotoEscrowListPage()
+{
+    gui->getEscrowListAction()->setChecked(true);
+    setCurrentWidget(escrowListPage);
+}
 void WalletView::gotoOfferListPage()
 {
 	gui->getOfferListAction()->setChecked(true);
@@ -274,7 +291,7 @@ bool WalletView::handleURI(const QString& strURI)
     {
         return true;
     }
-    if (dataAliasView->handleURI(strURI))
+    else if (messageView->handleURI(strURI))
     {
         return true;
     }
@@ -283,6 +300,10 @@ bool WalletView::handleURI(const QString& strURI)
         return true;
     }
     else if (offerView->handleURI(strURI))
+    {
+        return true;
+    }
+    else if (escrowView->handleURI(strURI))
     {
         return true;
     }

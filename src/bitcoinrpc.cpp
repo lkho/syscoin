@@ -316,6 +316,27 @@ static const CRPCCommand vRPCCommands[] =
   { "certfilter",      &certfilter,  false,      true,      true },
   { "getcertfees",           &getcertfees,        false,      true,      true },
 
+  // use the blockchain for escrow linked to offers
+  { "escrownew",         &escrownew,     false,      true,      true },
+  { "escrowrelease",      &escrowrelease,  false,      true,      true },
+  { "escrowclaimrelease",      &escrowclaimrelease,  false,      true,      true },
+  { "escrowcomplete",      &escrowcomplete,  false,      true,      true },
+  { "escrowrefund",          &escrowrefund,      false,      true,      true },
+  { "escrowclaimrefund",          &escrowclaimrefund,      false,      true,      true },
+  { "escrowlist",              &escrowlist,          false,      true,      true },
+  { "escrowinfo",              &escrowinfo,          false,      true,      true },
+  { "escrowhistory",     &escrowhistory, false,      true,      true },
+  { "escrowscan",        &escrowscan,    false,      true,      true },
+  { "escrowfilter",      &escrowfilter,  false,      true,      true },
+  { "getescrowfees",           &getescrowfees,        false,      true,      true },
+
+  // use the blockchain for encrypted messaging
+  { "messagenew",         &messagenew,     false,      true,      true },
+  { "messagelist",              &messagelist,          false,      true,      true },
+  { "messagesentlist",              &messagesentlist,          false,      true,      true },
+  { "messageinfo",              &messageinfo,          false,      true,      true },
+  { "messagehistory",     &messagehistory, false,      true,      true },
+  { "getmessagefees",           &getmessagefees,        false,      true,      true },
 
 };
 

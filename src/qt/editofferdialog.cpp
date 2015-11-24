@@ -15,7 +15,7 @@ using namespace std;
 using namespace json_spirit;
 extern int nBestHeight;
 extern const CRPCTable tableRPC;
-extern string getCurrencyToSYSFromAlias(const vector<unsigned char> &vchCurrency, int64 &nFee, const unsigned int &nHeightToFind, vector<string>& rateList, int &precision);
+string getCurrencyToSYSFromAlias(const vector<unsigned char> &vchCurrency, int64 &nFee, const unsigned int &nHeightToFind, vector<string>& rateList, int &precision);
 extern vector<unsigned char> vchFromString(const std::string &str);
 int64 GetOfferNetworkFee(opcodetype seed, unsigned int nHeight);
 int64 GetCertNetworkFee(opcodetype seed, unsigned int nHeight);
@@ -34,10 +34,14 @@ EditOfferDialog::EditOfferDialog(Mode mode, const QString &strCert, QWidget *par
 				QMessageBox::Ok, QMessageBox::Ok);
 	}
     GUIUtil::setupAddressWidget(ui->nameEdit, this);
+	ui->aliasDisclaimer->setText(tr("<font color='red'>Select an alias to own this offer</font>"));
 	ui->offerLabel->setVisible(true);
 	ui->offerEdit->setVisible(true);
 	ui->offerEdit->setEnabled(false);
 	ui->currencyDisclaimer->setVisible(true);
+	ui->privateEdit->clear();
+	ui->privateEdit->addItem(QString("No"));
+	ui->privateEdit->addItem(QString("Yes"));
 	for(int i =0;i<rateList.size();i++)
 	{
 		ui->currencyEdit->addItem(QString::fromStdString(rateList[i]));
@@ -47,6 +51,7 @@ EditOfferDialog::EditOfferDialog(Mode mode, const QString &strCert, QWidget *par
 	ui->certEdit->addItem(tr("Select Certificate (optional)"));
 	connect(ui->certEdit, SIGNAL(activated(int)), this, SLOT(certChanged(int)));
 	loadCerts();
+	loadAliases();
 	ui->descriptionEdit->setStyleSheet("color: rgb(0, 0, 0); background-color: rgb(255, 255, 255)");
     switch(mode)
     {
@@ -58,7 +63,9 @@ EditOfferDialog::EditOfferDialog(Mode mode, const QString &strCert, QWidget *par
         break;
     case EditOffer:
 		ui->currencyEdit->setEnabled(false);
-		ui->currencyDisclaimer->setVisible(false);		
+		ui->currencyDisclaimer->setVisible(false);
+		ui->aliasDisclaimer->setVisible(false);
+		ui->aliasEdit->setEnabled(false);
         setWindowTitle(tr("Edit Offer"));
         break;
     case NewCertOffer:
@@ -162,6 +169,68 @@ void EditOfferDialog::loadCerts()
 	}         
  
 }
+void EditOfferDialog::loadAliases()
+{
+	ui->aliasEdit->clear();
+	string strMethod = string("aliaslist");
+    Array params; 
+	Value result ;
+	string name_str;
+	int expired = 0;
+	
+	try {
+		result = tableRPC.execute(strMethod, params);
+
+		if (result.type() == array_type)
+		{
+			name_str = "";
+			expired = 0;
+
+
+	
+			Array arr = result.get_array();
+			BOOST_FOREACH(Value& input, arr)
+			{
+				if (input.type() != obj_type)
+					continue;
+				Object& o = input.get_obj();
+				name_str = "";
+
+				expired = 0;
+
+
+		
+				const Value& name_value = find_value(o, "name");
+				if (name_value.type() == str_type)
+					name_str = name_value.get_str();		
+				const Value& expired_value = find_value(o, "expired");
+				if (expired_value.type() == int_type)
+					expired = expired_value.get_int();
+				
+				if(expired == 0)
+				{
+					QString name = QString::fromStdString(name_str);
+					ui->aliasEdit->addItem(name);					
+				}
+				
+			}
+		}
+	}
+	catch (Object& objError)
+	{
+		string strError = find_value(objError, "message").get_str();
+		QMessageBox::critical(this, windowTitle(),
+			tr("Could not refresh cert list: %1").arg(QString::fromStdString(strError)),
+				QMessageBox::Ok, QMessageBox::Ok);
+	}
+	catch(std::exception& e)
+	{
+		QMessageBox::critical(this, windowTitle(),
+			tr("There was an exception trying to refresh the cert list: ") + QString::fromStdString(e.what()),
+				QMessageBox::Ok, QMessageBox::Ok);
+	}         
+ 
+}
 EditOfferDialog::~EditOfferDialog()
 {
     delete ui;
@@ -179,15 +248,36 @@ void EditOfferDialog::setModel(WalletModel* walletModel, OfferTableModel *model)
     mapper->addMapping(ui->nameEdit, OfferTableModel::Title);
 	mapper->addMapping(ui->categoryEdit, OfferTableModel::Category);
     mapper->addMapping(ui->priceEdit, OfferTableModel::Price);
-	mapper->addMapping(ui->currencyEdit, OfferTableModel::Currency);
 	mapper->addMapping(ui->qtyEdit, OfferTableModel::Qty);	
-	mapper->addMapping(ui->descriptionEdit, OfferTableModel::Description);	
+	mapper->addMapping(ui->descriptionEdit, OfferTableModel::Description);		
     
 }
 
 void EditOfferDialog::loadRow(int row)
 {
-    mapper->setCurrentIndex(row);
+	const QModelIndex tmpIndex;
+	if(model)
+	{
+		mapper->setCurrentIndex(row);
+		QModelIndex indexCurrency = model->index(row, OfferTableModel::Currency, tmpIndex);
+		QModelIndex indexPrivate = model->index(row, OfferTableModel::Private, tmpIndex);	
+		QModelIndex indexAlias = model->index(row, OfferTableModel::Alias, tmpIndex);
+		if(indexPrivate.isValid())
+		{
+			QString privateStr = indexPrivate.data(OfferTableModel::PrivateRole).toString();
+			ui->privateEdit->setCurrentIndex(ui->privateEdit->findText(privateStr));
+		}
+		if(indexCurrency.isValid())
+		{
+			QString currencyStr = indexCurrency.data(OfferTableModel::CurrencyRole).toString();
+			ui->currencyEdit->setCurrentIndex(ui->currencyEdit->findText(currencyStr));
+		}
+		if(indexAlias.isValid())
+		{
+			QString currencyStr = indexAlias.data(OfferTableModel::AliasRole).toString();
+			ui->aliasEdit->setCurrentIndex(ui->aliasEdit->findText(currencyStr));
+		}
+	}
 }
 
 bool EditOfferDialog::saveCurrentRow()
@@ -230,12 +320,14 @@ bool EditOfferDialog::saveCurrentRow()
 			return false;
 		}
 		strMethod = string("offernew");
+		params.push_back(ui->aliasEdit->currentText().toStdString());
 		params.push_back(ui->categoryEdit->text().toStdString());
 		params.push_back(ui->nameEdit->text().toStdString());
 		params.push_back(ui->qtyEdit->text().toStdString());
 		params.push_back(ui->priceEdit->text().toStdString());
 		params.push_back(ui->descriptionEdit->toPlainText().toStdString());
 		params.push_back(ui->currencyEdit->currentText().toStdString());
+		params.push_back(ui->privateEdit->currentText() == QString("Yes")? "1": "0");
 		if(ui->certEdit->currentIndex() > 0)
 			params.push_back(ui->certEdit->itemData(ui->certEdit->currentIndex()).toString().toStdString());
 		try {
@@ -243,11 +335,6 @@ bool EditOfferDialog::saveCurrentRow()
 			Array arr = result.get_array();
 			string strResult = arr[0].get_str();
 			offer = ui->nameEdit->text();
-
-			QMessageBox::information(this, windowTitle(),
-            tr("New Offer created successfully! TXID: \"%1\"").arg(QString::fromStdString(strResult)),
-				QMessageBox::Ok, QMessageBox::Ok);
-				
 			
 		}
 		catch (Object& objError)
@@ -289,6 +376,7 @@ bool EditOfferDialog::saveCurrentRow()
 			params.push_back(ui->qtyEdit->text().toStdString());
 			params.push_back(ui->priceEdit->text().toStdString());
 			params.push_back(ui->descriptionEdit->toPlainText().toStdString());
+			params.push_back(ui->privateEdit->currentText() == QString("Yes")? "1": "0");
 			if(ui->certEdit->currentIndex() > 0)
 				params.push_back(ui->certEdit->itemData(ui->certEdit->currentIndex()).toString().toStdString());
 			try {
@@ -298,10 +386,6 @@ bool EditOfferDialog::saveCurrentRow()
 					string strResult = result.get_str();
 					offer = ui->nameEdit->text() + ui->offerEdit->text();
 
-					QMessageBox::information(this, windowTitle(),
-                    tr("Offer updated successfully! TXID: \"%1\"").arg(QString::fromStdString(strResult)),
-						QMessageBox::Ok, QMessageBox::Ok);
-						
 				}
 			}
 			catch (Object& objError)

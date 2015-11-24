@@ -20,7 +20,8 @@
 #include "alias.h"
 #include "offer.h"
 #include "cert.h"
-
+#include "escrow.h"
+#include "message.h"
 class CAccountingEntry;
 class CWalletTx;
 class CReserveKey;
@@ -245,7 +246,7 @@ public:
                     return true;
             }
         }
-        if (IsAliasMine(tx) || IsOfferMine(tx) || IsCertMine(tx)) return true;
+        if (IsAliasMine(tx) || IsOfferMine(tx) || IsCertMine(tx) || IsEscrowMine(tx) || IsMessageMine(tx)) return true;
         return false;
     }
     bool IsFromMe(const CTransaction& tx) const
@@ -345,6 +346,16 @@ public:
      * @note called with lock cs_wallet held.
      */
     boost::signals2::signal<void (CWallet *wallet, const CTransaction *txn,  ChangeType status)> NotifyCertListChanged;
+
+    /** Escrow list entry changed.
+     * @note called with lock cs_wallet held.
+     */
+    boost::signals2::signal<void (CWallet *wallet, const CTransaction *txn,  ChangeType status)> NotifyEscrowListChanged;
+
+    /** Message list entry changed.
+     * @note called with lock cs_wallet held.
+     */
+    boost::signals2::signal<void (CWallet *wallet, const CTransaction *txn,  ChangeType status)> NotifyMessageListChanged;
 
     /** Wallet transaction added, removed or updated.
      * @note called with lock cs_wallet held.

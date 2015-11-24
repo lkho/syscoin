@@ -10,6 +10,7 @@
 #include "bitcoingui.h"
 #include "bitcoinrpc.h"
 #include "editaliasdialog.h"
+#include "newmessagedialog.h"
 #include "csvmodelwriter.h"
 #include "guiutil.h"
 #include "ui_interface.h"
@@ -36,6 +37,7 @@ AliasListPage::AliasListPage(QWidget *parent) :
 #ifdef Q_OS_MAC // Icons on push buttons are very uncommon on Mac
     ui->copyAlias->setIcon(QIcon());
     ui->exportButton->setIcon(QIcon());
+	ui->messageButton->setIcon(QIcon());
 #endif
 
     ui->labelExplanation->setText(tr("Search for Syscoin Aliases. Select the number of results desired from the dropdown box and click Search."));
@@ -43,17 +45,19 @@ AliasListPage::AliasListPage(QWidget *parent) :
     // Context menu actions
     QAction *copyAliasAction = new QAction(ui->copyAlias->text(), this);
     QAction *copyAliasValueAction = new QAction(tr("&Copy Value"), this);
-
+	QAction *messageAction = new QAction(tr("&Send Message"), this);
 
     // Build context menu
     contextMenu = new QMenu();
     contextMenu->addAction(copyAliasAction);
     contextMenu->addAction(copyAliasValueAction);
-
+	contextMenu->addSeparator();
+	contextMenu->addAction(messageAction);
     // Connect signals for context menu actions
     connect(copyAliasAction, SIGNAL(triggered()), this, SLOT(on_copyAlias_clicked()));
     connect(copyAliasValueAction, SIGNAL(triggered()), this, SLOT(onCopyAliasValueAction()));
-   
+	connect(messageAction, SIGNAL(triggered()), this, SLOT(on_messageButton_clicked()));
+
     connect(ui->tableView, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(contextualMenu(QPoint)));
 
 
@@ -75,6 +79,7 @@ void AliasListPage::showEvent ( QShowEvent * event )
 		ui->labelExplanation->setOpenExternalLinks(true);
     }*/
 }
+
 void AliasListPage::setModel(WalletModel* walletModel, AliasTableModel *model)
 {
     this->model = model;
@@ -125,6 +130,24 @@ void AliasListPage::setOptionsModel(OptionsModel *optionsModel)
     this->optionsModel = optionsModel;
 }
 
+void AliasListPage::on_messageButton_clicked()
+{
+   
+ 	if(!model)	
+		return;
+	if(!ui->tableView->selectionModel())
+        return;
+    QModelIndexList selection = ui->tableView->selectionModel()->selectedRows();
+    if(selection.isEmpty())
+    {
+        return;
+    }
+	QString alias = selection.at(0).data(AliasTableModel::NameRole).toString();
+	// send message to seller
+	NewMessageDialog dlg(NewMessageDialog::NewMessage, alias);   
+	dlg.exec();
+}
+
 void AliasListPage::on_copyAlias_clicked()
 {
    
@@ -147,10 +170,12 @@ void AliasListPage::selectionChanged()
     if(table->selectionModel()->hasSelection())
     {
         ui->copyAlias->setEnabled(true);
+		ui->messageButton->setEnabled(true);
     }
     else
     {
         ui->copyAlias->setEnabled(false);
+		ui->messageButton->setEnabled(false);
     }
 }
 void AliasListPage::keyPressEvent(QKeyEvent * event)
@@ -332,7 +357,7 @@ void AliasListPage::on_searchAlias_clicked()
         else
         {
             QMessageBox::critical(this, windowTitle(),
-                tr("Error: Invalid response from aliasnew command"),
+                tr("Error: Invalid response from aliasfilter command"),
                 QMessageBox::Ok, QMessageBox::Ok);
             return;
         }

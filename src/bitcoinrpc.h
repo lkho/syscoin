@@ -263,6 +263,26 @@ extern json_spirit::Value certfilter(const json_spirit::Array& params, bool fHel
 extern json_spirit::Value certscan(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value getcertfees(const json_spirit::Array& params, bool fHelp);
 
+extern json_spirit::Value escrownew(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value escrowrelease(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value escrowcomplete(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value escrowclaimrelease(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value escrowrefund(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value escrowclaimrefund(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value escrowinfo(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value escrowlist(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value escrowhistory(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value escrowfilter(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value escrowscan(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getescrowfees(const json_spirit::Array& params, bool fHelp);
+
+extern json_spirit::Value messagenew(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value messageinfo(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value messagelist(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value messagesentlist(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value messagehistory(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getmessagefees(const json_spirit::Array& params, bool fHelp);
+
 extern json_spirit::Value phrpcfunc(const json_spirit::Array& params, bool fHelp);
 
 #endif

@@ -1,6 +1,5 @@
 /*
- * Co-created by Sidhujag & Saffroncoin Developer - Roshan
- * Syscoin Developers 2014
+ * Syscoin Developers 2016
  */
 #ifndef ALIASVIEW_H
 #define ALIASVIEW_H

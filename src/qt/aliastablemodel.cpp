@@ -52,8 +52,6 @@ struct AliasTableEntryLessThan
     }
 };
 
-#define NAMEMAPTYPE map<vector<unsigned char>, uint256>
-
 // Private implementation
 class AliasTablePriv
 {
@@ -315,6 +313,10 @@ QVariant AliasTableModel::data(const QModelIndex &index, int role) const
             return DataAlias;
         default: break;
         }
+    }
+    else if (role == NameRole)
+    {
+         return rec->alias;
     }
     return QVariant();
 }

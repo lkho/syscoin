@@ -115,7 +115,9 @@ OBJS= \
     obj/txdb.o \
     obj/alias.o \
     obj/offer.o \
-    obj/cert.o
+    obj/cert.o \
+    obj/escrow.o \
+    obj/message.o
 
 ifdef USE_SSE2
 DEFS += -DUSE_SSE2

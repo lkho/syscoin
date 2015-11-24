@@ -42,8 +42,6 @@ struct OfferWhitelistTableEntryLessThan
     }
 };
 
-#define NAMEMAPTYPE map<vector<unsigned char>, uint256>
-
 // Private implementation
 class OfferWhitelistTablePriv
 {

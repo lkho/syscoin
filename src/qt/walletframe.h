@@ -50,8 +50,8 @@ public slots:
     void gotoAddressBookPage();
     /** Switch to address book page */
     void gotoAliasListPage();
-    /** Switch to address book page */
-    void gotoDataAliasListPage();
+    void gotoEscrowListPage();
+    void gotoMessageListPage();
     /** Switch to offer list page */
     void gotoOfferListPage();
         /** Switch to cert  list page */
