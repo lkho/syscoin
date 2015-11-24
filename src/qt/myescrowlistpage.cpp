@@ -33,7 +33,6 @@ MyEscrowListPage::MyEscrowListPage(QWidget *parent) :
     ui->setupUi(this);
 
 #ifdef Q_OS_MAC // Icons on push buttons are very uncommon on Mac
-    ui->newEscrow->setIcon(QIcon());
     ui->copyEscrow->setIcon(QIcon());
     ui->exportButton->setIcon(QIcon());
 	ui->refreshButton->setIcon(QIcon());
