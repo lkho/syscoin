@@ -282,6 +282,10 @@ QVariant MessageTableModel::data(const QModelIndex &index, int role) const
         }
         return font;
     }
+    else if (role == ToRole)
+    {
+        return rec->to;
+    }
     return QVariant();
 }
 

@@ -863,11 +863,11 @@ bool CheckMessageInputs(CBlockIndex *pindexBlock, const CTransaction &tx,
 		{
 			return error("message to too big");
 		}
-		if(theMessage.vchMessageTo.size() > MAX_VALUE_LENGTH)
+		if(theMessage.vchMessageTo.size() > MAX_MSG_LENGTH)
 		{
 			return error("message data to too big");
 		}
-		if(theMessage.vchMessageFrom.size() > MAX_VALUE_LENGTH)
+		if(theMessage.vchMessageFrom.size() > MAX_MSG_LENGTH)
 		{
 			return error("message data from too big");
 		}
@@ -986,8 +986,7 @@ Value messagenew(const Array& params, bool fHelp) {
 	vector<unsigned char> vchMyMessage = vchFromValue(params[1]);
 	vector<unsigned char> vchFromAliasOrPubKey = vchFromValue(params[2]);
 	vector<unsigned char> vchToAliasOrPubKey = vchFromValue(params[3]);
-    if (vchMyMessage.size() > MAX_VALUE_LENGTH)
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Message data cannot exceed 1023 bytes!");
+
 	string strFromAddress = params[2].get_str();
 	string strToAddress = params[3].get_str();
 	CBitcoinAddress fromAddress;
@@ -1096,6 +1095,10 @@ Value messagenew(const Array& params, bool fHelp) {
 	{
 		throw JSONRPCError(RPC_WALLET_ERROR, "Could not encrypt message data for sender!");
 	}
+    if (strCipherTextFrom.size() > MAX_MSG_LENGTH)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Message data cannot exceed 16383 bytes!");
+    if (strCipherTextTo.size() > MAX_MSG_LENGTH)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Message data cannot exceed 16383 bytes!");
 
     vector< pair<CScript, int64> > vecSend;
 	vecSend.push_back(make_pair(scriptPubKey, MIN_AMOUNT));

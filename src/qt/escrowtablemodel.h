@@ -24,8 +24,8 @@ public:
     enum ColumnIndex {
         Escrow = 0,  
 		Time = 1,  
-        Arbiter = 2,  
-		Seller = 3,
+        Arbiter = 3,  
+		Seller = 2,
 		Offer = 4,
 		OfferAccept = 5,
 		Total = 6,

@@ -274,8 +274,8 @@ void EditOfferDialog::loadRow(int row)
 		}
 		if(indexAlias.isValid())
 		{
-			QString currencyStr = indexAlias.data(OfferTableModel::AliasRole).toString();
-			ui->aliasEdit->setCurrentIndex(ui->aliasEdit->findText(currencyStr));
+			QString aliasStr = indexAlias.data(OfferTableModel::AliasRole).toString();
+			ui->aliasEdit->setCurrentIndex(ui->aliasEdit->findText(aliasStr));
 		}
 	}
 }

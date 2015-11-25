@@ -68,8 +68,8 @@ void OutMessageListPage::on_detailButton_clicked()
     {
         MessageInfoDialog dlg;
 		QModelIndex origIndex = proxyModel->mapToSource(selection.at(0));
-		dlg.loadRow(origIndex.row());
 		dlg.setModel(walletModel, model);	
+		dlg.loadRow(origIndex.row());
         dlg.exec();
     }
 }

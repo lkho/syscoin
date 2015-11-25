@@ -21,8 +21,7 @@ NewMessageDialog::NewMessageDialog(Mode mode, const QString &to, QWidget *parent
     ui(new Ui::NewMessageDialog), mapper(0), mode(mode), model(0), walletModel(0)
 {
     ui->setupUi(this);
-
-    GUIUtil::setupAddressWidget(ui->fromEdit, this);
+	loadAliases();
 	GUIUtil::setupAddressWidget(ui->toEdit, this);
 	if(to != QString(""))
 	{
@@ -42,7 +41,7 @@ NewMessageDialog::NewMessageDialog(Mode mode, const QString &to, QWidget *parent
 		ui->replyEdit->setVisible(true);
 		ui->replyLabel->setVisible(true);
 		ui->toEdit->setEnabled(false);
-		ui->fromEdit->setEnabled(false);
+		ui->aliasEdit->setEnabled(false);
         break;
 	}
     mapper = new QDataWidgetMapper(this);
@@ -54,6 +53,68 @@ NewMessageDialog::~NewMessageDialog()
     delete ui;
 }
 
+void NewMessageDialog::loadAliases()
+{
+	ui->aliasEdit->clear();
+	string strMethod = string("aliaslist");
+    Array params; 
+	Value result ;
+	string name_str;
+	int expired = 0;
+	
+	try {
+		result = tableRPC.execute(strMethod, params);
+
+		if (result.type() == array_type)
+		{
+			name_str = "";
+			expired = 0;
+
+
+	
+			Array arr = result.get_array();
+			BOOST_FOREACH(Value& input, arr)
+			{
+				if (input.type() != obj_type)
+					continue;
+				Object& o = input.get_obj();
+				name_str = "";
+
+				expired = 0;
+
+
+		
+				const Value& name_value = find_value(o, "name");
+				if (name_value.type() == str_type)
+					name_str = name_value.get_str();		
+				const Value& expired_value = find_value(o, "expired");
+				if (expired_value.type() == int_type)
+					expired = expired_value.get_int();
+				
+				if(expired == 0)
+				{
+					QString name = QString::fromStdString(name_str);
+					ui->aliasEdit->addItem(name);					
+				}
+				
+			}
+		}
+	}
+	catch (Object& objError)
+	{
+		string strError = find_value(objError, "message").get_str();
+		QMessageBox::critical(this, windowTitle(),
+			tr("Could not refresh cert list: %1").arg(QString::fromStdString(strError)),
+				QMessageBox::Ok, QMessageBox::Ok);
+	}
+	catch(std::exception& e)
+	{
+		QMessageBox::critical(this, windowTitle(),
+			tr("There was an exception trying to refresh the cert list: ") + QString::fromStdString(e.what()),
+				QMessageBox::Ok, QMessageBox::Ok);
+	}         
+ 
+}
 void NewMessageDialog::setModel(WalletModel* walletModel, MessageTableModel *model)
 {
     this->model = model;
@@ -63,14 +124,24 @@ void NewMessageDialog::setModel(WalletModel* walletModel, MessageTableModel *mod
     mapper->setModel(model);
 	mapper->addMapping(ui->replyEdit, MessageTableModel::Message);
     mapper->addMapping(ui->toEdit, MessageTableModel::From);
-    mapper->addMapping(ui->fromEdit, MessageTableModel::To);
 	mapper->addMapping(ui->topicEdit, MessageTableModel::Subject); 
 }
 
 void NewMessageDialog::loadRow(int row)
 {
-	if(mode == ReplyMessage)
-		mapper->setCurrentIndex(row);
+	const QModelIndex tmpIndex;
+	if(model)
+	{
+		if(mode == ReplyMessage)	
+			mapper->setCurrentIndex(row);
+		QModelIndex indexAlias = model->index(row, MessageTableModel::To, tmpIndex);
+		if(indexAlias.isValid())
+		{
+			QString aliasStr = indexAlias.data(MessageTableModel::ToRole).toString();
+			ui->aliasEdit->setCurrentIndex(ui->aliasEdit->findText(aliasStr));
+		}
+	}
+
 }
 
 bool NewMessageDialog::saveCurrentRow()
@@ -112,7 +183,7 @@ bool NewMessageDialog::saveCurrentRow()
 		strMethod = string("messagenew");
 		params.push_back(ui->topicEdit->text().toStdString());
 		params.push_back(ui->messageEdit->toPlainText().trimmed().toStdString());
-		params.push_back(ui->fromEdit->text().toStdString());
+		params.push_back(ui->aliasEdit->currentText().toStdString());
 		params.push_back(ui->toEdit->text().toStdString());
 		
 
@@ -120,7 +191,7 @@ bool NewMessageDialog::saveCurrentRow()
             Value result = tableRPC.execute(strMethod, params);
 			if (result.type() != null_type)
 			{
-				message = ui->fromEdit->text() + ui->messageEdit->toPlainText();	
+				message = ui->messageEdit->toPlainText();	
 			}
 		}
 		catch (Object& objError)
@@ -162,14 +233,14 @@ bool NewMessageDialog::saveCurrentRow()
 			strMethod = string("messagenew");
 			params.push_back(ui->topicEdit->text().toStdString());
 			params.push_back(ui->messageEdit->toPlainText().trimmed().toStdString());
-			params.push_back(ui->fromEdit->text().toStdString());
+			params.push_back(ui->aliasEdit->currentText().toStdString());
 			params.push_back(ui->toEdit->text().toStdString());
 			
 			try {
 				Value result = tableRPC.execute(strMethod, params);
 				if (result.type() != null_type)
 				{
-					message = ui->fromEdit->text() + ui->messageEdit->toPlainText();	
+					message = ui->messageEdit->toPlainText();	
 				}
 			}
 			catch (Object& objError)

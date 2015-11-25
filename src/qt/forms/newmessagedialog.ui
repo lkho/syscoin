@@ -24,16 +24,6 @@
        <property name="text">
         <string>From:</string>
        </property>
-       <property name="buddy">
-        <cstring>fromEdit</cstring>
-       </property>
-      </widget>
-     </item>
-     <item row="0" column="1">
-      <widget class="QLineEdit" name="fromEdit">
-       <property name="toolTip">
-        <string>The value associated with this certificate.</string>
-       </property>
       </widget>
      </item>
      <item row="1" column="0">
@@ -115,6 +105,9 @@
      </item>
      <item row="10" column="1">
       <widget class="QPlainTextEdit" name="messageEdit"/>
+     </item>
+     <item row="0" column="1">
+      <widget class="QComboBox" name="aliasEdit"/>
      </item>
     </layout>
    </item>

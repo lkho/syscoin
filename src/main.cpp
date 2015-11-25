@@ -2033,10 +2033,6 @@ bool DisconnectAlias( CBlockIndex *pindex, const CTransaction &tx, int op, vecto
 	// vtxPos might be empty if we pruned expired transactions.  However, it should normally still not
 	// be empty, since a reorg cannot go that far back.  Be safe anyway and do not try to pop if empty.
 	if (vtxPos.size()) {
-		CDiskTxPos txindex;
-		if (!pblocktree->ReadTxIndex(tx.GetHash(), txindex))
-			return error("DisconnectBlock() : failed to read tx index for %s %s %s\n",
-					opName.c_str(), stringFromVch(vvchArgs[0]).c_str(), tx.GetHash().ToString().c_str());
 		if (vtxPos.back().txHash == tx.GetHash())
 			vtxPos.pop_back();
 		// TODO validate that the first pos is the current tx pos
@@ -2087,12 +2083,7 @@ bool DisconnectOffer( CBlockIndex *pindex, const CTransaction &tx, int op, vecto
     // vtxPos might be empty if we pruned expired transactions.  However, it should normally still not
     // be empty, since a reorg cannot go that far back.  Be safe anyway and do not try to pop if empty.
     if (vtxPos.size()) {
-        CDiskTxPos txindex;
-        if (!pblocktree->ReadTxIndex(tx.GetHash(), txindex))
-            return error("DisconnectBlock() : failed to read tx index for offer %s %s %s\n",
-            		opName.c_str(), stringFromVch(vvchArgs[0]).c_str(), tx.GetHash().ToString().c_str());
-
-        while(vtxPos.back().txHash == tx.GetHash())
+        if(vtxPos.back().txHash == tx.GetHash())
             vtxPos.pop_back();
     }
 
@@ -2128,11 +2119,7 @@ bool DisconnectCertificate( CBlockIndex *pindex, const CTransaction &tx, int op,
 	// vtxPos might be empty if we pruned expired transactions.  However, it should normally still not
 	// be empty, since a reorg cannot go that far back.  Be safe anyway and do not try to pop if empty.
 	if (vtxPos.size()) {
-		CDiskTxPos txindex;
-		if (!pblocktree->ReadTxIndex(tx.GetHash(), txindex))
-			return error("DisconnectBlock() : failed to read tx index for offer %s %s %s\n",
-					opName.c_str(), stringFromVch(vvchArgs[0]).c_str(), tx.GetHash().ToString().c_str());
-		while(vtxPos.back().txHash == tx.GetHash())
+		if(vtxPos.back().txHash == tx.GetHash())
 			vtxPos.pop_back();
 		// TODO validate that the first pos is the current tx pos
 	}
@@ -2167,11 +2154,7 @@ bool DisconnectEscrow( CBlockIndex *pindex, const CTransaction &tx, int op, vect
 	// vtxPos might be empty if we pruned expired transactions.  However, it should normally still not
 	// be empty, since a reorg cannot go that far back.  Be safe anyway and do not try to pop if empty.
 	if (vtxPos.size()) {
-		CDiskTxPos txindex;
-		if (!pblocktree->ReadTxIndex(tx.GetHash(), txindex))
-			return error("DisconnectBlock() : failed to read tx index for offer %s %s %s\n",
-					opName.c_str(), stringFromVch(vvchArgs[0]).c_str(), tx.GetHash().ToString().c_str());
-		while(vtxPos.back().txHash == tx.GetHash())
+		if(vtxPos.back().txHash == tx.GetHash())
 			vtxPos.pop_back();
 		// TODO validate that the first pos is the current tx pos
 	}
@@ -2206,11 +2189,7 @@ bool DisconnectMessage( CBlockIndex *pindex, const CTransaction &tx, int op, vec
 	// vtxPos might be empty if we pruned expired transactions.  However, it should normally still not
 	// be empty, since a reorg cannot go that far back.  Be safe anyway and do not try to pop if empty.
 	if (vtxPos.size()) {
-		CDiskTxPos txindex;
-		if (!pblocktree->ReadTxIndex(tx.GetHash(), txindex))
-			return error("DisconnectBlock() : failed to read tx index for offer %s %s %s\n",
-					opName.c_str(), stringFromVch(vvchArgs[0]).c_str(), tx.GetHash().ToString().c_str());
-		while(vtxPos.back().txHash == tx.GetHash())
+		if(vtxPos.back().txHash == tx.GetHash())
 			vtxPos.pop_back();
 		// TODO validate that the first pos is the current tx pos
 	}

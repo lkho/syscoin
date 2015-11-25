@@ -35,7 +35,7 @@ public slots:
 
 private:
     bool saveCurrentRow();
-
+	void loadAliases();
     Ui::NewMessageDialog *ui;
     QDataWidgetMapper *mapper;
     Mode mode;
