@@ -163,7 +163,7 @@ void MyCertListPage::onCopyCertValueAction()
     GUIUtil::copyEntryData(ui->tableView, CertTableModel::Title);
 }
 
-void MyCertListPage::onEditAction()
+void MyCertListPage::on_editButton_clicked()
 {
     if(!ui->tableView->selectionModel())
         return;
@@ -178,7 +178,7 @@ void MyCertListPage::onEditAction()
     dlg.exec();
 }
 
-void MyCertListPage::onTransferCertAction()
+void MyCertListPage::on_transferButton_clicked()
 {
     if(!ui->tableView->selectionModel())
         return;

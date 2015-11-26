@@ -60,11 +60,11 @@ private slots:
     /** Copy value of currently selected cert entry to clipboard (no button) */
     void onCopyCertValueAction();
     /** Edit currently selected cert entry (no button) */
-    void onEditAction();
+    void on_editButton_clicked();
     /** Export button clicked */
     void on_exportButton_clicked();
     /** transfer the cert to a syscoin address  */
-    void onTransferCertAction();
+    void on_transferButton_clicked();
 	void on_refreshButton_clicked();
 
     /** Set button states based on selected tab and selection */
