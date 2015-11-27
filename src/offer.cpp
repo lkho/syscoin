@@ -2490,6 +2490,7 @@ Value offerupdate(const Array& params, bool fHelp) {
 	vector<unsigned char> vchTitle = vchFromValue(params[2]);
 	vector<unsigned char> vchDesc;
 	vector<unsigned char> vchCert;
+	vector<unsigned char> vchOldCert;
 	bool bExclusiveResell = true;
 	int bPrivate = false;
 	unsigned int nQty;
@@ -2585,6 +2586,7 @@ Value offerupdate(const Array& params, bool fHelp) {
 	unsigned int memPoolQty = QtyOfPendingAcceptsInMempool(vchOffer);
 	if((nQty-memPoolQty) < 0)
 		throw runtime_error("not enough remaining quantity to fulfill this offerupdate"); // SS i think needs better msg
+	vchOldCert = theOffer.vchCert;
 	if(vchCert.empty())
 	{
 		theOffer.nQty = nQty;
@@ -2636,6 +2638,7 @@ Value offerupdate(const Array& params, bool fHelp) {
 				<< OP_2DROP << OP_DROP;
 		scriptPubKey += scriptPubKeyOrig;
 
+
 		int64 nNetFee = GetCertNetworkFee(OP_CERT_UPDATE, nBestHeight);
 		theCert.nHeight = nBestHeight;
 		if(vchCert.empty())
@@ -2650,6 +2653,40 @@ Value offerupdate(const Array& params, bool fHelp) {
 				wtxCertIn, wtx, false, theCert.SerializeToString());
 		if (strError != "")
 			throw JSONRPCError(RPC_WALLET_ERROR, strError);
+
+		// updating from one cert to another, need to update both certs in this case
+		if(!vchOldCert.empty() && !theOffer.vchCert.empty() && theOffer.vchCert != vchOldCert)
+		{
+			// this offer changed certs so remove offer link from old cert
+			CTransaction txOldCert;
+			CWalletTx wtxold, wtxCertOldIn;
+			wtxold.nVersion = SYSCOIN_TX_VERSION;
+			CCert theOldCert;
+			// make sure this cert is still valid
+			if (GetTxOfCert(*pcertdb, vchOldCert, theOldCert, txOldCert))
+			{
+				// make sure its in your wallet (you control this cert)		
+				if (!IsCertMine(txOldCert) || !pwalletMain->GetTransaction(txOldCert.GetHash(), wtxCertOldIn))
+				{
+					throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot update this offer because old certificate is not yours!");
+				}			
+			}
+			else
+				throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot find old certificate!");
+			// create CERTUPDTE txn keys
+			CScript scriptOldPubKey, scriptPubKeyOld;
+			pwalletMain->GetKeyFromPool(newDefaultKey, false);
+			scriptPubKeyOld.SetDestination(newDefaultKey.GetID());
+			scriptOldPubKey << CScript::EncodeOP_N(OP_CERT_UPDATE) << theOldCert.vchRand << theOldCert.vchTitle
+					<< OP_2DROP << OP_DROP;
+			scriptOldPubKey += scriptPubKeyOld;
+			// clear the offer link, this is the only change we are making to this cert
+			theOldCert.vchOfferLink.clear();
+			strError = SendCertMoneyWithInputTx(scriptOldPubKey, MIN_AMOUNT, nNetFee,
+					wtxCertOldIn, wtxold, false, theOldCert.SerializeToString());
+			if (strError != "")
+				throw JSONRPCError(RPC_WALLET_ERROR, strError);
+		}
 	}
 	theOffer.nHeight = nBestHeight;
 	theOffer.SetPrice(price);

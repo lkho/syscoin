@@ -102,7 +102,7 @@
       <string/>
      </property>
      <property name="pixmap">
-      <pixmap resource="../bitcoin.qrc">:/images/splash</pixmap>
+      <pixmap resource="../bitcoin.qrc">:/images/res/images/about.png</pixmap>
      </property>
      <property name="alignment">
       <set>Qt::AlignCenter</set>

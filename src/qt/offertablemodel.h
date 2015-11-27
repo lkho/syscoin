@@ -59,7 +59,7 @@ public:
         WALLET_UNLOCK_FAILURE  /**< Wallet could not be unlocked */
     };
 
-    static const QString Offer;      /**< Specifies offerificate  */
+    static const QString Offer;      /**< Specifies Offer's  */
 
     /** @name Methods overridden from QAbstractTableModel
         @{*/

@@ -4032,46 +4032,31 @@ void static ProcessGetData(CNode* pfrom) {
 					send = false;
 				}
 				if (send) {
-					// Send block from disk
 					CBlock block;
 					block.ReadFromDisk((*mi).second);
 					if (inv.type == MSG_BLOCK)
-					{
-						uint32_t nBlockBytes = ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION);
-
-						if (vMultiBlock.size() >= MAX_MULTI_BLOCK_ELEMENTS
-							|| nMultiBlockBytes + nBlockBytes > MAX_MULTI_BLOCK_SIZE)
-						{
-							pfrom->PushMessage("mblk", vMultiBlock);
-							vMultiBlock.clear();
-							nMultiBlockBytes = 0;
-						}
-
-						vMultiBlock.push_back(block);
-						nMultiBlockBytes += nBlockBytes;
-					}
+						pfrom->PushMessage("block", block);
 					else // MSG_FILTERED_BLOCK)
 					{
 						LOCK(pfrom->cs_filter);
 						if (pfrom->pfilter) {
 							CMerkleBlock merkleBlock(block, *pfrom->pfilter);
+							pfrom->PushMessage("merkleblock", merkleBlock);
+							// CMerkleBlock just contains hashes, so also push any transactions in the block the client did not see
+							// This avoids hurting performance by pointlessly requiring a round-trip
+							// Note that there is currently no way for a node to request any single transactions we didnt send here -
+							// they must either disconnect and retry or request the full block.
+							// Thus, the protocol spec specified allows for us to provide duplicate txn here,
+							// however we MUST always provide at least what the remote peer needs
 							typedef std::pair<unsigned int, uint256> PairType;
-                            pfrom->PushMessage("merkleblock", merkleBlock);
-
-                            // CMerkleBlock just contains hashes, so also push any transactions in the block the client did not see
-                            // This avoids hurting performance by pointlessly requiring a round-trip
-                            // Note that there is currently no way for a node to request any single transactions we didnt send here -
-                            // they must either disconnect and retry or request the full block.
-                            // Thus, the protocol spec specified allows for us to provide duplicate txn here,
-                            // however we MUST always provide at least what the remote peer needs
-                            BOOST_FOREACH(PairType& pair, merkleBlock.vMatchedTxn)
-                            {
-                                if (!pfrom->setInventoryKnown.count(CInv(MSG_TX, pair.second)))
-                                {
-                                    pfrom->PushMessage("tx", block.vtx[pair.first]);
-                                };
-                            };
+							BOOST_FOREACH(PairType& pair, merkleBlock.vMatchedTxn)
+								if (!pfrom->setInventoryKnown.count(
+										CInv(MSG_TX, pair.second)))
+									pfrom->PushMessage("tx",
+											block.vtx[pair.first]);
 						}
+						// else
+						// no response
 					}
 
 					// Trigger them to send a getblocks request for the next batch of inventory
@@ -4114,16 +4099,8 @@ void static ProcessGetData(CNode* pfrom) {
 
 			// Track requests for our stuff.
 			Inventory(inv.hash);
-
-			// -- break here to give chance to process other messages
-			//    ProcessGetData will be called again in ProcessMessages
-			if (vMultiBlock.size() >= MAX_MULTI_BLOCK_ELEMENTS)
-			{
-				pfrom->PushMessage("mblk", vMultiBlock);
-				vMultiBlock.clear();
-				break;
-			};
-			
+			if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK)
+				break;		
 		}
 	}
     if (vMultiBlock.size() > 0)
@@ -4536,42 +4513,6 @@ bool static ProcessMessage(CNode* pfrom, string strCommand,
 				pfrom->Misbehaving(nDoS);
 		}
 	}
-	else  if (strCommand == "mblk")
-    {
-        std::vector<CBlock> vBlocks;
-        vRecv >> vBlocks;
-        uint32_t nBlocks = vBlocks.size();
-
-        if (nBlocks > MAX_MULTI_BLOCK_ELEMENTS)
-        {
-            printf("Warning: Peer sent too many blocks in mblk %u.\n", vRecv.size());
-            pfrom->Misbehaving(10);
-            return false;
-        };
-
-        printf("Received mblk %d\n", nBlocks);
-
-        for (uint32_t i = 0; i < nBlocks; ++i)
-        {
-            CBlock &block = vBlocks[i];
-
-            uint256 hashBlock = block.GetHash();
-            CInv inv(MSG_BLOCK, hashBlock);
-            pfrom->AddInventoryKnown(inv);
-
-			CValidationState state;
-			if (ProcessBlock(state, pfrom, &block) || state.CorruptionPossible())
-				mapAlreadyAskedFor.erase(inv);
-			int nDoS = 0;
-			if (state.IsInvalid(nDoS))
-				if (nDoS > 0)
-					pfrom->Misbehaving(nDoS);
-             
-
-        };
-
-
-    }
 	else if (strCommand == "block" && !fImporting && !fReindex) // Ignore blocks received while importing
 		{
 

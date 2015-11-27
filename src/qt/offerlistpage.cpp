@@ -73,7 +73,7 @@ OfferListPage::OfferListPage(OfferView *parent) :
     connect(ui->tableView, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(contextualMenu(QPoint)));
 
 
-	ui->lineEditOfferSearch->setPlaceholderText(tr("Enter search term, regex accepted (ie: ^name returns all Offerificates starting with 'name'). Empty will search for all."));
+	ui->lineEditOfferSearch->setPlaceholderText(tr("Enter search term, regex accepted (ie: ^name returns all Offer's starting with 'name'). Empty will search for all."));
 }
 
 OfferListPage::~OfferListPage()
