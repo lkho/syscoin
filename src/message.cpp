@@ -1158,7 +1158,7 @@ Value messageinfo(const Array& params, bool fHelp) {
     Object oMessage;
     vector<unsigned char> vchValue;
 
-	if (!pmessagedb->ReadMessage(vchRand, vtxPos))
+	if (!pmessagedb->ReadMessage(vchRand, vtxPos) || vtxPos.empty())
 		  throw JSONRPCError(RPC_WALLET_ERROR, "failed to read from message DB");
 	CMessage ca = vtxPos.back();
 
@@ -1226,7 +1226,7 @@ Value messagelist(const Array& params, bool fHelp) {
 			continue;
 
 		vector<CMessage> vtxPos;
-		if (!pmessagedb->ReadMessage(vchName, vtxPos))
+		if (!pmessagedb->ReadMessage(vchName, vtxPos) || vtxPos.empty())
 			continue;
 		CMessage message = vtxPos.back();
 		if (!GetTransaction(message.txHash, tx, blockHash, true))
@@ -1298,7 +1298,7 @@ Value messagesentlist(const Array& params, bool fHelp) {
 			continue;
 
 		vector<CMessage> vtxPos;
-		if (!pmessagedb->ReadMessage(vchName, vtxPos))
+		if (!pmessagedb->ReadMessage(vchName, vtxPos) || vtxPos.empty())
 			continue;
 		CMessage message = vtxPos.back();
 		if (!GetTransaction(message.txHash, tx, blockHash, true))
@@ -1340,7 +1340,7 @@ Value messagehistory(const Array& params, bool fHelp) {
 
     {
         vector<CMessage> vtxPos;
-        if (!pmessagedb->ReadMessage(vchMessage, vtxPos))
+        if (!pmessagedb->ReadMessage(vchMessage, vtxPos) || vtxPos.empty())
             throw JSONRPCError(RPC_WALLET_ERROR,
                     "failed to read from message DB");
 

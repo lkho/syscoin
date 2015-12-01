@@ -777,7 +777,7 @@ bool GetTxOfOfferAccept(COfferDB& dbOffer, const vector<unsigned char> &vchOffer
 	vector<COffer> vtxPos;
 	vector<unsigned char> vchOffer;
 	if (!pofferdb->ReadOfferAccept(vchOfferAccept, vchOffer)) return false;
-	if (!pofferdb->ReadOffer(vchOffer, vtxPos)) return false;
+	if (!pofferdb->ReadOffer(vchOffer, vtxPos) || vtxPos.empty()) return false;
 	txPos = vtxPos.back();
 	int nHeight = txPos.nHeight;
 	if (nHeight + GetOfferExpirationDepth()
@@ -2249,7 +2249,7 @@ Value offeraddwhitelist(const Array& params, bool fHelp) {
 
 	// get the offer from DB
 	vector<COffer> vtxPos;
-	if (!pofferdb->ReadOffer(vchOffer, vtxPos))
+	if (!pofferdb->ReadOffer(vchOffer, vtxPos) || vtxPos.empty())
 		throw runtime_error("could not read offer from DB");
 
 	theOffer = vtxPos.back();
@@ -2333,7 +2333,7 @@ Value offerremovewhitelist(const Array& params, bool fHelp) {
 
 	// get the offer from DB
 	vector<COffer> vtxPos;
-	if (!pofferdb->ReadOffer(vchOffer, vtxPos))
+	if (!pofferdb->ReadOffer(vchOffer, vtxPos) || vtxPos.empty())
 		throw runtime_error("could not read offer from DB");
 
 	theOffer = vtxPos.back();
@@ -2407,7 +2407,7 @@ Value offerclearwhitelist(const Array& params, bool fHelp) {
 
 	// get the offer from DB
 	vector<COffer> vtxPos;
-	if (!pofferdb->ReadOffer(vchOffer, vtxPos))
+	if (!pofferdb->ReadOffer(vchOffer, vtxPos) || vtxPos.empty()) 
 		throw runtime_error("could not read offer from DB");
 
 	theOffer = vtxPos.back();
@@ -2562,7 +2562,7 @@ Value offerupdate(const Array& params, bool fHelp) {
 
 	// get the offer from DB
 	vector<COffer> vtxPos;
-	if (!pofferdb->ReadOffer(vchOffer, vtxPos))
+	if (!pofferdb->ReadOffer(vchOffer, vtxPos) || vtxPos.empty())
 		throw runtime_error("could not read offer from DB");
 
 	theOffer = vtxPos.back();
@@ -3525,7 +3525,7 @@ Value offerhistory(const Array& params, bool fHelp) {
 		//vector<CDiskTxPos> vtxPos;
 		vector<COffer> vtxPos;
 		//COfferDB dbOffer("r");
-		if (!pofferdb->ReadOffer(vchOffer, vtxPos))
+		if (!pofferdb->ReadOffer(vchOffer, vtxPos) || vtxPos.empty())
 			throw JSONRPCError(RPC_WALLET_ERROR,
 					"failed to read from offer DB");
 

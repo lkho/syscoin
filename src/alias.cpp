@@ -53,7 +53,7 @@ string getCurrencyToSYSFromAlias(const vector<unsigned char> &vchCurrency, int64
 	string currencyCodeToFind = stringFromVch(vchCurrency);
 	// check for alias existence in DB
 	vector<CAliasIndex> vtxPos;
-	if (!paliasdb->ReadAlias(vchName, vtxPos))
+	if (!paliasdb->ReadAlias(vchName, vtxPos) || vtxPos.empty())
 	{
 		if(fDebug)
 			printf("getCurrencyToSYSFromAlias() Could not find SYS_RATES alias\n");
@@ -1521,7 +1521,7 @@ Value aliashistory(const Array& params, bool fHelp) {
 
 	{
 		vector<CAliasIndex> vtxPos;
-		if (!paliasdb->ReadAlias(vchName, vtxPos))
+		if (!paliasdb->ReadAlias(vchName, vtxPos) || vtxPos.empty())
 			throw JSONRPCError(RPC_WALLET_ERROR,
 					"failed to read from alias DB");
 

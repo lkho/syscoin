@@ -1278,7 +1278,7 @@ Value certupdate(const Array& params, bool fHelp) {
 
     // get the cert from DB
     vector<CCert> vtxPos;
-    if (!pcertdb->ReadCert(vchCert, vtxPos))
+    if (!pcertdb->ReadCert(vchCert, vtxPos) || vtxPos.empty())
         throw runtime_error("could not read cert from DB");
     theCert = vtxPos.back();
 
@@ -1417,7 +1417,7 @@ Value certtransfer(const Array& params, bool fHelp) {
 
 	// get the cert from DB
 	vector<CCert> vtxPos;
-	if (!pcertdb->ReadCert(vchCert, vtxPos))
+	if (!pcertdb->ReadCert(vchCert, vtxPos) || vtxPos.empty())
 		throw runtime_error("could not read cert from DB");
 	theCert = vtxPos.back();
 
@@ -1493,7 +1493,7 @@ Value certinfo(const Array& params, bool fHelp) {
     Object oCert;
     vector<unsigned char> vchValue;
 
-	if (!pcertdb->ReadCert(vchCert, vtxPos))
+	if (!pcertdb->ReadCert(vchCert, vtxPos) || vtxPos.empty())
 		  throw JSONRPCError(RPC_WALLET_ERROR, "failed to read from cert DB");
 	CCert ca = vtxPos.back();
 
@@ -1594,7 +1594,7 @@ Value certlist(const Array& params, bool fHelp) {
 		if (vNamesI.find(vchName) != vNamesI.end() && (nHeight < vNamesI[vchName] || vNamesI[vchName] < 0))
 			continue;
 		vector<CCert> vtxPos;
-		if (!pcertdb->ReadCert(vchName, vtxPos))
+		if (!pcertdb->ReadCert(vchName, vtxPos) || vtxPos.empty())
 			continue;
 		CCert cert = vtxPos.back();
 		if (!GetTransaction(cert.txHash, tx, blockHash, true))
@@ -1656,7 +1656,7 @@ Value certhistory(const Array& params, bool fHelp) {
 
     {
         vector<CCert> vtxPos;
-        if (!pcertdb->ReadCert(vchCert, vtxPos))
+        if (!pcertdb->ReadCert(vchCert, vtxPos) || vtxPos.empty())
             throw JSONRPCError(RPC_WALLET_ERROR,
                     "failed to read from cert DB");
 

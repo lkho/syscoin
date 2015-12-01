@@ -2064,6 +2064,15 @@ bool DisconnectOffer( CBlockIndex *pindex, const CTransaction &tx, int op, vecto
         return error("DisconnectBlock() : failed to read from offer DB for %s %s\n",
         		opName.c_str(), stringFromVch(vvchArgs[0]).c_str());
 
+	// vtxPos might be empty if we pruned expired transactions.  However, it should normally still not
+	// be empty, since a reorg cannot go that far back.  Be safe anyway and do not try to pop if empty.
+	if (vtxPos.size()) {
+		if(vtxPos.back().txHash == tx.GetHash())
+			vtxPos.pop_back();
+		// TODO validate that the first pos is the current tx pos
+	}
+
+
     if(op == OP_OFFER_ACCEPT ) {
     	vector<unsigned char> vvchOfferAccept = vvchArgs[1];
     	COfferAccept theOfferAccept;
@@ -2655,6 +2664,7 @@ bool SetBestChain(CValidationState &state, CBlockIndex* pindexNew) {
 	assert(pofferdb->Flush());
 	assert(pcertdb->Flush());
 	assert(pescrowdb->Flush());
+	assert(pmessagedb->Flush());
 	int64 nTime = GetTimeMicros() - nStart;
 	if (fBenchmark)
 		printf("- Flush %i transactions: %.2fms (%.4fms/tx)\n", nModified,

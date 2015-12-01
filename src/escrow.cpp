@@ -2260,7 +2260,7 @@ Value escrowinfo(const Array& params, bool fHelp) {
     Object oEscrow;
     vector<unsigned char> vchValue;
 
-	if (!pescrowdb->ReadEscrow(vchEscrow, vtxPos))
+	if (!pescrowdb->ReadEscrow(vchEscrow, vtxPos) || vtxPos.empty())
 		  throw JSONRPCError(RPC_WALLET_ERROR, "failed to read from escrow DB");
 	CEscrow ca = vtxPos.back();
 	
@@ -2328,7 +2328,7 @@ Value escrowlist(const Array& params, bool fHelp) {
 		if (!GetNameOfEscrowTx(tx, vchName))
 			continue;
 		vector<CEscrow> vtxPos;
-		if (!pescrowdb->ReadEscrow(vchName, vtxPos))
+		if (!pescrowdb->ReadEscrow(vchName, vtxPos) || vtxPos.empty())
 			continue;
 		CEscrow escrow = vtxPos.back();
 		// skip this escrow if it doesn't match the given filter value
@@ -2400,7 +2400,7 @@ Value escrowhistory(const Array& params, bool fHelp) {
 
     {
         vector<CEscrow> vtxPos;
-        if (!pescrowdb->ReadEscrow(vchEscrow, vtxPos))
+        if (!pescrowdb->ReadEscrow(vchEscrow, vtxPos) || vtxPos.empty())
             throw JSONRPCError(RPC_WALLET_ERROR,
                     "failed to read from escrow DB");
 
